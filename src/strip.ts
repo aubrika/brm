@@ -35,6 +35,7 @@ export class StripRenderer {
   private readonly grid: HTMLElement;
   private readonly svg: SVGSVGElement; // links between consecutive glyphs (lanes)
   private readonly poly: SVGPolylineElement;
+  private readonly bands: HTMLElement[] = []; // per-column hand-tinted background wash
   private readonly receptors: HTMLElement[] = [];
   private readonly nodes: HTMLDivElement[] = [];
   private readonly inners: HTMLSpanElement[] = [];
@@ -63,6 +64,13 @@ export class StripRenderer {
       const left = 2 * i < engine.n;
       this.laneColor.push(left ? 'hsl(214, 82%, 67%)' : 'hsl(48, 85%, 60%)');
       this.laneGlow.push(left ? 'hsla(214, 82%, 67%, 0.16)' : 'hsla(48, 85%, 60%, 0.16)');
+    }
+
+    for (let i = 0; i < engine.n; i++) {
+      const b = document.createElement('div');
+      b.className = 'lane-band';
+      root.appendChild(b);
+      this.bands.push(b);
     }
 
     this.grid = document.createElement('div');
@@ -113,7 +121,7 @@ export class StripRenderer {
     const lookahead = this.engine.config.lookahead;
 
     if (lanes) {
-      this.colStep = Math.max(40, Math.min(128, Math.round(w / (n + 2))));
+      this.colStep = Math.max(40, Math.min(220, Math.round((w * 0.92) / n)));
       const hitY = h * HIT_FRAC;
       this.hitOffset = hitY - h / 2;
       this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
@@ -127,6 +135,15 @@ export class StripRenderer {
       this.svg.style.display = 'block';
 
       const cx = w / 2, cy = h / 2;
+      for (let i = 0; i < this.bands.length; i++) {
+        const b = this.bands[i];
+        b.style.display = 'block';
+        b.style.left = `${(cx + (i - (n - 1) / 2) * this.colStep).toFixed(1)}px`;
+        b.style.width = `${this.colStep.toFixed(1)}px`;
+        const left = 2 * i < n;
+        const a = (i % 2 === 0 ? 1 : 0.4) * (left ? 0.08 : 0.058); // alternate intensity; balance blue vs (brighter) yellow
+        b.style.background = left ? `hsla(214, 80%, 60%, ${a.toFixed(3)})` : `hsla(48, 85%, 55%, ${a.toFixed(3)})`;
+      }
       for (let i = 0; i < this.receptors.length; i++) {
         const r = this.receptors[i];
         r.style.display = 'block';
@@ -144,6 +161,7 @@ export class StripRenderer {
       this.gapW = Math.round(this.W * 0.7);
       this.grid.style.display = 'none';
       this.svg.style.display = 'none';
+      for (const b of this.bands) b.style.display = 'none';
       for (const r of this.receptors) r.style.display = 'none';
       this.mag.style.display = 'block';
       this.mag.style.width = `${(this.W * 1.55).toFixed(0)}px`;
