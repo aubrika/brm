@@ -17,6 +17,7 @@ import type { Engine } from './engine.js';
 const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
 const CHUNK = 4; // group size
+const GAP = 0.5; // centre-gap width in lane-widths (1 = a full empty lane, 0 = none)
 const HIT_FRAC = 0.8; // hit-line position (fraction down the strip) in DDR lanes
 const TARGET_SCALE_LANES = 1.5;
 const TARGET_SCALE_ROW = 1.7;
@@ -32,8 +33,8 @@ export class StripRenderer {
   private readonly root: HTMLElement;
   private readonly layer: HTMLElement;
   private readonly mag: HTMLElement; // chunked-row magnifier
-  private readonly grid: HTMLElement; // vertical column dividers
-  private readonly chunkGrid: HTMLElement; // horizontal chunk dividers (masked out over the gap)
+  private readonly gridL: HTMLElement; // left-hand lane grid (dividers + chunk lines)
+  private readonly gridR: HTMLElement; // right-hand lane grid; the gap between them stays empty
   private readonly svg: SVGSVGElement; // links between consecutive glyphs (lanes)
   private readonly poly: SVGPolylineElement;
   private readonly bands: HTMLElement[] = []; // per-column hand-tinted background wash
@@ -48,8 +49,7 @@ export class StripRenderer {
   private readonly edgeR: HTMLDivElement[] = [];
   private readonly edgeRInner: HTMLSpanElement[] = [];
   private edgeX = 0; // px offset from centre for the peripheral columns
-  private readonly split: number; // left-hand key count = index of the empty centre gap slot
-  private readonly nSlots: number; // visual lane slots including the centre gap
+  private readonly split: number; // left-hand key count; the gap sits between the hands
   private readonly poolSize: number;
   private readonly reducedMotion: boolean;
   private readonly laneColor: string[] = []; // per-column hue, blue (left) → yellow (right)
@@ -69,7 +69,6 @@ export class StripRenderer {
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
     this.split = Math.floor(engine.n / 2); // gap sits between the hands (integer split for odd N)
-    this.nSlots = engine.n + 1; // one extra slot for the empty centre lane
 
     // left hand blue, right hand yellow (split matches the centre gap)
     for (let i = 0; i < engine.n; i++) {
@@ -85,13 +84,12 @@ export class StripRenderer {
       this.bands.push(b);
     }
 
-    this.grid = document.createElement('div');
-    this.grid.className = 'lane-grid';
-    root.appendChild(this.grid);
-
-    this.chunkGrid = document.createElement('div');
-    this.chunkGrid.className = 'chunk-grid';
-    root.appendChild(this.chunkGrid);
+    this.gridL = document.createElement('div');
+    this.gridL.className = 'lane-grid';
+    root.appendChild(this.gridL);
+    this.gridR = document.createElement('div');
+    this.gridR.className = 'lane-grid';
+    root.appendChild(this.gridR);
 
     const NS = 'http://www.w3.org/2000/svg';
     this.svg = document.createElementNS(NS, 'svg');
@@ -147,31 +145,37 @@ export class StripRenderer {
     const lookahead = this.engine.config.lookahead;
 
     if (lanes) {
-      // lanes (incl. the empty centre gap) take the centre ~80%; the outer margin holds the
-      // peripheral sequence columns
-      this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / this.nSlots)));
+      // the lanes + centre gap span (n + GAP) lane-widths across the centre ~80%; the outer
+      // margin holds the peripheral sequence columns
+      const total = this.engine.n + GAP;
+      this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / total)));
       const hitY = h * HIT_FRAC;
       this.hitOffset = hitY - h / 2;
       this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
       this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * 1.3) * 0.62));
-      const gridW = this.nSlots * this.colStep;
+      const cx = w / 2, cy = h / 2;
 
-      this.grid.style.display = 'block';
-      this.grid.style.setProperty('--grid-w', `${gridW.toFixed(1)}px`);
-      this.grid.style.setProperty('--col-step', `${this.colStep.toFixed(2)}px`);
-      // horizontal chunk lines on their own layer, with the centre gap slot masked out
-      this.chunkGrid.style.display = 'block';
-      this.chunkGrid.style.setProperty('--grid-w', `${gridW.toFixed(1)}px`);
-      this.chunkGrid.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
-      this.chunkGrid.style.setProperty('--gap-a', `${((this.split / this.nSlots) * 100).toFixed(3)}%`);
-      this.chunkGrid.style.setProperty('--gap-b', `${(((this.split + 1) / this.nSlots) * 100).toFixed(3)}%`);
+      // two lane blocks with the gap between them; each block's chunk lines stop at its edges,
+      // so no divider crosses the gap and the gap width is exactly GAP·colStep.
+      const leftLeft = cx - (total / 2) * this.colStep;
+      const rightLeft = leftLeft + (this.split + GAP) * this.colStep;
+      const blocks: Array<[HTMLElement, number, number]> = [
+        [this.gridL, leftLeft, this.split * this.colStep],
+        [this.gridR, rightLeft, (this.engine.n - this.split) * this.colStep],
+      ];
+      for (const [g, gx, gw] of blocks) {
+        g.style.display = 'block';
+        g.style.left = `${gx.toFixed(1)}px`;
+        g.style.width = `${gw.toFixed(1)}px`;
+        g.style.setProperty('--col-step', `${this.colStep.toFixed(2)}px`);
+        g.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
+      }
       this.svg.style.display = 'block';
 
-      const cx = w / 2, cy = h / 2;
       for (let i = 0; i < this.bands.length; i++) {
         const b = this.bands[i];
         b.style.display = 'block';
-        b.style.left = `${(cx + this.slotX(this.slotOf(i))).toFixed(1)}px`;
+        b.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
         b.style.width = `${this.colStep.toFixed(1)}px`;
         const left = i < this.split;
         const a = (i % 2 === 0 ? 1 : 0.4) * (left ? 0.08 : 0.058); // alternate intensity; balance blue vs (brighter) yellow
@@ -182,13 +186,13 @@ export class StripRenderer {
         r.style.display = 'block';
         r.style.width = `${(this.colStep * 0.82).toFixed(0)}px`;
         r.style.height = `${(this.rowStep * 1.15).toFixed(0)}px`;
-        r.style.left = `${(cx + this.slotX(this.slotOf(i))).toFixed(1)}px`;
+        r.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
         r.style.top = `${(cy + this.hitOffset).toFixed(1)}px`;
         r.style.setProperty('--rc', this.laneColor[i]);
         r.style.setProperty('--rcbg', this.laneGlow[i]);
       }
-      // peripheral columns sit just outside the lane grid, clamped inside the container
-      this.edgeX = Math.min(w / 2 - this.font * 0.72, gridW / 2 + this.font);
+      // peripheral columns sit just outside the lanes, clamped inside the container
+      this.edgeX = Math.min(w / 2 - this.font * 0.72, (total / 2) * this.colStep + this.font);
       for (let i = 0; i < this.edgeL.length; i++) {
         this.edgeL[i].style.display = 'block';
         this.edgeR[i].style.display = 'block';
@@ -198,8 +202,8 @@ export class StripRenderer {
       this.W = Math.max(34, Math.min(78, Math.round(w / 22)));
       this.font = Math.round(this.W * 0.62);
       this.gapW = Math.round(this.W * 0.7);
-      this.grid.style.display = 'none';
-      this.chunkGrid.style.display = 'none';
+      this.gridL.style.display = 'none';
+      this.gridR.style.display = 'none';
       this.svg.style.display = 'none';
       for (const b of this.bands) b.style.display = 'none';
       for (const r of this.receptors) r.style.display = 'none';
@@ -221,18 +225,20 @@ export class StripRenderer {
     return p * this.W + gaps * this.gapW;
   }
 
-  // character index → visual slot (right hand shifts one slot right, leaving an empty gap)
-  private slotOf(i: number): number {
-    return i < this.split ? i : i + 1;
+  // character index → x offset (px) of its lane centre from the strip centre. The right hand
+  // is pushed right by GAP lane-widths, leaving an empty centre gap; the whole set stays centred.
+  private laneUnit(i: number): number {
+    const shift = i < this.split ? 0 : GAP;
+    return i + shift + 0.5 - (this.engine.n + GAP) / 2;
   }
-  private slotX(slot: number): number {
-    return (slot - (this.nSlots - 1) / 2) * this.colStep;
+  private laneCentreX(i: number): number {
+    return this.laneUnit(i) * this.colStep;
   }
 
   private laneX(glyph: string): number {
     const i = this.engine.chars.indexOf(glyph);
     if (i < 0) return 0;
-    return this.slotX(this.slotOf(i));
+    return this.laneCentreX(i);
   }
 
   render(nowMs: number): void {
@@ -256,7 +262,8 @@ export class StripRenderer {
       const chunkH = CHUNK * this.rowStep;
       const hitY = this.root.clientHeight / 2 + this.hitOffset;
       const vy = (hitY + this.flow + 0.5 * this.rowStep) % chunkH;
-      this.chunkGrid.style.setProperty('--vy', `${vy.toFixed(2)}px`);
+      this.gridL.style.setProperty('--vy', `${vy.toFixed(2)}px`);
+      this.gridR.style.setProperty('--vy', `${vy.toFixed(2)}px`);
       // show ONLY the target's receptor (a box around the current character), and pulse it
       const col = this.engine.chars.indexOf(this.engine.target());
       for (let i = 0; i < this.receptors.length; i++) {
