@@ -146,19 +146,26 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
   const med = log.summary.medianIkiMs || 250;
   const bars = buildBars(log, downs, med);
 
+  // Even spacing: one column per selection (index-based x), so height alone carries the
+  // interval and the comb is easy to scan for the tall red-topped error bars. The tape is
+  // still left-to-right chronological, just not drawn to a linear time scale.
+  const step = W / Math.max(1, bars.length);
+  const barW = Math.max(1.5, Math.min(6, step * 0.62));
+  const xOf = (i: number): number => (i + 0.5) * step;
+
   const svg = s('svg', { class: 'r-tape-svg', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none' });
   svg.append(s('line', { class: 'r-axis', x1: '0', y1: String(baseY), x2: String(W), y2: String(baseY) }));
 
+  const errDots: HTMLElement[] = []; // rendered as round HTML overlays (the SVG is x/y-stretched)
   const group = s('g', { class: 'r-tape-ticks' });
-  for (const b of bars) {
-    const x = dur > 0 ? (b.t / dur) * W : 0;
+  bars.forEach((b, i) => {
+    const x = xOf(i);
     const totalH = 4 + Math.min(1, b.total / IKI_CAP) * maxTick;
     const baseH = b.total > 0 ? totalH * (b.base / b.total) : totalH;
     const errH = Math.max(0, totalH - baseH);
     const g = s('g', { class: b.errCount ? 'r-tick err' : 'r-tick ok', tabindex: '0', role: 'img' });
-    g.append(s('rect', { class: 'r-seg-base', x: (x - 1.1).toFixed(2), y: (baseY - baseH).toFixed(2), width: '2.2', height: baseH.toFixed(2) }));
-    if (errH > 0.01) g.append(s('rect', { class: 'r-seg-err', x: (x - 1.1).toFixed(2), y: (baseY - totalH).toFixed(2), width: '2.2', height: errH.toFixed(2) }));
-    if (b.errCount) g.append(s('rect', { class: 'r-notch', x: (x - 1.1).toFixed(2), y: String(baseY + 2), width: '2.2', height: '8' }));
+    g.append(s('rect', { class: 'r-seg-base', x: (x - barW / 2).toFixed(2), y: (baseY - baseH).toFixed(2), width: barW.toFixed(2), height: baseH.toFixed(2) }));
+    if (errH > 0.01) g.append(s('rect', { class: 'r-seg-err', x: (x - barW / 2).toFixed(2), y: (baseY - totalH).toFixed(2), width: barW.toFixed(2), height: errH.toFixed(2) }));
     const errPart = b.errCount ? ` · ${Math.round(b.errorDelay)}ms lost to ${b.errCount} error${b.errCount > 1 ? 's' : ''}` : '';
     const label = `${(b.t / 1000).toFixed(2)}s · ${fmtKey(b.label)} · ${Math.round(b.total)}ms${errPart}`;
     g.setAttribute('aria-label', label);
@@ -169,16 +176,22 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
     g.addEventListener('pointerover', show);
     g.addEventListener('focus', show);
     group.append(g);
-  }
+    if (b.errCount) {
+      const dot = h('div', { class: 'r-errdot' });
+      dot.style.left = `${((x / W) * 100).toFixed(3)}%`;
+      dot.style.top = `${((baseY + 7) / H) * 100}%`;
+      errDots.push(dot);
+    }
+  });
   svg.append(group);
 
+  const plot = h('div', { class: 'r-tape-plot' }, [svg, ...errDots]);
   const axis = h('div', { class: 'r-tape-axis' }, [
     h('span', { text: '0s' }),
-    h('span', { text: `${Math.round(dur / 2000)}s` }),
     h('span', { text: `${Math.round(dur / 1000)}s` }),
   ]);
-  const tip = h('div', { class: 'r-tape-tip', text: 'One bar per selection · height = time since the last correct key · red = time lost to errors. Hover for detail.' });
-  const node = section('The run', h('div', { class: 'r-tape' }, [svg, axis]), tip);
+  const tip = h('div', { class: 'r-tape-tip', text: 'One bar per selection · height = time since the last correct key · red = time lost to errors, red dot marks a miss. Hover for detail.' });
+  const node = section('The run', h('div', { class: 'r-tape' }, [plot, axis]), tip);
 
   const animate = (): void => {
     if (reduced()) return;

@@ -191,11 +191,12 @@ code { font-family: var(--mono); }
 
 /* run tape */
 .r-tape { width: 100%; }
+.r-tape-plot { position: relative; width: 100%; }
 .r-tape-svg { width: 100%; height: clamp(150px, 27vh, 320px); display: block; }
+.r-errdot { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--rerr); transform: translate(-50%, -50%); pointer-events: none; }
 .r-tick { outline: none; cursor: default; }
 .r-seg-base { fill: var(--rink); }
 .r-seg-err { fill: var(--rerr); }
-.r-notch { fill: var(--rerr); }
 .r-tick:hover .r-seg-base, .r-tick:focus .r-seg-base { fill: var(--amber); }
 .r-tick:hover .r-seg-err, .r-tick:focus .r-seg-err { fill: #ff9aa2; }
 .r-axis { stroke: var(--hair); stroke-width: 1; }
