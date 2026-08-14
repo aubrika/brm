@@ -96,11 +96,12 @@ code { font-family: var(--mono); }
 .receptor {
   position: absolute; z-index: 1; pointer-events: none;
   transform: translate(-50%, -50%);
-  border: 1px solid rgba(110, 168, 254, 0.22); border-radius: 9px;
+  border: 1px solid rgba(150, 165, 195, 0.16); border-radius: 9px;
 }
 .receptor.active {
-  border-color: rgba(110, 168, 254, 0.75); background: rgba(110, 168, 254, 0.13);
-  box-shadow: 0 0 0 1px rgba(110,168,254,0.14), 0 0 22px rgba(110,168,254,0.22);
+  border-color: var(--rc, rgba(110, 168, 254, 0.75));
+  background: var(--rcbg, rgba(110, 168, 254, 0.13));
+  box-shadow: 0 0 0 1px var(--rcbg, rgba(110,168,254,0.14)), 0 0 22px var(--rcbg, rgba(110,168,254,0.22));
 }
 
 /* the magnifier: a large fisheye frame (lanes off) or a lane cell that glides to the
@@ -124,11 +125,9 @@ code { font-family: var(--mono); }
 }
 .glyph-inner {
   font-family: var(--mono); font-size: var(--glyph-font, 34px); font-weight: 500;
-  line-height: 1; color: var(--ink); white-space: pre;
+  line-height: 1; color: var(--gc, var(--ink)); white-space: pre;
 }
-.glyph.left .glyph-inner { color: var(--left); }
-.glyph.right .glyph-inner { color: var(--right); }
-.glyph.current .glyph-inner { font-weight: 700; text-shadow: 0 0 16px rgba(110,168,254,0.45); }
+.glyph.current .glyph-inner { font-weight: 700; text-shadow: 0 0 15px currentColor; }
 .glyph.error .glyph-inner { color: var(--error); text-shadow: 0 0 18px rgba(255,91,104,0.75); }
 
 .countdown {

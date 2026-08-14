@@ -83,11 +83,12 @@ continuous flow. It's a config option so graders can tune it to their comfort.
 
 By default the strip is a **falling-note layout** (think DDR): each key owns a vertical
 column ordered left→right by finger — `a` (left pinky) at the far left through `;` (right
-pinky) at the far right (teal = left hand, amber = right) — so a glyph's column sits
-directly above the finger that types it. Glyphs fall to a hit-line near the bottom where
-the target's receptor lights up, and **horizontal divider lines every four rows** chunk
-the falling stream into runs of four. Reading a *column* is pre-attentive and the chunk
-grouping lets the eye pre-read a run as a unit — together they enable pipelining.
+pinky) at the far right — so a glyph's column sits directly above the finger that types
+it. A **blue→yellow colour gradient across the columns** gives each finger its own hue, so
+the column can be read from colour alone. Glyphs fall to a type line near the bottom where
+the target's receptor lights up in its column colour, and **horizontal divider lines every
+four rows** chunk the falling stream into runs of four. Reading a *column* is pre-attentive
+and the chunk grouping lets the eye pre-read a run as a unit — together they enable pipelining.
 
 Toggle **Falling lanes** off for a single **chunked row** instead (one flat line, letters
 grouped in fours with a gap, a fixed centre magnifier). Both keep the letters printed on

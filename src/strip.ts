@@ -39,6 +39,8 @@ export class StripRenderer {
   private readonly nodeSeq: number[] = [];
   private readonly poolSize: number;
   private readonly reducedMotion: boolean;
+  private readonly laneColor: string[] = []; // per-column hue, blue (left) → yellow (right)
+  private readonly laneGlow: string[] = [];
 
   private W = 56; // horizontal glyph advance (chunked row)
   private colStep = 54; // column spacing (DDR lanes)
@@ -53,6 +55,14 @@ export class StripRenderer {
     this.root = root;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
+
+    // one hue per column, swept blue→cyan→green→yellow across the fingers
+    for (let i = 0; i < engine.n; i++) {
+      const t = engine.n > 1 ? i / (engine.n - 1) : 0;
+      const hue = (215 - 163 * t).toFixed(1);
+      this.laneColor.push(`hsl(${hue}, 70%, 63%)`);
+      this.laneGlow.push(`hsla(${hue}, 70%, 63%, 0.16)`);
+    }
 
     this.grid = document.createElement('div');
     this.grid.className = 'lane-grid';
@@ -115,6 +125,8 @@ export class StripRenderer {
         r.style.height = `${(this.rowStep * 1.15).toFixed(0)}px`;
         r.style.left = `${(cx + (i - (n - 1) / 2) * this.colStep).toFixed(1)}px`;
         r.style.top = `${(cy + this.hitOffset).toFixed(1)}px`;
+        r.style.setProperty('--rc', this.laneColor[i]);
+        r.style.setProperty('--rcbg', this.laneGlow[i]);
       }
       this.mag.style.display = 'none';
     } else {
@@ -141,12 +153,6 @@ export class StripRenderer {
     const i = this.engine.chars.indexOf(glyph);
     if (i < 0) return 0;
     return (i - (this.engine.n - 1) / 2) * this.colStep;
-  }
-
-  private handClass(glyph: string): string {
-    const i = this.engine.chars.indexOf(glyph);
-    if (i < 0) return '';
-    return 2 * i < this.engine.n ? ' left' : ' right';
   }
 
   render(nowMs: number): void {
@@ -200,7 +206,9 @@ export class StripRenderer {
       if (this.nodeSeq[nk] !== p) {
         this.nodeSeq[nk] = p;
         this.inners[nk].textContent = glyph;
-        node.className = 'glyph' + this.handClass(glyph);
+        node.className = 'glyph';
+        const ci = this.engine.chars.indexOf(glyph);
+        node.style.setProperty('--gc', ci >= 0 ? this.laneColor[ci] : 'var(--ink)');
       }
       const along = this.flowPos(p) - this.flow; // px from the target zone along the flow
       const d = along / step; // in glyph/row units, for the fisheye
