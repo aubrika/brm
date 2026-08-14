@@ -120,7 +120,7 @@ function synthLog(selections: number, errEvery: number): RunLog {
       startedAt: '2026-08-14T10:00:00.000Z',
       mode: 'scored',
       machine: { installId: 'u_test', label: 'test', ua: 'x', platform: 'x', hardwareConcurrency: 8, estimatedRefreshHz: 120, timeOriginPrecisionMs: 0.1 },
-      config: { alphabet: 'asdfjkl;', n: 8, lookahead: 7, lanes: true, sound: true, errorFeedback: 'flash+shake', durationMs: 60000 },
+      config: { alphabet: 'asdfjkl;', n: 8, lookahead: 7, lanes: true, collapse: true, mapping: 'leftmost', sound: true, errorFeedback: 'flash+shake', durationMs: 60000 },
     },
     sequence: seq.slice(0, idx + 1),
     eventColumns: ['t', 'type', 'key', 'idx', 'verdict'],

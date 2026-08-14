@@ -34,6 +34,8 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
     n: engine.n,
     lookahead: engine.config.lookahead,
     lanes: engine.config.lanes,
+    collapse: engine.config.collapse,
+    mapping: engine.config.mapping,
     sound: engine.config.sound,
     errorFeedback: engine.config.errorFeedback,
     durationMs: engine.config.durationMs,

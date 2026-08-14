@@ -15,6 +15,8 @@ export interface RunConfig {
   n: number;
   lookahead: number;
   lanes: boolean;
+  collapse: boolean;
+  mapping: 'leftmost' | 'digit';
   sound: boolean;
   errorFeedback: 'none' | 'flash' | 'shake' | 'flash+shake';
   durationMs: number;
