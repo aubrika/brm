@@ -84,8 +84,9 @@ continuous flow. It's a config option so graders can tune it to their comfort.
 By default the strip is a **falling-note layout** (think DDR): each key owns a vertical
 column ordered left→right by finger — `a` (left pinky) at the far left through `;` (right
 pinky) at the far right — so a glyph's column sits directly above the finger that types
-it. The **left hand is blue, the right hand yellow**, and **faint lines link each glyph to
-the next**, so the upcoming path is easy to trace. Glyphs fall to a type line near the
+it. The **left hand is blue, the right hand yellow**, adjacent columns are given
+**alternating background shading** so neighbouring lanes stay distinct, and **faint lines
+link each glyph to the next** so the upcoming path is easy to trace. Glyphs fall to a type line near the
 bottom where a box marks the current target, and **horizontal divider lines every four
 rows** chunk the falling stream into runs of four. Reading a *column* is pre-attentive and
 the chunk grouping lets the eye pre-read a run as a unit — together they enable pipelining.

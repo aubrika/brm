@@ -13,6 +13,7 @@
   --good: #64d98a;
   --grid-line: rgba(160, 180, 220, 0.13);
   --grid-col: rgba(150, 178, 235, 0.24);
+  --col-shade: rgba(190, 205, 235, 0.04); /* lighter fill on alternating columns */
   --mono: "SF Mono", "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
   --sans: "Inter", system-ui, "Helvetica Neue", sans-serif;
 }
@@ -86,8 +87,11 @@ code { font-family: var(--mono); }
       transparent 1px, transparent var(--col-step, 54px)),
     repeating-linear-gradient(to bottom,
       var(--grid-col) 0, var(--grid-col) 1.5px,
-      transparent 1.5px, transparent var(--chunk-h, 124px));
-  background-position: 0 0, 0 var(--vy, 0px);
+      transparent 1.5px, transparent var(--chunk-h, 124px)),
+    repeating-linear-gradient(to right,
+      var(--col-shade) 0, var(--col-shade) var(--col-step, 54px),
+      transparent var(--col-step, 54px), transparent calc(2 * var(--col-step, 54px)));
+  background-position: 0 0, 0 var(--vy, 0px), 0 0;
   border-left: 1px solid var(--grid-line);
   border-right: 1px solid var(--grid-line);
 }
