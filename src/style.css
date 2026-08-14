@@ -11,6 +11,7 @@
   --right: #f2a65a; /* right hand */
   --error: #ff5b68;
   --good: #64d98a;
+  --grid-line: rgba(160, 180, 220, 0.13);
   --mono: "SF Mono", "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
   --sans: "Inter", system-ui, "Helvetica Neue", sans-serif;
 }
@@ -71,13 +72,33 @@ code { font-family: var(--mono); }
   overflow: hidden;
 }
 .strip-root { position: absolute; inset: 0; }
-.strip-layer { position: absolute; inset: 0; }
+.strip-layer { position: absolute; inset: 0; z-index: 2; }
+
+/* piano-roll lanes: one horizontal row per key, drawn behind the glyphs */
+.lane-grid {
+  position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+  z-index: 0; pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--grid-line) 0, var(--grid-line) 1px,
+    transparent 1px, transparent var(--row-h, 34px)
+  );
+  border-top: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
+}
+
+/* the magnifier: a large fisheye frame (lanes off) or a lane cell that glides to the
+   current target's row (lanes on). Its size + vertical transform are set from JS. */
 .magnifier {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 2.1em; height: 78%; font-size: var(--glyph-font, 34px);
+  position: absolute; left: 50%; top: 50%; z-index: 1; pointer-events: none;
   border: 1px solid rgba(110, 168, 254, 0.35); border-radius: 14px;
-  background: radial-gradient(ellipse at center, rgba(110,168,254,0.10), rgba(110,168,254,0) 70%);
-  box-shadow: 0 0 40px rgba(110,168,254,0.08) inset; z-index: 2; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(110,168,254,0.10), rgba(110,168,254,0) 72%);
+  box-shadow: 0 0 40px rgba(110,168,254,0.08) inset;
+}
+.magnifier.cell {
+  border-radius: 10px; border-color: rgba(110, 168, 254, 0.5);
+  background: rgba(110, 168, 254, 0.12);
+  box-shadow: 0 0 0 1px rgba(110,168,254,0.14), 0 0 22px rgba(110,168,254,0.18);
 }
 .glyph {
   position: absolute; left: 50%; top: 50%;
@@ -91,7 +112,8 @@ code { font-family: var(--mono); }
 }
 .glyph.left .glyph-inner { color: var(--left); }
 .glyph.right .glyph-inner { color: var(--right); }
-.glyph.error .glyph-inner { color: var(--error); text-shadow: 0 0 18px rgba(255,91,104,0.7); }
+.glyph.current .glyph-inner { font-weight: 700; text-shadow: 0 0 16px rgba(110,168,254,0.45); }
+.glyph.error .glyph-inner { color: var(--error); text-shadow: 0 0 18px rgba(255,91,104,0.75); }
 
 .countdown {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
