@@ -8,7 +8,7 @@
 // thing this screen is built to avoid.
 
 import type { RunLog, DownEvent, FingerInfo } from './stats.js';
-import { reportStats, digraphStats, confusion, deriveFingerMap } from './stats.js';
+import { reportStats, digraphStats, confusion, deriveFingerMap, ikiList, quantile } from './stats.js';
 import type { IndexRow } from './logging.js';
 
 // Hand colours mirror the game strip (left = blue, right = yellow), so a letter's identity
@@ -242,9 +242,12 @@ function histogramSection(log: RunLog): HTMLElement {
     const bh = (c / maxCount) * (H - padB - 6);
     svg.append(s('rect', { class: 'r-hist-bar', x: (i * bw + 0.6).toFixed(2), y: (H - padB - bh).toFixed(2), width: (bw - 1.2).toFixed(2), height: bh.toFixed(2) }));
   });
-  // median rule
-  const mx = Math.min(W, (hist.median / hist.maxMs) * W);
-  svg.append(s('line', { class: 'r-rule', x1: mx.toFixed(1), y1: '2', x2: mx.toFixed(1), y2: String(H - padB) }));
+  // median (amber) + mean (blue) rules
+  const ik = ikiList(stats.downs);
+  const mean = ik.length ? ik.reduce((a, b) => a + b, 0) / ik.length : 0;
+  const ruleX = (v: number): number => Math.min(W, (v / hist.maxMs) * W);
+  svg.append(s('line', { class: 'r-rule', x1: ruleX(hist.median).toFixed(1), y1: '2', x2: ruleX(hist.median).toFixed(1), y2: String(H - padB) }));
+  svg.append(s('line', { class: 'r-rule-avg', x1: ruleX(mean).toFixed(1), y1: '2', x2: ruleX(mean).toFixed(1), y2: String(H - padB) }));
   svg.append(s('line', { class: 'r-axis', x1: '0', y1: String(H - padB), x2: String(W), y2: String(H - padB) }));
 
   const axis = h('div', { class: 'r-hist-axis' }, [
@@ -252,26 +255,23 @@ function histogramSection(log: RunLog): HTMLElement {
     h('span', { text: '500' }),
     h('span', { text: '1000 ms' }),
   ]);
-  const medLabel = h('div', { class: 'r-hist-med', text: `median ${Math.round(hist.median)} ms` });
+  const statline = h('div', { class: 'r-hist-stat' }, [
+    h('span', { class: 'r-hist-med', text: `median ${Math.round(hist.median)} ms` }),
+    h('span', { class: 'r-hist-avg', text: `avg ${Math.round(mean)} ms` }),
+  ]);
   const bimodal = hist.median > 0 && hist.p90 / hist.median > 2.5;
   const read = h('p', { class: 'r-read', text: bimodal ? 'Mostly fast, with occasional stalls.' : 'Steady pace throughout.' });
-  return section('Pace', h('div', { class: 'r-hist' }, [svg, axis]), medLabel, read);
+  return section('Pace', h('div', { class: 'r-hist' }, [svg, axis]), statline, read);
 }
 
-// ---------------------------------------------- slowest specific digraphs ----
+// ------------------------------------------ specific digraphs (slow + fast) ----
 // The 3-bucket same-finger/same-hand/cross-hand split says little once you notice most
-// transitions are cross-hand. Instead, rank the specific digraphs (a→b) by median interval,
-// slowest first, with each letter in its hand colour — so the actual costly transitions are
-// named. Require ≥2 samples so a lone slow pair can't top the list.
-function transitionSection(log: RunLog): HTMLElement {
-  const downs = reportStats(log).downs;
-  const map = deriveFingerMap(log.meta.config.alphabet);
-  const di = digraphStats(downs, 2).slice(0, 14);
-  if (di.length === 0) {
-    return section('Slowest transitions', h('p', { class: 'r-empty', text: 'Not enough repeated transitions yet.' }));
-  }
+// transitions are cross-hand. Instead, name the specific digraphs (a→b) by median interval,
+// each letter in its hand colour. Show the five slowest AND the five fastest (they answer
+// different questions), needing ≥2 samples so a lone pair can't top either list.
+function digraphList(map: Map<string, FingerInfo>, items: ReturnType<typeof digraphStats>): HTMLElement {
   const list = h('div', { class: 'r-di-list' });
-  for (const d of di) {
+  for (const d of items) {
     list.append(
       h('div', { class: 'r-di-row' }, [
         coloredKey(map, d.a),
@@ -282,7 +282,21 @@ function transitionSection(log: RunLog): HTMLElement {
       ]),
     );
   }
-  return section('Slowest transitions', list, h('p', { class: 'r-read', text: 'Median interval per specific digraph (≥2 samples), longest first.' }));
+  return list;
+}
+function transitionsColumn(log: RunLog): HTMLElement {
+  const downs = reportStats(log).downs;
+  const map = deriveFingerMap(log.meta.config.alphabet);
+  const di = digraphStats(downs, 2);
+  if (di.length === 0) {
+    return section('Transitions', h('p', { class: 'r-empty', text: 'Not enough repeated transitions yet.' }));
+  }
+  const slowest = di.slice(0, 5);
+  // take the fastest from the tail, never overlapping the slowest five
+  const fastest = di.length > 5 ? di.slice(Math.max(5, di.length - 5)).reverse() : [];
+  const col = h('div', { class: 'r-tcol' }, [section('Slowest transitions', digraphList(map, slowest))]);
+  if (fastest.length) col.append(section('Fastest transitions', digraphList(map, fastest)));
+  return col;
 }
 
 // ------------------------------------------------------------------ misses ----
@@ -340,15 +354,18 @@ function machineSection(log: RunLog, indexRows: IndexRow[]): HTMLElement | null 
   // Dedupe the just-saved run out of history, then append the current run as the final point.
   const history = indexRows.filter((r) => r.runId !== log.meta.runId);
   const points = [
-    ...history.map((r) => ({ bps: r.summary.bitsPerSecond, scored: r.mode === 'scored', current: false })),
-    { bps: log.summary.bitsPerSecond, scored: log.meta.mode === 'scored', current: true },
+    ...history.map((r) => ({ bps: r.summary.bitsPerSecond, scored: r.mode === 'scored', current: false, n: r.summary.n, startedAt: r.startedAt, mode: r.mode })),
+    { bps: log.summary.bitsPerSecond, scored: log.meta.mode === 'scored', current: true, n: log.summary.n, startedAt: log.meta.startedAt, mode: log.meta.mode },
   ];
   if (points.length < 2) return null; // a sparkline of one point is worse than nothing
 
   const W = 460;
   const Hh = 90;
   const pad = 8;
-  const best = Math.max(...points.map((p) => p.bps));
+  const bps = points.map((p) => p.bps);
+  const best = Math.max(...bps);
+  const mean = bps.reduce((a, b) => a + b, 0) / bps.length;
+  const median = quantile([...bps].sort((a, b) => a - b), 0.5);
   const maxV = Math.max(best, 0.1);
   const svg = s('svg', { class: 'r-spark-svg', viewBox: `0 0 ${W} ${Hh}` });
   const xOf = (i: number): number => pad + (i / (points.length - 1)) * (W - 2 * pad);
@@ -359,10 +376,16 @@ function machineSection(log: RunLog, indexRows: IndexRow[]): HTMLElement | null 
   points.forEach((p, i) => {
     const cls = 'r-spark-dot' + (p.current ? ' current' : '') + (p.scored ? ' scored' : ' practice');
     svg.append(s('circle', { class: cls, cx: xOf(i).toFixed(1), cy: yOf(p.bps).toFixed(1), r: p.current ? '4' : '2.6' }));
+    // transparent, larger hit target carrying the hover summary of that run
+    const when = String(p.startedAt).slice(0, 16).replace('T', ' ');
+    const label = `${p.bps.toFixed(2)} bps · N ${p.n} · ${p.mode}${p.current ? ' · this run' : ''} · ${when}`;
+    const hit = s('circle', { class: 'r-spark-hit', cx: xOf(i).toFixed(1), cy: yOf(p.bps).toFixed(1), r: '10' });
+    hit.append(s('title', {}, [document.createTextNode(label)]));
+    svg.append(hit);
   });
 
   const legend = h('div', { class: 'r-spark-legend' }, [
-    h('span', { text: `best ${best.toFixed(2)}` }),
+    h('span', { text: `best ${best.toFixed(2)} · avg ${mean.toFixed(2)} · median ${median.toFixed(2)}` }),
     h('span', { text: `${points.length} runs · ● scored ○ practice` }),
   ]);
   return section('This machine', h('div', { class: 'r-spark' }, [svg]), legend);
@@ -382,7 +405,7 @@ export function renderReport(
   const hero = heroSection(log);
   const tape = runTapeSection(log, downs);
 
-  const twoCol = h('div', { class: 'r-cols' }, [histogramSection(log), transitionSection(log)]);
+  const twoCol = h('div', { class: 'r-cols' }, [histogramSection(log), transitionsColumn(log)]);
   const misses = missesSection(log);
   const machine = machineSection(log, indexRows);
 
