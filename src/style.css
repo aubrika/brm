@@ -12,6 +12,7 @@
   --error: #ff5b68;
   --good: #64d98a;
   --grid-line: rgba(160, 180, 220, 0.13);
+  --grid-col: rgba(150, 178, 235, 0.24);
   --mono: "SF Mono", "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
   --sans: "Inter", system-ui, "Helvetica Neue", sans-serif;
 }
@@ -74,15 +75,19 @@ code { font-family: var(--mono); }
 .strip-root { position: absolute; inset: 0; }
 .strip-layer { position: absolute; inset: 0; z-index: 2; }
 
-/* piano-roll lanes: one horizontal row per key, drawn behind the glyphs */
+/* piano-roll lanes: one horizontal row per key (fixed), plus vertical divider lines
+   every 4 columns (scroll with the strip via --vx) to chunk runs of four. */
 .lane-grid {
   position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
   z-index: 0; pointer-events: none;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    var(--grid-line) 0, var(--grid-line) 1px,
-    transparent 1px, transparent var(--row-h, 34px)
-  );
+  background-image:
+    repeating-linear-gradient(to bottom,
+      var(--grid-line) 0, var(--grid-line) 1px,
+      transparent 1px, transparent var(--row-h, 34px)),
+    repeating-linear-gradient(to right,
+      var(--grid-col) 0, var(--grid-col) 1.5px,
+      transparent 1.5px, transparent var(--col-w, 220px));
+  background-position: 0 0, var(--vx, 0px) 0;
   border-top: 1px solid var(--grid-line);
   border-bottom: 1px solid var(--grid-line);
 }

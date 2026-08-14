@@ -89,6 +89,7 @@ export class StripRenderer {
       this.grid.style.display = 'block';
       this.grid.style.height = `${(this.engine.n * this.rowH).toFixed(1)}px`;
       this.grid.style.setProperty('--row-h', `${this.rowH.toFixed(2)}px`);
+      this.grid.style.setProperty('--col-w', `${(CHUNK * this.W).toFixed(2)}px`);
       this.mag.style.width = `${(this.W * 1.5).toFixed(0)}px`;
       this.mag.style.height = `${(this.rowH * 1.1).toFixed(1)}px`;
     } else {
@@ -139,6 +140,15 @@ export class StripRenderer {
     // pulse — rhythmic feedback that invites tempo
     const targetY = lanes ? this.laneY(this.engine.target()) : 0;
     this.magY += (targetY - this.magY) * (1 - Math.exp(-dt / MAG_TAU_MS));
+
+    // scroll the vertical chunk dividers with the strip (a line before every 4th column)
+    if (lanes) {
+      const colW = CHUNK * this.W;
+      const center = (this.root.clientWidth || window.innerWidth) / 2;
+      const vx = (center - 0.5 * this.W - this.cpX) % colW;
+      this.grid.style.setProperty('--vx', `${vx.toFixed(2)}px`);
+    }
+
     const sinceCorrect = nowMs - this.engine.lastCorrectMs;
     const pulse = sinceCorrect < PULSE_MS ? 1 + 0.07 * (1 - sinceCorrect / PULSE_MS) : 1;
     this.mag.style.transform = `translate(-50%,-50%) translateY(${this.magY.toFixed(2)}px) scale(${pulse.toFixed(3)})`;

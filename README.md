@@ -79,18 +79,18 @@ planning — queue the next several finger movements — instead of reacting to 
 a time. Reaction is serial and slow; pipelining is what turns "read, then move" into a
 continuous flow. It's a config option so graders can tune it to their comfort.
 
-## Reading the strip: chunked row (default) or lanes
+## Reading the strip: piano-roll lanes (default) or a chunked row
 
-By default the incoming letters are a single row **grouped in fours with a gap** — the
-same trick that makes phone numbers readable. Chunking lets the eye pre-read the next
-group as a unit instead of one symbol at a time, which is what enables pipelining, and a
-hand colour (teal = left hand, amber = right) adds a second, pre-attentive channel.
+By default the strip is a **piano roll**: each key owns a horizontal row (`a` highest
+through `;` lowest; teal = left hand, amber = right), so reading a *vertical position*
+costs no glyph-identification step — it's pre-attentive. **Vertical divider lines every
+four columns** chunk the incoming stream into runs of four; grouping (the phone-number
+trick) lets the eye pre-read a chunk as a unit, which is what enables pipelining.
 
-Optionally, **Piano-roll lanes** gives each key a fixed vertical row (`a` highest through
-`;` lowest), so reading a *vertical position* costs no glyph-identification step. Some
-players find that faster, others find the vertical tracking distracting — hence the
-toggle. Both layouts keep the letters printed on every token, so nothing must be learned
-to start playing.
+Toggle **Piano-roll lanes** off for a single **chunked row** instead (one flat line,
+letters grouped in fours with a gap, magnifier fixed at centre) — some players find the
+flat line calmer than tracking vertical rows. Both keep the letters printed on every
+token, so nothing must be learned to start playing.
 
 ## Scoring semantics (stated plainly)
 
