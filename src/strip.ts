@@ -18,7 +18,7 @@ const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
 const CHUNK = 4; // group size
 const GAP = 0.5; // centre-gap width in lane-widths (1 = a full empty lane, 0 = none)
-const LINK_ARROWS = true; // true = per-digraph arrows coloured by the target's hand; false = one plain polyline
+const LINK_ARROWS = false; // true = per-digraph arrows coloured by the target's hand; false = one plain polyline
 const HIT_FRAC = 0.8; // hit-line position (fraction down the strip) in DDR lanes
 const TARGET_SCALE_LANES = 1.5;
 const TARGET_SCALE_ROW = 1.7;
