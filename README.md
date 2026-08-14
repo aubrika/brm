@@ -217,7 +217,9 @@ node scripts/analyze.mjs [--machine calvin] [--scored-only]
 
 reads every log and prints transition costs, within-run quartiles, **post-error slowing broken
 out by feedback mode** (the rigorous version of the two-loop shake-vs-flash question), a
-confusion matrix, and an IKI histogram — then writes `logs/analysis.json`. Every on-screen
+confusion matrix, an IKI histogram, and the **slowest/fastest specific digraphs** (tagged by
+hand/finger, so the commonalities — e.g. "the slow ones are all cross-hand" — are trackable
+across runs) — then writes `logs/analysis.json`. Every on-screen
 number and every offline number is produced by the **same** functions in `src/stats.js`
 (imported by both the browser and the Node script), so the two can't drift. See
 [`logs/README.md`](logs/README.md) for the schema and the finger-map assumption.

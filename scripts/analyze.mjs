@@ -5,9 +5,9 @@
 //   node scripts/analyze.mjs [--machine calvin] [--scored-only]
 //
 // It shares src/stats.js with the in-browser report screen, so the offline numbers and the
-// on-screen numbers are computed by the exact same functions and cannot drift. Each analysis
-// is a separate pure function taking the parsed logs and returning a plain object — adding a
-// sixth is a ten-line change.
+// on-screen numbers are computed by the exact same functions and cannot drift. Each of the
+// six analyses is a separate pure function taking the parsed logs and returning a plain
+// object — adding another is a ten-line change.
 
 import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
@@ -175,6 +175,73 @@ function analyzeHistogram(logs, binMs = 25, maxMs = 1000) {
   return { bins, binMs, maxMs, overflow, median: quantile(sorted, 0.5), p90: quantile(sorted, 0.9), total: all.length };
 }
 
+// 6. Specific digraphs (a→b), aggregated and ranked by median IKI, each tagged with its
+// hand/finger relationship — so the commonalities among the slowest vs fastest transitions
+// (e.g. "the slow ones are all cross-hand") are visible and trackable across runs.
+function analyzeDigraphs(logs, minCount = 5) {
+  // classification uses the most common alphabet across the logs (usually the only one)
+  const alphaCounts = new Map();
+  for (const log of logs) alphaCounts.set(log.meta.config.alphabet, (alphaCounts.get(log.meta.config.alphabet) ?? 0) + 1);
+  const alphabet = [...alphaCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const map = deriveFingerMap(alphabet);
+
+  const groups = new Map();
+  for (const log of logs) {
+    const { downs } = splitEvents(log);
+    for (let i = 1; i < downs.length; i++) {
+      const a = downs[i - 1];
+      const b = downs[i];
+      if (a.verdict !== 'ok' || b.verdict !== 'ok') continue;
+      const key = `${a.key} ${b.key}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(b.t - a.t);
+    }
+  }
+  const rows = [];
+  for (const [key, vals] of groups) {
+    if (vals.length < minCount) continue;
+    const [a, b] = key.split(' ');
+    const fa = map.get(a);
+    const fb = map.get(b);
+    const st = ikiStats(vals);
+    const kind = fa && fb ? classifyTransition(map, a, b) : null;
+    rows.push({
+      a, b, median: st.median, p90: st.p90, count: st.count,
+      kind, // 'sameFinger' | 'sameHand' | 'crossHand' | null
+      handA: fa?.hand ?? '?', handB: fb?.hand ?? '?',
+      fingerA: fa?.fingerName ?? '?', fingerB: fb?.fingerName ?? '?',
+      adjacent: fa && fb ? Math.abs(fa.col - fb.col) === 1 : false,
+    });
+  }
+  rows.sort((x, y) => y.median - x.median);
+
+  const medOfMed = (list) => quantile(list.map((r) => r.median).sort((a, b) => a - b), 0.5);
+  const byKind = {};
+  for (const kind of ['sameFinger', 'sameHand', 'crossHand']) {
+    const g = rows.filter((r) => r.kind === kind);
+    byKind[kind] = { digraphs: g.length, transitions: g.reduce((s, r) => s + r.count, 0), medianOfMediansMs: g.length ? medOfMed(g) : 0 };
+  }
+  const profile = (list) => ({
+    n: list.length,
+    crossHand: list.filter((r) => r.kind === 'crossHand').length,
+    sameHand: list.filter((r) => r.kind === 'sameHand').length,
+    sameFinger: list.filter((r) => r.kind === 'sameFinger').length,
+    adjacentKey: list.filter((r) => r.adjacent).length,
+    medianOfMediansMs: list.length ? medOfMed(list) : 0,
+  });
+  const groupN = Math.max(8, Math.round(rows.length * 0.25));
+  return {
+    alphabet,
+    alphabetsPresent: [...alphaCounts.keys()],
+    minCount,
+    slowest: rows.slice(0, 10),
+    fastest: rows.slice(-10).reverse(),
+    byKind,
+    slowestProfile: profile(rows.slice(0, groupN)),
+    fastestProfile: profile(rows.slice(-groupN)),
+  };
+}
+
 // ---------------------------------------------------------------- report ----
 function ms(v) {
   return v ? `${Math.round(v)}ms` : '—';
@@ -239,6 +306,32 @@ function printReport(logs, analysis) {
   });
   if (hist.overflow) L.push(`    ${String(hist.maxMs).padStart(4)}+  (overflow) ${hist.overflow}`);
   L.push(`    median ${ms(hist.median)}   p90 ${ms(hist.p90)}   n=${hist.total}`);
+  L.push('');
+
+  const dg = analysis.digraphs;
+  const KIND = { sameFinger: 'same-finger', sameHand: 'same-hand', crossHand: 'cross-hand', null: '—' };
+  const dgLine = (r) =>
+    `    ${r.a}→${r.b}  ${ms(r.median).padStart(6)}  p90 ${ms(r.p90).padStart(6)}  n=${String(r.count).padStart(3)}  ${(KIND[r.kind] ?? '—').padEnd(11)} ${r.handA}${r.handB}  ${r.fingerA}/${r.fingerB}`;
+  L.push(`  [6] Specific digraphs, ranked by median IKI (n>=${dg.minCount})`);
+  if (dg.alphabetsPresent.length > 1) L.push(`    (multiple alphabets present; classified using "${dg.alphabet}")`);
+  if (dg.slowest.length === 0) {
+    L.push('    not enough repeated digraphs yet');
+  } else {
+    L.push('    slowest:');
+    for (const r of dg.slowest) L.push(dgLine(r));
+    L.push('    fastest:');
+    for (const r of dg.fastest) L.push(dgLine(r));
+    L.push('    by kind (median of per-digraph medians):');
+    for (const kind of ['sameFinger', 'sameHand', 'crossHand']) {
+      const k = dg.byKind[kind];
+      L.push(`      ${KIND[kind].padEnd(11)} ${ms(k.medianOfMediansMs).padStart(6)}   digraphs=${String(k.digraphs).padStart(2)}  transitions=${k.transitions}`);
+    }
+    const pf = (name, p) =>
+      `    ${name.padEnd(9)} cross-hand ${p.crossHand}/${p.n}  same-hand ${p.sameHand}/${p.n}  same-finger ${p.sameFinger}/${p.n}  adjacent-key ${p.adjacentKey}/${p.n}  (${ms(p.medianOfMediansMs)})`;
+    L.push(`    commonality (slowest ${dg.slowestProfile.n} vs fastest ${dg.fastestProfile.n}):`);
+    L.push(pf('slowest', dg.slowestProfile));
+    L.push(pf('fastest', dg.fastestProfile));
+  }
   L.push('════════════════════════════════════════════════════════════');
   console.log(L.join('\n'));
 }
@@ -260,6 +353,7 @@ function main() {
     postError: analyzePostError(logs),
     confusion: analyzeConfusion(logs),
     histogram: analyzeHistogram(logs),
+    digraphs: analyzeDigraphs(logs),
   };
   printReport(logs, analysis);
   writeFileSync(path.join(LOGS_DIR, 'analysis.json'), JSON.stringify(analysis, null, 2));

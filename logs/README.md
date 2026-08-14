@@ -85,4 +85,5 @@ node scripts/analyze.mjs [--machine calvin] [--scored-only]
 ```
 
 Prints a text report (transition costs, within-run quartiles, post-error slowing by feedback
-mode, confusion matrix, IKI histogram) and writes `analysis.json`.
+mode, confusion matrix, IKI histogram, and the slowest/fastest specific digraphs tagged by
+hand/finger) and writes `analysis.json`.
