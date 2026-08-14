@@ -69,27 +69,45 @@ code { font-family: var(--mono); }
   color: var(--muted); letter-spacing: 0.02em; min-height: 48px;
 }
 .strip-wrap {
-  position: relative; width: 100%; height: clamp(260px, 42vh, 440px);
+  position: relative; width: 100%; height: clamp(340px, 58vh, 640px);
   overflow: hidden;
 }
 .strip-root { position: absolute; inset: 0; }
 .strip-layer { position: absolute; inset: 0; z-index: 2; }
 
-/* piano-roll lanes: one horizontal row per key (fixed), plus vertical divider lines
-   every 4 columns (scroll with the strip via --vx) to chunk runs of four. */
+/* DDR lanes: fixed VERTICAL column dividers (one lane per finger) + HORIZONTAL chunk
+   dividers every four rows that scroll down with the flow (via --vy). */
 .lane-grid {
-  position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
-  z-index: 0; pointer-events: none;
+  position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+  width: var(--grid-w, 0); height: 100%; z-index: 0; pointer-events: none;
   background-image:
-    repeating-linear-gradient(to bottom,
-      var(--grid-line) 0, var(--grid-line) 1px,
-      transparent 1px, transparent var(--row-h, 34px)),
     repeating-linear-gradient(to right,
+      var(--grid-line) 0, var(--grid-line) 1px,
+      transparent 1px, transparent var(--col-step, 54px)),
+    repeating-linear-gradient(to bottom,
       var(--grid-col) 0, var(--grid-col) 1.5px,
-      transparent 1.5px, transparent var(--col-w, 220px));
-  background-position: 0 0, var(--vx, 0px) 0;
-  border-top: 1px solid var(--grid-line);
-  border-bottom: 1px solid var(--grid-line);
+      transparent 1.5px, transparent var(--chunk-h, 124px));
+  background-position: 0 0, 0 var(--vy, 0px);
+  border-left: 1px solid var(--grid-line);
+  border-right: 1px solid var(--grid-line);
+}
+
+/* the hit-line the falling glyphs are typed at, and the per-column receptors */
+.hit-line {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%) translateY(var(--hit, 0px));
+  width: var(--grid-w, 0); height: 0; z-index: 1; pointer-events: none;
+  border-top: 2px solid rgba(110, 168, 254, 0.5);
+  box-shadow: 0 0 18px rgba(110, 168, 254, 0.22);
+}
+.receptor {
+  position: absolute; z-index: 1; pointer-events: none;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(110, 168, 254, 0.22); border-radius: 9px;
+}
+.receptor.active {
+  border-color: rgba(110, 168, 254, 0.75); background: rgba(110, 168, 254, 0.13);
+  box-shadow: 0 0 0 1px rgba(110,168,254,0.14), 0 0 22px rgba(110,168,254,0.22);
 }
 
 /* the magnifier: a large fisheye frame (lanes off) or a lane cell that glides to the

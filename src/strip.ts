@@ -2,47 +2,52 @@
 // a sequence position via p % poolSize); every frame we set transform (translate + scale)
 // and opacity only — never a layout property, so motion stays on the compositor.
 //
-// Two layouts share this code via a cumulative-x model (glyph p sits at cx(p) pixels, and
-// the strip slides so the target's cx is at centre):
-//   • chunked row (default): a single line, letters grouped in fours with a gap between
-//     groups (easier to pre-read in chunks); the magnifier is a fixed centre cell.
-//   • piano-roll lanes: each key owns a horizontal row (divider lines behind), and the
-//     magnifier glides vertically to the target's row.
+// Two layouts share a cumulative-flow model (glyph p sits `flow` px along the flow axis,
+// and the strip slides so the target sits at the target zone):
+//   • DDR lanes (default): each key owns a VERTICAL column ordered left→right by finger
+//     (a = left pinky … ; = right pinky); glyphs fall downward to a hit-line near the
+//     bottom, with static receptors (the target's lights up) and horizontal divider lines
+//     every four rows to chunk the stream.
+//   • chunked row: a single horizontal line, letters grouped in fours with a gap, a fixed
+//     centre magnifier.
 // Hand colour (teal = left, amber = right) applies to both.
 
 import type { Engine } from './engine.js';
 
-const TAIL = 10; // consumed glyphs retained on the left
+const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
-const CHUNK = 4; // group size for the chunked row
-const TARGET_SCALE_ROW = 1.7; // magnified target in the chunked row
-const TARGET_SCALE_LANES = 1.55; // gentler in lanes (must fit its row)
-const SIGMA_ROW = 0.85; // fisheye falloff width (glyph units), chunked row
-const SIGMA_LANES = 0.6; // tighter for lanes so rows stay clean
-const SETTLE_TAU_MS = 22; // horizontal slide smoothing — snappy, keeps up with fast typing
-const MAG_TAU_MS = 26; // magnifier vertical glide (lanes only)
-const MAX_LAG = 0.45; // cap target drift right of centre during bursts (keeps it in the cell)
-const PULSE_MS = 110; // correct-keystroke magnifier pulse
+const CHUNK = 4; // group size
+const HIT_FRAC = 0.8; // hit-line position (fraction down the strip) in DDR lanes
+const TARGET_SCALE_LANES = 1.5;
+const TARGET_SCALE_ROW = 1.7;
+const SIGMA_LANES = 0.8; // fisheye falloff (rows from the hit-line)
+const SIGMA_ROW = 0.85; // fisheye falloff (glyph units from centre)
+const SETTLE_TAU_MS = 22; // flow smoothing — snappy, keeps up with fast typing
+const MAX_LAG = 0.45; // cap drift of the target past the target zone during bursts
+const PULSE_MS = 110; // correct-keystroke pulse
 const SHAKE_MS = 120;
 const SHAKE_PX = 10;
 
 export class StripRenderer {
   private readonly root: HTMLElement;
   private readonly layer: HTMLElement;
-  private readonly mag: HTMLElement;
+  private readonly mag: HTMLElement; // chunked-row magnifier
   private readonly grid: HTMLElement;
+  private readonly hitLine: HTMLElement;
+  private readonly receptors: HTMLElement[] = [];
   private readonly nodes: HTMLDivElement[] = [];
   private readonly inners: HTMLSpanElement[] = [];
   private readonly nodeSeq: number[] = [];
   private readonly poolSize: number;
   private readonly reducedMotion: boolean;
 
-  private W = 56; // horizontal glyph advance
-  private rowH = 34; // lane row height (lanes mode)
+  private W = 56; // horizontal glyph advance (chunked row)
+  private colStep = 54; // column spacing (DDR lanes)
+  private rowStep = 34; // vertical advance per glyph (DDR lanes)
   private font = 22;
-  private gapW = 0; // extra gap between chunks (chunked row)
-  private cpX = 0; // smoothed cumulative-x of the target (pixels)
-  private magY = 0; // smoothed magnifier lane position
+  private gapW = 0; // chunk gap (chunked row)
+  private hitOffset = 0; // hit-line offset from strip centre (px, +down)
+  private flow = 0; // smoothed cumulative flow position of the target (px)
   private lastFrameMs = -1;
 
   constructor(private readonly engine: Engine, root: HTMLElement) {
@@ -53,6 +58,17 @@ export class StripRenderer {
     this.grid = document.createElement('div');
     this.grid.className = 'lane-grid';
     root.appendChild(this.grid);
+
+    this.hitLine = document.createElement('div');
+    this.hitLine.className = 'hit-line';
+    root.appendChild(this.hitLine);
+
+    for (let i = 0; i < engine.n; i++) {
+      const r = document.createElement('div');
+      r.className = 'receptor';
+      root.appendChild(r);
+      this.receptors.push(r);
+    }
 
     this.mag = document.createElement('div');
     this.mag.className = 'magnifier cell';
@@ -73,47 +89,68 @@ export class StripRenderer {
     }
     root.appendChild(this.layer);
     this.resize();
-    this.cpX = this.cx(engine.index);
-    this.magY = this.laneY(engine.target());
+    this.flow = this.flowPos(engine.index);
   }
 
   resize(): void {
     const w = this.root.clientWidth || window.innerWidth;
-    const h = this.root.clientHeight || 320;
-    this.W = Math.max(34, Math.min(78, Math.round(w / 22)));
+    const h = this.root.clientHeight || 360;
     const lanes = this.engine.config.lanes;
+    const n = this.engine.n;
+    const lookahead = this.engine.config.lookahead;
+
     if (lanes) {
-      this.rowH = Math.min(this.W * 0.92, (h * 0.86) / this.engine.n);
-      this.font = Math.max(13, Math.round(this.rowH * 0.64));
-      this.gapW = 0;
+      this.colStep = Math.max(40, Math.min(128, Math.round(w / (n + 2))));
+      const hitY = h * HIT_FRAC;
+      this.hitOffset = hitY - h / 2;
+      this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
+      this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * 1.3) * 0.62));
+      const gridW = n * this.colStep;
+
       this.grid.style.display = 'block';
-      this.grid.style.height = `${(this.engine.n * this.rowH).toFixed(1)}px`;
-      this.grid.style.setProperty('--row-h', `${this.rowH.toFixed(2)}px`);
-      this.grid.style.setProperty('--col-w', `${(CHUNK * this.W).toFixed(2)}px`);
-      this.mag.style.width = `${(this.W * 1.5).toFixed(0)}px`;
-      this.mag.style.height = `${(this.rowH * 1.1).toFixed(1)}px`;
+      this.grid.style.setProperty('--grid-w', `${gridW.toFixed(1)}px`);
+      this.grid.style.setProperty('--col-step', `${this.colStep.toFixed(2)}px`);
+      this.grid.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
+
+      this.hitLine.style.display = 'block';
+      this.hitLine.style.setProperty('--grid-w', `${gridW.toFixed(1)}px`);
+      this.hitLine.style.setProperty('--hit', `${this.hitOffset.toFixed(1)}px`);
+
+      const cx = w / 2, cy = h / 2;
+      for (let i = 0; i < this.receptors.length; i++) {
+        const r = this.receptors[i];
+        r.style.display = 'block';
+        r.style.width = `${(this.colStep * 0.82).toFixed(0)}px`;
+        r.style.height = `${(this.rowStep * 1.15).toFixed(0)}px`;
+        r.style.left = `${(cx + (i - (n - 1) / 2) * this.colStep).toFixed(1)}px`;
+        r.style.top = `${(cy + this.hitOffset).toFixed(1)}px`;
+      }
+      this.mag.style.display = 'none';
     } else {
-      this.rowH = 0;
+      this.W = Math.max(34, Math.min(78, Math.round(w / 22)));
       this.font = Math.round(this.W * 0.62);
       this.gapW = Math.round(this.W * 0.7);
       this.grid.style.display = 'none';
+      this.hitLine.style.display = 'none';
+      for (const r of this.receptors) r.style.display = 'none';
+      this.mag.style.display = 'block';
       this.mag.style.width = `${(this.W * 1.55).toFixed(0)}px`;
       this.mag.style.height = `${(this.font * 1.9).toFixed(0)}px`;
     }
     this.layer.style.setProperty('--glyph-font', `${this.font}px`);
   }
 
-  // cumulative pixel x of sequence position p (adds a gap after every CHUNK in row mode)
-  private cx(p: number): number {
+  // cumulative flow position (px) of sequence position p
+  private flowPos(p: number): number {
+    if (this.engine.config.lanes) return p * this.rowStep;
     const gaps = this.gapW > 0 ? Math.floor(p / CHUNK) : 0;
     return p * this.W + gaps * this.gapW;
   }
 
-  private laneY(glyph: string): number {
-    if (!this.engine.config.lanes) return 0;
+  private laneX(glyph: string): number {
     const i = this.engine.chars.indexOf(glyph);
     if (i < 0) return 0;
-    return (i - (this.engine.n - 1) / 2) * this.rowH;
+    return (i - (this.engine.n - 1) / 2) * this.colStep;
   }
 
   private handClass(glyph: string): string {
@@ -126,36 +163,38 @@ export class StripRenderer {
     const dt = this.lastFrameMs < 0 ? 16 : Math.min(64, nowMs - this.lastFrameMs);
     this.lastFrameMs = nowMs;
     const lanes = this.engine.config.lanes;
+    const idx = this.engine.index;
+    const step = lanes ? this.rowStep : this.W;
 
-    // horizontal slide (cumulative pixels) toward the target; clamp lag so during a fast
-    // burst the target stays inside the magnifier rather than drifting right of it
-    const targetCx = this.cx(this.engine.index);
-    const kx = 1 - Math.exp(-dt / SETTLE_TAU_MS);
-    this.cpX += (targetCx - this.cpX) * kx;
-    const maxLagPx = MAX_LAG * this.W;
-    if (targetCx - this.cpX > maxLagPx) this.cpX = targetCx - maxLagPx;
-    if (Math.abs(targetCx - this.cpX) < 0.5) this.cpX = targetCx;
-
-    // magnifier: vertical glide to the target lane (lanes only), plus a correct-keystroke
-    // pulse — rhythmic feedback that invites tempo
-    const targetY = lanes ? this.laneY(this.engine.target()) : 0;
-    this.magY += (targetY - this.magY) * (1 - Math.exp(-dt / MAG_TAU_MS));
-
-    // scroll the vertical chunk dividers with the strip (a line before every 4th column)
-    if (lanes) {
-      const colW = CHUNK * this.W;
-      const center = (this.root.clientWidth || window.innerWidth) / 2;
-      const vx = (center - 0.5 * this.W - this.cpX) % colW;
-      this.grid.style.setProperty('--vx', `${vx.toFixed(2)}px`);
-    }
+    // flow toward the target; clamp lag so during a burst the target stays in the zone
+    const targetFlow = this.flowPos(idx);
+    this.flow += (targetFlow - this.flow) * (1 - Math.exp(-dt / SETTLE_TAU_MS));
+    if (targetFlow - this.flow > MAX_LAG * step) this.flow = targetFlow - MAX_LAG * step;
+    if (Math.abs(targetFlow - this.flow) < 0.5) this.flow = targetFlow;
 
     const sinceCorrect = nowMs - this.engine.lastCorrectMs;
     const pulse = sinceCorrect < PULSE_MS ? 1 + 0.07 * (1 - sinceCorrect / PULSE_MS) : 1;
-    this.mag.style.transform = `translate(-50%,-50%) translateY(${this.magY.toFixed(2)}px) scale(${pulse.toFixed(3)})`;
+
+    if (lanes) {
+      // chunk dividers scroll down with the flow
+      const chunkH = CHUNK * this.rowStep;
+      const hitY = this.root.clientHeight / 2 + this.hitOffset;
+      const vy = (hitY + this.flow + 0.5 * this.rowStep) % chunkH;
+      this.grid.style.setProperty('--vy', `${vy.toFixed(2)}px`);
+      // light up + pulse the target's receptor; the rest stay dim
+      const col = this.engine.chars.indexOf(this.engine.target());
+      for (let i = 0; i < this.receptors.length; i++) {
+        const active = i === col;
+        this.receptors[i].classList.toggle('active', active);
+        this.receptors[i].style.transform = `translate(-50%,-50%) scale(${active ? pulse.toFixed(3) : '1'})`;
+      }
+    } else {
+      // chunked-row magnifier holds at centre and pulses on correct
+      this.mag.style.transform = `translate(-50%,-50%) scale(${pulse.toFixed(3)})`;
+    }
 
     const seq = this.engine.sequence;
     const P = this.poolSize;
-    const idx = this.engine.index;
     const base = Math.max(0, idx - TAIL);
     const lookahead = this.engine.config.lookahead;
     const sinceErr = nowMs - this.engine.lastErrorMs;
@@ -173,8 +212,8 @@ export class StripRenderer {
         this.inners[nk].textContent = glyph;
         node.className = 'glyph' + this.handClass(glyph);
       }
-      const screenX = this.cx(p) - this.cpX; // pixels from centre
-      const d = screenX / this.W; // glyph units, for the fisheye
+      const along = this.flowPos(p) - this.flow; // px from the target zone along the flow
+      const d = along / step; // in glyph/row units, for the fisheye
       const scale = 1 + (targetScale - 1) * Math.exp(-((d / sigma) ** 2));
       const gi = p - idx; // logical glyphs ahead(+)/behind(−), for a clean opacity fade
       const span = gi >= 0 ? lookahead + 2 : TAIL + 1;
@@ -182,13 +221,20 @@ export class StripRenderer {
       if (o < 0) o = 0;
 
       const isTarget = p === idx;
-      let shakeX = 0;
+      let shake = 0;
       if (isTarget && shakeActive) {
         const t = sinceErr / SHAKE_MS;
-        shakeX = Math.sin(t * Math.PI * 3) * SHAKE_PX * (1 - t);
+        shake = Math.sin(t * Math.PI * 3) * SHAKE_PX * (1 - t);
       }
-      const y = this.laneY(glyph);
-      node.style.transform = `translate(-50%,-50%) translate3d(${(screenX + shakeX).toFixed(2)}px,${y.toFixed(2)}px,0) scale(${scale.toFixed(3)})`;
+      let x: number, y: number;
+      if (lanes) {
+        x = this.laneX(glyph) + shake;
+        y = this.hitOffset - along; // fall downward toward the hit-line
+      } else {
+        x = along + shake;
+        y = 0;
+      }
+      node.style.transform = `translate(-50%,-50%) translate3d(${x.toFixed(2)}px,${y.toFixed(2)}px,0) scale(${scale.toFixed(3)})`;
       node.style.opacity = o.toFixed(3);
       node.style.zIndex = isTarget ? '3' : '1';
       node.classList.toggle('error', isTarget && flashActive);

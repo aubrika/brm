@@ -79,18 +79,19 @@ planning — queue the next several finger movements — instead of reacting to 
 a time. Reaction is serial and slow; pipelining is what turns "read, then move" into a
 continuous flow. It's a config option so graders can tune it to their comfort.
 
-## Reading the strip: piano-roll lanes (default) or a chunked row
+## Reading the strip: falling lanes (default) or a chunked row
 
-By default the strip is a **piano roll**: each key owns a horizontal row (`a` highest
-through `;` lowest; teal = left hand, amber = right), so reading a *vertical position*
-costs no glyph-identification step — it's pre-attentive. **Vertical divider lines every
-four columns** chunk the incoming stream into runs of four; grouping (the phone-number
-trick) lets the eye pre-read a chunk as a unit, which is what enables pipelining.
+By default the strip is a **falling-note layout** (think DDR): each key owns a vertical
+column ordered left→right by finger — `a` (left pinky) at the far left through `;` (right
+pinky) at the far right (teal = left hand, amber = right) — so a glyph's column sits
+directly above the finger that types it. Glyphs fall to a hit-line near the bottom where
+the target's receptor lights up, and **horizontal divider lines every four rows** chunk
+the falling stream into runs of four. Reading a *column* is pre-attentive and the chunk
+grouping lets the eye pre-read a run as a unit — together they enable pipelining.
 
-Toggle **Piano-roll lanes** off for a single **chunked row** instead (one flat line,
-letters grouped in fours with a gap, magnifier fixed at centre) — some players find the
-flat line calmer than tracking vertical rows. Both keep the letters printed on every
-token, so nothing must be learned to start playing.
+Toggle **Falling lanes** off for a single **chunked row** instead (one flat line, letters
+grouped in fours with a gap, a fixed centre magnifier). Both keep the letters printed on
+every token, so nothing must be learned to start playing.
 
 ## Scoring semantics (stated plainly)
 
