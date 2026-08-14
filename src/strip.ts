@@ -40,6 +40,13 @@ export class StripRenderer {
   private readonly nodes: HTMLDivElement[] = [];
   private readonly inners: HTMLSpanElement[] = [];
   private readonly nodeSeq: number[] = [];
+  // peripheral copies of the falling sequence, pinned to the far left/right edges — a
+  // test of whether seeing the upcoming letters in the periphery aids lookahead.
+  private readonly edgeL: HTMLDivElement[] = [];
+  private readonly edgeLInner: HTMLSpanElement[] = [];
+  private readonly edgeR: HTMLDivElement[] = [];
+  private readonly edgeRInner: HTMLSpanElement[] = [];
+  private edgeX = 0; // px offset from centre for the peripheral columns
   private readonly poolSize: number;
   private readonly reducedMotion: boolean;
   private readonly laneColor: string[] = []; // per-column hue, blue (left) → yellow (right)
@@ -98,19 +105,30 @@ export class StripRenderer {
     this.layer = document.createElement('div');
     this.layer.className = 'strip-layer';
     for (let k = 0; k < this.poolSize; k++) {
-      const node = document.createElement('div');
-      node.className = 'glyph';
-      const inner = document.createElement('span');
-      inner.className = 'glyph-inner';
-      node.appendChild(inner);
-      this.layer.appendChild(node);
+      const [node, inner] = this.mkGlyph('glyph');
       this.nodes.push(node);
       this.inners.push(inner);
       this.nodeSeq.push(-1);
+      const [ln, li] = this.mkGlyph('glyph edge');
+      const [rn, ri] = this.mkGlyph('glyph edge');
+      this.edgeL.push(ln);
+      this.edgeLInner.push(li);
+      this.edgeR.push(rn);
+      this.edgeRInner.push(ri);
     }
     root.appendChild(this.layer);
     this.resize();
     this.flow = this.flowPos(engine.index);
+  }
+
+  private mkGlyph(cls: string): [HTMLDivElement, HTMLSpanElement] {
+    const node = document.createElement('div');
+    node.className = cls;
+    const inner = document.createElement('span');
+    inner.className = 'glyph-inner';
+    node.appendChild(inner);
+    this.layer.appendChild(node);
+    return [node, inner];
   }
 
   resize(): void {
@@ -121,7 +139,8 @@ export class StripRenderer {
     const lookahead = this.engine.config.lookahead;
 
     if (lanes) {
-      this.colStep = Math.max(40, Math.min(220, Math.round((w * 0.92) / n)));
+      // lanes take the centre ~80%; the outer margin holds the peripheral sequence columns
+      this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / n)));
       const hitY = h * HIT_FRAC;
       this.hitOffset = hitY - h / 2;
       this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
@@ -154,6 +173,12 @@ export class StripRenderer {
         r.style.setProperty('--rc', this.laneColor[i]);
         r.style.setProperty('--rcbg', this.laneGlow[i]);
       }
+      // peripheral columns sit just outside the lane grid, clamped inside the container
+      this.edgeX = Math.min(w / 2 - this.font * 0.72, (n * this.colStep) / 2 + this.font);
+      for (let i = 0; i < this.edgeL.length; i++) {
+        this.edgeL[i].style.display = 'block';
+        this.edgeR[i].style.display = 'block';
+      }
       this.mag.style.display = 'none';
     } else {
       this.W = Math.max(34, Math.min(78, Math.round(w / 22)));
@@ -163,6 +188,10 @@ export class StripRenderer {
       this.svg.style.display = 'none';
       for (const b of this.bands) b.style.display = 'none';
       for (const r of this.receptors) r.style.display = 'none';
+      for (let i = 0; i < this.edgeL.length; i++) {
+        this.edgeL[i].style.display = 'none';
+        this.edgeR[i].style.display = 'none';
+      }
       this.mag.style.display = 'block';
       this.mag.style.width = `${(this.W * 1.55).toFixed(0)}px`;
       this.mag.style.height = `${(this.font * 1.9).toFixed(0)}px`;
@@ -241,7 +270,14 @@ export class StripRenderer {
         this.inners[nk].textContent = glyph;
         node.className = 'glyph';
         const ci = this.engine.chars.indexOf(glyph);
-        node.style.setProperty('--gc', ci >= 0 ? this.laneColor[ci] : 'var(--ink)');
+        const gc = ci >= 0 ? this.laneColor[ci] : 'var(--ink)';
+        node.style.setProperty('--gc', gc);
+        this.edgeLInner[nk].textContent = glyph;
+        this.edgeRInner[nk].textContent = glyph;
+        this.edgeL[nk].className = 'glyph edge';
+        this.edgeR[nk].className = 'glyph edge';
+        this.edgeL[nk].style.setProperty('--gc', gc);
+        this.edgeR[nk].style.setProperty('--gc', gc);
       }
       const along = this.flowPos(p) - this.flow; // px from the target zone along the flow
       const d = along / step; // in glyph/row units, for the fisheye
@@ -272,6 +308,19 @@ export class StripRenderer {
       node.style.zIndex = isTarget ? '3' : '1';
       node.classList.toggle('error', isTarget && flashActive);
       node.classList.toggle('current', isTarget);
+
+      if (lanes) {
+        // peripheral copies fall at the same height in fixed edge columns (same fisheye,
+        // so the current target enlarges in the periphery too)
+        const eo = (o * 0.9).toFixed(3);
+        const es = scale.toFixed(3);
+        this.edgeL[nk].style.transform = `translate(-50%,-50%) translate3d(${(-this.edgeX).toFixed(2)}px,${y.toFixed(2)}px,0) scale(${es})`;
+        this.edgeR[nk].style.transform = `translate(-50%,-50%) translate3d(${this.edgeX.toFixed(2)}px,${y.toFixed(2)}px,0) scale(${es})`;
+        this.edgeL[nk].style.opacity = eo;
+        this.edgeR[nk].style.opacity = eo;
+        this.edgeL[nk].classList.toggle('current', isTarget);
+        this.edgeR[nk].classList.toggle('current', isTarget);
+      }
     }
 
     if (lanes) this.poly.setAttribute('points', pts.join(' '));

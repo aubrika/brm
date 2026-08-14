@@ -122,6 +122,14 @@ export interface QuartileStat extends IkiStats {
   index: number;
 }
 
+export interface DigraphStat {
+  a: string;
+  b: string;
+  median: number;
+  p90: number;
+  count: number;
+}
+
 export interface ReportStats {
   downs: DownEvent[];
   iki: IkiStats;
@@ -142,6 +150,7 @@ export function ikiStats(values: number[]): IkiStats;
 export function ikiList(downs: DownEvent[]): number[];
 export function medianIki(downs: DownEvent[]): number;
 export function transitionStats(downs: DownEvent[], alphabet: string): TransitionStats;
+export function digraphStats(downs: DownEvent[], minCount?: number): DigraphStat[];
 export function histogram(values: number[], binMs?: number, maxMs?: number): Histogram;
 export function confusion(
   downs: DownEvent[],

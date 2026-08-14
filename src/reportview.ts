@@ -7,9 +7,22 @@
 // never draws a trend line through a handful of points. Overclaiming from small n is the
 // thing this screen is built to avoid.
 
-import type { RunLog, DownEvent } from './stats.js';
-import { reportStats, transitionStats, confusion } from './stats.js';
+import type { RunLog, DownEvent, FingerInfo } from './stats.js';
+import { reportStats, digraphStats, confusion, deriveFingerMap } from './stats.js';
 import type { IndexRow } from './logging.js';
+
+// Hand colours mirror the game strip (left = blue, right = yellow), so a letter's identity
+// carries over from play to report.
+const HAND_BLUE = 'hsl(214, 82%, 67%)';
+const HAND_YELLOW = 'hsl(48, 85%, 60%)';
+function handColor(info: FingerInfo | undefined): string {
+  return info ? (info.hand === 'L' ? HAND_BLUE : HAND_YELLOW) : 'var(--rink)';
+}
+function coloredKey(map: Map<string, FingerInfo>, ch: string): HTMLElement {
+  const e = h('code', { class: 'r-di-key', text: fmtKey(ch) });
+  e.style.color = handColor(map.get(ch));
+  return e;
+}
 
 export interface LogInfo {
   available: boolean;
@@ -241,34 +254,31 @@ function histogramSection(log: RunLog): HTMLElement {
   return section('Pace', h('div', { class: 'r-hist' }, [svg, axis]), medLabel, read);
 }
 
-// ------------------------------------------------- where time went: buckets ----
+// ---------------------------------------------- slowest specific digraphs ----
+// The 3-bucket same-finger/same-hand/cross-hand split says little once you notice most
+// transitions are cross-hand. Instead, rank the specific digraphs (a→b) by median interval,
+// slowest first, with each letter in its hand colour — so the actual costly transitions are
+// named. Require ≥2 samples so a lone slow pair can't top the list.
 function transitionSection(log: RunLog): HTMLElement {
-  const t = transitionStats(reportStats(log).downs, log.meta.config.alphabet);
-  const rows: Array<{ label: string; s: { median: number; count: number } }> = [
-    { label: 'same finger', s: t.sameFinger },
-    { label: 'same hand, diff finger', s: t.sameHand },
-    { label: 'cross hand', s: t.crossHand },
-  ];
-  const shown = rows.filter((r) => r.s.count >= 8);
-  const maxMed = Math.max(1, ...shown.map((r) => r.s.median));
-  const list = h('div', { class: 'r-bars' });
-  for (const r of rows) {
-    const enough = r.s.count >= 8;
-    const bar = h('div', { class: 'r-bar-track' });
-    if (enough) {
-      const fill = h('div', { class: 'r-bar-fill' });
-      fill.style.width = `${((r.s.median / maxMed) * 100).toFixed(1)}%`;
-      bar.append(fill);
-    }
+  const downs = reportStats(log).downs;
+  const map = deriveFingerMap(log.meta.config.alphabet);
+  const di = digraphStats(downs, 2).slice(0, 14);
+  if (di.length === 0) {
+    return section('Slowest transitions', h('p', { class: 'r-empty', text: 'Not enough repeated transitions yet.' }));
+  }
+  const list = h('div', { class: 'r-di-list' });
+  for (const d of di) {
     list.append(
-      h('div', { class: 'r-bar-row' }, [
-        h('span', { class: 'r-bar-label', text: r.label }),
-        bar,
-        h('span', { class: 'r-bar-val', text: enough ? `${Math.round(r.s.median)} ms · n=${r.s.count}` : `n=${r.s.count} (too few)` }),
+      h('div', { class: 'r-di-row' }, [
+        coloredKey(map, d.a),
+        h('span', { class: 'r-di-arrow', text: '→' }),
+        coloredKey(map, d.b),
+        h('span', { class: 'r-di-ms', text: `${Math.round(d.median)} ms` }),
+        h('span', { class: 'r-di-n', text: `n=${d.count}` }),
       ]),
     );
   }
-  return section('Where time went', list);
+  return section('Slowest transitions', list, h('p', { class: 'r-read', text: 'Median interval per specific digraph (≥2 samples), longest first.' }));
 }
 
 // ------------------------------------------------------------------ misses ----

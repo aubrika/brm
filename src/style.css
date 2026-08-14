@@ -215,13 +215,13 @@ code { font-family: var(--mono); }
 .r-read { font-size: 14px; color: var(--slate); margin: 10px 0 0; line-height: 1.5; }
 .r-empty { color: var(--slate); font-size: 14px; }
 
-/* transition bars */
-.r-bars { display: flex; flex-direction: column; gap: 16px; }
-.r-bar-row { display: grid; grid-template-columns: 170px 1fr auto; align-items: center; gap: 14px; }
-.r-bar-label { font-size: 13px; color: var(--slate); }
-.r-bar-track { height: 16px; background: var(--rpanel); border-radius: 3px; overflow: hidden; }
-.r-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; }
-.r-bar-val { font-size: 13px; color: var(--rink); white-space: nowrap; }
+/* slowest digraphs */
+.r-di-list { display: flex; flex-direction: column; gap: 9px; }
+.r-di-row { display: flex; align-items: center; gap: 9px; font-size: clamp(15px, 1.5vw, 20px); }
+.r-di-key { font-family: var(--mono); background: var(--rpanel); border-radius: 6px; padding: 2px 10px; font-weight: 600; }
+.r-di-arrow { color: var(--slate); }
+.r-di-ms { margin-left: auto; font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--rink); }
+.r-di-n { font-family: var(--mono); color: var(--slate); font-size: 0.78em; min-width: 3ch; text-align: right; }
 
 /* misses */
 .r-miss-list { display: flex; flex-direction: column; gap: 10px; }

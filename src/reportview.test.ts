@@ -151,7 +151,7 @@ describe('renderReport', () => {
     expect(r.querySelectorAll('.r-sec-title').length).toBeGreaterThanOrEqual(4); // hero+tape+pace+transitions(+misses)
     expect(r.querySelectorAll('.r-tick').length).toBeGreaterThan(20); // one tick per keystroke
     expect(r.querySelector('.r-hist-bar')).not.toBeNull();
-    expect(r.querySelectorAll('.r-bar-row').length).toBe(3); // three transition buckets
+    expect(r.querySelectorAll('.r-di-row').length).toBeGreaterThan(0); // ranked digraph transitions
     expect(r.querySelector('.r-saved')?.textContent).toContain('logs/test.json');
   });
 
