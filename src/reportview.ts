@@ -85,46 +85,82 @@ function heroSection(log: RunLog): { node: HTMLElement; animate: () => void } {
 }
 
 // ------------------------------------------------------ signature: run tape ----
-// The whole run in one glance: one vertical tick per keystroke, x = time, height = the IKI
-// preceding it (taller = slower), colour = correct/error, and errors also get a notch below
-// the baseline so right/wrong is never colour-alone. Reads without a legend.
-interface Tick {
-  t: number;
-  key: string;
-  target: string;
-  verdict: DownEvent['verdict'];
-  iki: number;
+// The whole run in one glance: one bar per *selection* (each correct entry), x = time,
+// height = the full interval since the previous correct entry (taller = slower). When that
+// interval contained mistakes, the bar is SPLIT: the bottom is the time up to the first
+// wrong key, and the "error delay" (first wrong key → the eventual correct key) is stacked
+// on top in the error colour — so the ratio of a bar that was lost to errors reads directly,
+// and you can see roughly how costly errors are. Error bars also get a notch below the
+// baseline, so the error portion is never encoded by colour alone.
+interface Bar {
+  t: number; // time of the completing correct entry (or the last error, if unresolved)
+  label: string; // the correctly-typed key (or the missed target, if unresolved)
+  total: number; // full interval since the previous correct entry
+  base: number; // portion before the first mistake
+  errorDelay: number; // first mistake → correct (stacked on top)
+  errCount: number;
+}
+function buildBars(log: RunLog, downs: DownEvent[], med: number): Bar[] {
+  const bars: Bar[] = [];
+  let prevCorrectT: number | null = null;
+  let pending: Array<{ t: number; target: string }> = [];
+  for (const d of downs) {
+    if (d.verdict === 'ok') {
+      let total: number, base: number, errorDelay: number;
+      if (prevCorrectT === null) {
+        total = med;
+        base = med;
+        errorDelay = 0;
+      } else {
+        total = d.t - prevCorrectT;
+        if (pending.length) {
+          base = pending[0].t - prevCorrectT;
+          errorDelay = d.t - pending[0].t;
+        } else {
+          base = total;
+          errorDelay = 0;
+        }
+      }
+      bars.push({ t: d.t, label: log.sequence[d.idx] ?? d.key, total, base, errorDelay, errCount: pending.length });
+      prevCorrectT = d.t;
+      pending = [];
+    } else if (d.verdict === 'err') {
+      pending.push({ t: d.t, target: log.sequence[d.idx] ?? '?' });
+    }
+  }
+  // a run that ended mid-error (errors after the last correct) — show the wasted time
+  if (pending.length && prevCorrectT !== null) {
+    const last = pending[pending.length - 1];
+    bars.push({ t: last.t, label: last.target, total: last.t - prevCorrectT, base: 0, errorDelay: last.t - prevCorrectT, errCount: pending.length });
+  }
+  return bars;
 }
 function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; animate: () => void } {
   const dur = log.summary.elapsedS * 1000 || log.meta.config.durationMs;
   const W = 1000;
   const H = 100;
   const baseY = 72;
-  const maxTick = 58; // px up from baseline at the slowest
-  const IKI_CAP = 800; // ms mapped to a full-height tick
+  const maxTick = 60; // px up from baseline at the slowest
+  const IKI_CAP = 800; // ms mapped to a full-height bar
 
   const med = log.summary.medianIkiMs || 250;
-  const ticks: Tick[] = downs.map((d, i) => ({
-    t: d.t,
-    key: d.key,
-    target: log.sequence[d.idx] ?? '?',
-    verdict: d.verdict,
-    iki: i > 0 ? d.t - downs[i - 1].t : med,
-  }));
+  const bars = buildBars(log, downs, med);
 
   const svg = s('svg', { class: 'r-tape-svg', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none' });
   svg.append(s('line', { class: 'r-axis', x1: '0', y1: String(baseY), x2: String(W), y2: String(baseY) }));
 
   const group = s('g', { class: 'r-tape-ticks' });
-  for (const tk of ticks) {
-    const x = dur > 0 ? (tk.t / dur) * W : 0;
-    const frac = Math.min(1, tk.iki / IKI_CAP);
-    const barH = 4 + frac * maxTick;
-    const cls = tk.verdict === 'err' ? 'r-tick err' : 'r-tick ok';
-    const g = s('g', { class: cls, tabindex: '0', role: 'img' });
-    g.append(s('rect', { x: (x - 1.1).toFixed(2), y: (baseY - barH).toFixed(2), width: '2.2', height: barH.toFixed(2) }));
-    if (tk.verdict === 'err') g.append(s('rect', { class: 'r-notch', x: (x - 1.1).toFixed(2), y: String(baseY + 2), width: '2.2', height: '8' }));
-    const label = `${(tk.t / 1000).toFixed(2)}s · target ${fmtKey(tk.target)} · pressed ${fmtKey(tk.key)} · ${Math.round(tk.iki)}ms`;
+  for (const b of bars) {
+    const x = dur > 0 ? (b.t / dur) * W : 0;
+    const totalH = 4 + Math.min(1, b.total / IKI_CAP) * maxTick;
+    const baseH = b.total > 0 ? totalH * (b.base / b.total) : totalH;
+    const errH = Math.max(0, totalH - baseH);
+    const g = s('g', { class: b.errCount ? 'r-tick err' : 'r-tick ok', tabindex: '0', role: 'img' });
+    g.append(s('rect', { class: 'r-seg-base', x: (x - 1.1).toFixed(2), y: (baseY - baseH).toFixed(2), width: '2.2', height: baseH.toFixed(2) }));
+    if (errH > 0.01) g.append(s('rect', { class: 'r-seg-err', x: (x - 1.1).toFixed(2), y: (baseY - totalH).toFixed(2), width: '2.2', height: errH.toFixed(2) }));
+    if (b.errCount) g.append(s('rect', { class: 'r-notch', x: (x - 1.1).toFixed(2), y: String(baseY + 2), width: '2.2', height: '8' }));
+    const errPart = b.errCount ? ` · ${Math.round(b.errorDelay)}ms lost to ${b.errCount} error${b.errCount > 1 ? 's' : ''}` : '';
+    const label = `${(b.t / 1000).toFixed(2)}s · ${fmtKey(b.label)} · ${Math.round(b.total)}ms${errPart}`;
     g.setAttribute('aria-label', label);
     g.append(s('title', {}, [document.createTextNode(label)]));
     const show = (): void => {
@@ -141,7 +177,7 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
     h('span', { text: `${Math.round(dur / 2000)}s` }),
     h('span', { text: `${Math.round(dur / 1000)}s` }),
   ]);
-  const tip = h('div', { class: 'r-tape-tip', text: 'Hover a tick for its timing.' });
+  const tip = h('div', { class: 'r-tape-tip', text: 'One bar per selection · height = time since the last correct key · red = time lost to errors. Hover for detail.' });
   const node = section('The run', h('div', { class: 'r-tape' }, [svg, axis]), tip);
 
   const animate = (): void => {
@@ -345,5 +381,7 @@ export function renderReport(
 
   hero.animate();
   tape.animate();
-  runAgain.focus(); // Enter restarts; every extra click between runs costs practice data
+  // Enter restarts (every extra click between runs costs practice data) — but preventScroll
+  // so mount doesn't jump the view down to the button; the reader lands on their score.
+  runAgain.focus({ preventScroll: true });
 }
