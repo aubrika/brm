@@ -16,8 +16,10 @@ const TARGET_SCALE_FLAT = 4.0; // magnified target when lanes are off
 const TARGET_SCALE_LANES = 1.55; // gentler when lanes are on (it must fit its row)
 const SIGMA_FLAT = 1.2; // fisheye falloff width (glyph units), lanes off
 const SIGMA_LANES = 0.6; // tighter, so only the target grows and rows stay clean
-const SETTLE_TAU_MS = 42; // horizontal strip-slide smoothing
-const MAG_TAU_MS = 55; // magnifier vertical glide between lanes
+const SETTLE_TAU_MS = 22; // horizontal strip-slide smoothing — snappy, keeps up with fast typing
+const MAG_TAU_MS = 26; // magnifier vertical glide between lanes
+const MAX_LAG = 0.45; // cap how far the target may drift right of centre during bursts (keeps it inside the cell)
+const PULSE_MS = 110; // correct-keystroke magnifier pulse
 const SHAKE_MS = 120;
 const SHAKE_PX = 10;
 
@@ -78,7 +80,7 @@ export class StripRenderer {
     const lanes = this.engine.config.lanes;
     if (lanes) {
       this.rowH = Math.min(this.W * 0.92, (h * 0.86) / this.engine.n);
-      this.font = Math.max(13, Math.round(this.rowH * 0.6));
+      this.font = Math.max(13, Math.round(this.rowH * 0.64));
     } else {
       this.rowH = 0;
       this.font = Math.round(this.W * 0.62);
@@ -119,16 +121,21 @@ export class StripRenderer {
     this.lastFrameMs = nowMs;
     const lanes = this.engine.config.lanes;
 
-    // horizontal slide toward the integer target index
+    // horizontal slide toward the integer target index; clamp lag so during a fast burst
+    // the target never drifts far right of the magnifier (which would feel disconnected)
     const kx = 1 - Math.exp(-dt / SETTLE_TAU_MS);
     this.progress += (this.engine.index - this.progress) * kx;
+    if (this.engine.index - this.progress > MAX_LAG) this.progress = this.engine.index - MAX_LAG;
     if (Math.abs(this.engine.index - this.progress) < 1e-3) this.progress = this.engine.index;
 
-    // magnifier glides vertically to the current target's lane (so it encloses it)
+    // magnifier glides vertically to the current target's lane (so it encloses it), with a
+    // brief scale pulse on each correct keystroke — rhythmic feedback that invites tempo.
     const targetY = lanes ? this.laneY(this.engine.target()) : 0;
     const km = 1 - Math.exp(-dt / MAG_TAU_MS);
     this.magY += (targetY - this.magY) * km;
-    this.mag.style.transform = `translate(-50%,-50%) translateY(${this.magY.toFixed(2)}px)`;
+    const sinceCorrect = nowMs - this.engine.lastCorrectMs;
+    const pulse = sinceCorrect < PULSE_MS ? 1 + 0.07 * (1 - sinceCorrect / PULSE_MS) : 1;
+    this.mag.style.transform = `translate(-50%,-50%) translateY(${this.magY.toFixed(2)}px) scale(${pulse.toFixed(3)})`;
 
     const prog = this.progress;
     const seq = this.engine.sequence;
@@ -152,7 +159,7 @@ export class StripRenderer {
       }
       const d = p - prog; // glyph units from centre
       const scale = 1 + (targetScale - 1) * Math.exp(-((d / sigma) ** 2));
-      const span = d >= 0 ? lookahead + 1 : TAIL + 1;
+      const span = d >= 0 ? lookahead + 3 : TAIL + 1; // hold the lookahead brighter — easier to pre-read
       let o = 1 - Math.abs(d) / span;
       if (o < 0) o = 0;
 

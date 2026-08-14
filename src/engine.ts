@@ -41,6 +41,7 @@ export class Engine {
   state: EngineState = 'idle';
   readonly log: RawKey[] = [];
   lastErrorMs = -Infinity; // drives the error shake/flash
+  lastCorrectMs = -Infinity; // drives the correct-keystroke pulse (rhythm feedback)
   lastEventMs = -Infinity; // last state-changing keydown (for the latency overlay)
 
   onCorrect: (() => void) | null = null;
@@ -104,6 +105,7 @@ export class Engine {
     if (ev.key === this.target()) {
       this.sc++;
       this.index++;
+      this.lastCorrectMs = nowMs;
       this.onCorrect?.();
       return 'correct';
     }
