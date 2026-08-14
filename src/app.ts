@@ -198,7 +198,7 @@ export class App {
           field('Alphabet', alpha, 'Unique single keys. N is derived from its length.'),
           field('Lookahead', look, 'Glyphs shown ahead of the target. Higher = more pipelining.'),
           el('div', { class: 'field toggles' }, [
-            el('label', { class: 'toggle' }, [lanes, el('span', { text: ' Lanes + hand colour' })]),
+            el('label', { class: 'toggle' }, [lanes, el('span', { text: ' Piano-roll lanes' })]),
             el('label', { class: 'toggle' }, [sound, el('span', { text: ' Sound' })]),
           ]),
         ]),

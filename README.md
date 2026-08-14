@@ -79,14 +79,18 @@ planning — queue the next several finger movements — instead of reacting to 
 a time. Reaction is serial and slow; pipelining is what turns "read, then move" into a
 continuous flow. It's a config option so graders can tune it to their comfort.
 
-## Why lanes (position beats glyph shape)
+## Reading the strip: chunked row (default) or lanes
 
-With **Lanes** on, each key gets a fixed vertical offset (a piano roll: `a` highest
-through `;` lowest) and a hand colour (teal = left hand, amber = right). Reading a
-*vertical position* is pre-attentive — it costs no glyph-identification step — whereas
-reading a *letter* does. The letters stay printed on every token, so nothing is lost for
-a first-time player; the lanes are a shortcut a fast player converges on within seconds,
-not a language they must learn. Toggle it off for a flat, monochrome strip.
+By default the incoming letters are a single row **grouped in fours with a gap** — the
+same trick that makes phone numbers readable. Chunking lets the eye pre-read the next
+group as a unit instead of one symbol at a time, which is what enables pipelining, and a
+hand colour (teal = left hand, amber = right) adds a second, pre-attentive channel.
+
+Optionally, **Piano-roll lanes** gives each key a fixed vertical row (`a` highest through
+`;` lowest), so reading a *vertical position* costs no glyph-identification step. Some
+players find that faster, others find the vertical tracking distracting — hence the
+toggle. Both layouts keep the letters printed on every token, so nothing must be learned
+to start playing.
 
 ## Scoring semantics (stated plainly)
 
