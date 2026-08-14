@@ -13,7 +13,6 @@
 // Hand colour (teal = left, amber = right) applies to both.
 
 import type { Engine } from './engine.js';
-import type { FingerMapping } from './config.js';
 
 const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
@@ -53,9 +52,6 @@ export class StripRenderer {
   private readonly edgeRInner: HTMLSpanElement[] = [];
   private edgeX = 0; // px offset from centre for the peripheral columns
   private readonly split: number; // left-hand key count; the gap sits between the hands
-  private readonly collapse: boolean; // fold the hands onto shared finger-columns
-  private readonly mapping: FingerMapping; // which fold (collapse only)
-  private readonly nCols: number; // visual columns: collapse → max(left,right), else n
   private readonly poolSize: number;
   private readonly reducedMotion: boolean;
   private readonly laneColor: string[] = []; // per-column hue, blue (left) → yellow (right)
@@ -75,9 +71,6 @@ export class StripRenderer {
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
     this.split = Math.floor(engine.n / 2); // gap sits between the hands (integer split for odd N)
-    this.collapse = engine.config.collapse;
-    this.mapping = engine.config.mapping;
-    this.nCols = this.collapse ? Math.max(this.split, engine.n - this.split) : engine.n;
 
     // left hand blue, right hand yellow (split matches the centre gap)
     for (let i = 0; i < engine.n; i++) {
@@ -160,61 +153,41 @@ export class StripRenderer {
     const lookahead = this.engine.config.lookahead;
 
     if (lanes) {
-      // total visual width in lane-widths: collapsed → nCols; else n + centre gap. Spans the
-      // centre ~80%; the outer margin holds the peripheral sequence columns.
-      const total = this.collapse ? this.nCols : this.engine.n + GAP;
+      // the lanes + centre gap span (n + GAP) lane-widths across the centre ~80%; the outer
+      // margin holds the peripheral sequence columns
+      const total = this.engine.n + GAP;
       this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / total)));
       const hitY = h * HIT_FRAC;
       this.hitOffset = hitY - h / 2;
       this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
       this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * 1.3) * 0.62));
       const cx = w / 2, cy = h / 2;
-      const halfW = (total / 2) * this.colStep;
-      const chunkH = `${(CHUNK * this.rowStep).toFixed(2)}px`;
-      const colStepPx = `${this.colStep.toFixed(2)}px`;
 
-      if (this.collapse) {
-        // one contiguous block of nCols finger-columns, no gap
-        const gw = this.nCols * this.colStep;
-        this.gridL.style.display = 'block';
-        this.gridL.style.left = `${(cx - gw / 2).toFixed(1)}px`;
-        this.gridL.style.width = `${gw.toFixed(1)}px`;
-        this.gridL.style.setProperty('--col-step', colStepPx);
-        this.gridL.style.setProperty('--chunk-h', chunkH);
-        this.gridR.style.display = 'none';
-      } else {
-        // two lane blocks with the gap between them; each block's chunk lines stop at its
-        // edges, so no divider crosses the gap and the gap is exactly GAP·colStep.
-        const leftLeft = cx - halfW;
-        const rightLeft = leftLeft + (this.split + GAP) * this.colStep;
-        const blocks: Array<[HTMLElement, number, number]> = [
-          [this.gridL, leftLeft, this.split * this.colStep],
-          [this.gridR, rightLeft, (this.engine.n - this.split) * this.colStep],
-        ];
-        for (const [g, gx, gw] of blocks) {
-          g.style.display = 'block';
-          g.style.left = `${gx.toFixed(1)}px`;
-          g.style.width = `${gw.toFixed(1)}px`;
-          g.style.setProperty('--col-step', colStepPx);
-          g.style.setProperty('--chunk-h', chunkH);
-        }
+      // two lane blocks with the gap between them; each block's chunk lines stop at its edges,
+      // so no divider crosses the gap and the gap width is exactly GAP·colStep.
+      const leftLeft = cx - (total / 2) * this.colStep;
+      const rightLeft = leftLeft + (this.split + GAP) * this.colStep;
+      const blocks: Array<[HTMLElement, number, number]> = [
+        [this.gridL, leftLeft, this.split * this.colStep],
+        [this.gridR, rightLeft, (this.engine.n - this.split) * this.colStep],
+      ];
+      for (const [g, gx, gw] of blocks) {
+        g.style.display = 'block';
+        g.style.left = `${gx.toFixed(1)}px`;
+        g.style.width = `${gw.toFixed(1)}px`;
+        g.style.setProperty('--col-step', `${this.colStep.toFixed(2)}px`);
+        g.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
       }
       this.svg.style.display = 'block';
 
-      // hand-tinted column washes only make sense when a column belongs to one hand; when the
-      // hands share columns (collapse), the glyph colour carries the hand instead.
-      if (this.collapse) {
-        for (const b of this.bands) b.style.display = 'none';
-      } else {
-        for (let i = 0; i < this.bands.length; i++) {
-          const b = this.bands[i];
-          b.style.display = 'block';
-          b.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
-          b.style.width = `${this.colStep.toFixed(1)}px`;
-          const left = i < this.split;
-          const a = (i % 2 === 0 ? 1 : 0.4) * (left ? 0.08 : 0.058); // alternate intensity; balance blue vs (brighter) yellow
-          b.style.background = left ? `hsla(214, 80%, 60%, ${a.toFixed(3)})` : `hsla(48, 85%, 55%, ${a.toFixed(3)})`;
-        }
+      for (let i = 0; i < this.bands.length; i++) {
+        const b = this.bands[i];
+        b.style.display = 'block';
+        b.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
+        b.style.width = `${this.colStep.toFixed(1)}px`;
+        const left = i < this.split;
+        const a = (i % 2 === 0 ? 1 : 0.4) * (left ? 0.08 : 0.058); // alternate intensity; balance blue vs (brighter) yellow
+        b.style.background = left ? `hsla(214, 80%, 60%, ${a.toFixed(3)})` : `hsla(48, 85%, 55%, ${a.toFixed(3)})`;
       }
       for (let i = 0; i < this.receptors.length; i++) {
         const r = this.receptors[i];
@@ -227,7 +200,7 @@ export class StripRenderer {
         r.style.setProperty('--rcbg', this.laneGlow[i]);
       }
       // peripheral columns sit just outside the lanes, clamped inside the container
-      this.edgeX = Math.min(w / 2 - this.font * 0.72, halfW + this.font);
+      this.edgeX = Math.min(w / 2 - this.font * 0.72, (total / 2) * this.colStep + this.font);
       for (let i = 0; i < this.edgeL.length; i++) {
         this.edgeL[i].style.display = 'block';
         this.edgeR[i].style.display = 'block';
@@ -266,18 +239,7 @@ export class StripRenderer {
     const shift = i < this.split ? 0 : GAP;
     return i + shift + 0.5 - (this.engine.n + GAP) / 2;
   }
-  // When collapsed, both hands share finger-columns (hand shown by colour): 'leftmost'
-  // overlays the hands preserving screen order; 'digit' pairs the same finger.
-  private colOf(i: number): number {
-    const left = i < this.split;
-    if (this.mapping === 'digit') {
-      const distOuter = left ? i : this.engine.n - 1 - i;
-      return Math.min(distOuter, this.nCols - 1);
-    }
-    return left ? i : i - this.split;
-  }
   private laneCentreX(i: number): number {
-    if (this.collapse) return (this.colOf(i) - (this.nCols - 1) / 2) * this.colStep;
     return this.laneUnit(i) * this.colStep;
   }
 

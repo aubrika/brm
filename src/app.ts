@@ -13,7 +13,7 @@ import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, type GameConfig, type ErrorFeedback, type FingerMapping } from './config.js';
+import { loadConfig, saveConfig, type GameConfig, type ErrorFeedback } from './config.js';
 import { MIN_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet } from './scoring.js';
 import type { MachineMeta, RunLog } from './stats.js';
 
@@ -216,18 +216,7 @@ export class App {
       feedback.append(opt);
     }
 
-    const mapping = el('select', { class: 'field-input' }) as HTMLSelectElement;
-    for (const [val, text] of [
-      ['leftmost', 'Leftmost-aligned'],
-      ['digit', 'Same-finger'],
-    ] as Array<[FingerMapping, string]>) {
-      const opt = el('option', { value: val, text }) as HTMLOptionElement;
-      if (this.config.mapping === val) opt.selected = true;
-      mapping.append(opt);
-    }
-
     const lanes = el('input', { type: 'checkbox', ...(this.config.lanes ? { checked: true } : {}) }) as HTMLInputElement;
-    const collapse = el('input', { type: 'checkbox', ...(this.config.collapse ? { checked: true } : {}) }) as HTMLInputElement;
     const sound = el('input', { type: 'checkbox', ...(this.config.sound ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
@@ -249,8 +238,6 @@ export class App {
         durationMs: SCORED_DURATION_MS,
         lookahead: la,
         lanes: lanes.checked,
-        collapse: collapse.checked,
-        mapping: mapping.value as FingerMapping,
         sound: sound.checked,
         errorFeedback: feedback.value as ErrorFeedback,
         label: machineLabel.value.trim().slice(0, 40),
@@ -286,10 +273,8 @@ export class App {
           field('Lookahead', look, 'Glyphs shown ahead of the target. Higher = more pipelining.'),
           field('Machine name', machineLabel, 'Labels this machine’s logs. Optional.'),
           field('Error feedback', feedback, 'How a miss is shown. Recorded, for comparing effects.'),
-          field('Column mapping', mapping, 'When finger columns are on: overlay hands (leftmost) or share by finger (same-finger).'),
           el('div', { class: 'field toggles' }, [
             el('label', { class: 'toggle' }, [lanes, el('span', { text: ' Falling lanes' })]),
-            el('label', { class: 'toggle' }, [collapse, el('span', { text: ' Finger columns' })]),
             el('label', { class: 'toggle' }, [sound, el('span', { text: ' Sound' })]),
           ]),
         ]),
