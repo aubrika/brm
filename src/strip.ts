@@ -286,6 +286,7 @@ export class StripRenderer {
       const span = gi >= 0 ? lookahead + 2 : TAIL + 1;
       let o = 1 - Math.abs(gi) / span;
       if (o < 0) o = 0;
+      if (gi < 0) o = 0; // don't render already-selected letters beneath the target
 
       const isTarget = p === idx;
       let shake = 0;
@@ -320,6 +321,9 @@ export class StripRenderer {
         this.edgeR[nk].style.opacity = eo;
         this.edgeL[nk].classList.toggle('current', isTarget);
         this.edgeR[nk].classList.toggle('current', isTarget);
+        // upcoming letters in the periphery are greyed so only the current target reads as "now"
+        this.edgeL[nk].classList.toggle('pending', gi > 0);
+        this.edgeR[nk].classList.toggle('pending', gi > 0);
       }
     }
 

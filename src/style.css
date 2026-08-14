@@ -136,6 +136,8 @@ code { font-family: var(--mono); }
 }
 .glyph.current .glyph-inner { font-weight: 700; text-shadow: 0 0 15px currentColor; }
 .glyph.error .glyph-inner { color: var(--error); text-shadow: 0 0 18px rgba(255,91,104,0.75); }
+/* peripheral (side-column) upcoming letters: greyed so only the current target stands out */
+.glyph.edge.pending .glyph-inner { color: rgba(150, 160, 180, 0.5); text-shadow: none; font-weight: 500; }
 
 .countdown {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);

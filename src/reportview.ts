@@ -108,6 +108,7 @@ function heroSection(log: RunLog): { node: HTMLElement; animate: () => void } {
 interface Bar {
   t: number; // time of the completing correct entry (or the last error, if unresolved)
   label: string; // the correctly-typed key (or the missed target, if unresolved)
+  from: string | null; // the previous correct key — so the bar is a specific digraph
   total: number; // full interval since the previous correct entry
   base: number; // portion before the first mistake
   errorDelay: number; // first mistake → correct (stacked on top)
@@ -116,6 +117,7 @@ interface Bar {
 function buildBars(log: RunLog, downs: DownEvent[], med: number): Bar[] {
   const bars: Bar[] = [];
   let prevCorrectT: number | null = null;
+  let prevCorrectKey: string | null = null;
   let pending: Array<{ t: number; target: string }> = [];
   for (const d of downs) {
     if (d.verdict === 'ok') {
@@ -134,8 +136,9 @@ function buildBars(log: RunLog, downs: DownEvent[], med: number): Bar[] {
           errorDelay = 0;
         }
       }
-      bars.push({ t: d.t, label: log.sequence[d.idx] ?? d.key, total, base, errorDelay, errCount: pending.length });
+      bars.push({ t: d.t, label: log.sequence[d.idx] ?? d.key, from: prevCorrectKey, total, base, errorDelay, errCount: pending.length });
       prevCorrectT = d.t;
+      prevCorrectKey = d.key;
       pending = [];
     } else if (d.verdict === 'err') {
       pending.push({ t: d.t, target: log.sequence[d.idx] ?? '?' });
@@ -144,7 +147,7 @@ function buildBars(log: RunLog, downs: DownEvent[], med: number): Bar[] {
   // a run that ended mid-error (errors after the last correct) — show the wasted time
   if (pending.length && prevCorrectT !== null) {
     const last = pending[pending.length - 1];
-    bars.push({ t: last.t, label: last.target, total: last.t - prevCorrectT, base: 0, errorDelay: last.t - prevCorrectT, errCount: pending.length });
+    bars.push({ t: last.t, label: last.target, from: prevCorrectKey, total: last.t - prevCorrectT, base: 0, errorDelay: last.t - prevCorrectT, errCount: pending.length });
   }
   return bars;
 }
@@ -180,7 +183,8 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
     g.append(s('rect', { class: 'r-seg-base', x: (x - barW / 2).toFixed(2), y: (baseY - baseH).toFixed(2), width: barW.toFixed(2), height: baseH.toFixed(2) }));
     if (errH > 0.01) g.append(s('rect', { class: 'r-seg-err', x: (x - barW / 2).toFixed(2), y: (baseY - totalH).toFixed(2), width: barW.toFixed(2), height: errH.toFixed(2) }));
     const errPart = b.errCount ? ` · ${Math.round(b.errorDelay)}ms lost to ${b.errCount} error${b.errCount > 1 ? 's' : ''}` : '';
-    const label = `${(b.t / 1000).toFixed(2)}s · ${fmtKey(b.label)} · ${Math.round(b.total)}ms${errPart}`;
+    const digraph = b.from ? `${fmtKey(b.from)} → ${fmtKey(b.label)}` : fmtKey(b.label);
+    const label = `${(b.t / 1000).toFixed(2)}s · ${digraph} · ${Math.round(b.total)}ms${errPart}`;
     g.setAttribute('aria-label', label);
     g.append(s('title', {}, [document.createTextNode(label)]));
     const show = (): void => {
