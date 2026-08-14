@@ -32,7 +32,8 @@ export class StripRenderer {
   private readonly root: HTMLElement;
   private readonly layer: HTMLElement;
   private readonly mag: HTMLElement; // chunked-row magnifier
-  private readonly grid: HTMLElement;
+  private readonly grid: HTMLElement; // vertical column dividers
+  private readonly chunkGrid: HTMLElement; // horizontal chunk dividers (masked out over the gap)
   private readonly svg: SVGSVGElement; // links between consecutive glyphs (lanes)
   private readonly poly: SVGPolylineElement;
   private readonly bands: HTMLElement[] = []; // per-column hand-tinted background wash
@@ -87,6 +88,10 @@ export class StripRenderer {
     this.grid = document.createElement('div');
     this.grid.className = 'lane-grid';
     root.appendChild(this.grid);
+
+    this.chunkGrid = document.createElement('div');
+    this.chunkGrid.className = 'chunk-grid';
+    root.appendChild(this.chunkGrid);
 
     const NS = 'http://www.w3.org/2000/svg';
     this.svg = document.createElementNS(NS, 'svg');
@@ -154,7 +159,12 @@ export class StripRenderer {
       this.grid.style.display = 'block';
       this.grid.style.setProperty('--grid-w', `${gridW.toFixed(1)}px`);
       this.grid.style.setProperty('--col-step', `${this.colStep.toFixed(2)}px`);
-      this.grid.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
+      // horizontal chunk lines on their own layer, with the centre gap slot masked out
+      this.chunkGrid.style.display = 'block';
+      this.chunkGrid.style.setProperty('--grid-w', `${gridW.toFixed(1)}px`);
+      this.chunkGrid.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
+      this.chunkGrid.style.setProperty('--gap-a', `${((this.split / this.nSlots) * 100).toFixed(3)}%`);
+      this.chunkGrid.style.setProperty('--gap-b', `${(((this.split + 1) / this.nSlots) * 100).toFixed(3)}%`);
       this.svg.style.display = 'block';
 
       const cx = w / 2, cy = h / 2;
@@ -189,6 +199,7 @@ export class StripRenderer {
       this.font = Math.round(this.W * 0.62);
       this.gapW = Math.round(this.W * 0.7);
       this.grid.style.display = 'none';
+      this.chunkGrid.style.display = 'none';
       this.svg.style.display = 'none';
       for (const b of this.bands) b.style.display = 'none';
       for (const r of this.receptors) r.style.display = 'none';
@@ -245,7 +256,7 @@ export class StripRenderer {
       const chunkH = CHUNK * this.rowStep;
       const hitY = this.root.clientHeight / 2 + this.hitOffset;
       const vy = (hitY + this.flow + 0.5 * this.rowStep) % chunkH;
-      this.grid.style.setProperty('--vy', `${vy.toFixed(2)}px`);
+      this.chunkGrid.style.setProperty('--vy', `${vy.toFixed(2)}px`);
       // show ONLY the target's receptor (a box around the current character), and pulse it
       const col = this.engine.chars.indexOf(this.engine.target());
       for (let i = 0; i < this.receptors.length; i++) {

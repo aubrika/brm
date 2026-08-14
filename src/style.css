@@ -77,19 +77,29 @@ code { font-family: var(--mono); }
 
 /* DDR lanes: fixed VERTICAL column dividers (one lane per finger) + HORIZONTAL chunk
    dividers every four rows that scroll down with the flow (via --vy). */
+/* vertical column dividers (one per lane, incl. the two that bound the centre gap) */
 .lane-grid {
   position: absolute; left: 50%; top: 0; transform: translateX(-50%);
   width: var(--grid-w, 0); height: 100%; z-index: 0; pointer-events: none;
   background-image:
     repeating-linear-gradient(to right,
       var(--grid-line) 0, var(--grid-line) 1px,
-      transparent 1px, transparent var(--col-step, 54px)),
+      transparent 1px, transparent var(--col-step, 54px));
+  border-left: 1px solid var(--grid-line);
+  border-right: 1px solid var(--grid-line);
+}
+/* horizontal 4-row chunk dividers — a separate layer so a mask can punch the centre gap
+   out of them (the --gap-a … --gap-b slice is made transparent, so no line crosses the gap) */
+.chunk-grid {
+  position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+  width: var(--grid-w, 0); height: 100%; z-index: 0; pointer-events: none;
+  background-image:
     repeating-linear-gradient(to bottom,
       var(--grid-col) 0, var(--grid-col) 1.5px,
       transparent 1.5px, transparent var(--chunk-h, 124px));
-  background-position: 0 0, 0 var(--vy, 0px);
-  border-left: 1px solid var(--grid-line);
-  border-right: 1px solid var(--grid-line);
+  background-position: 0 var(--vy, 0px);
+  -webkit-mask-image: linear-gradient(to right, #000 0 var(--gap-a, 50%), transparent var(--gap-a, 50%) var(--gap-b, 50%), #000 var(--gap-b, 50%) 100%);
+  mask-image: linear-gradient(to right, #000 0 var(--gap-a, 50%), transparent var(--gap-a, 50%) var(--gap-b, 50%), #000 var(--gap-b, 50%) 100%);
 }
 
 /* per-column hand wash (left = blue, right = yellow), alternating intensity */
