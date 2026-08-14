@@ -33,6 +33,8 @@ export class StripRenderer {
   private readonly layer: HTMLElement;
   private readonly mag: HTMLElement; // chunked-row magnifier
   private readonly grid: HTMLElement;
+  private readonly svg: SVGSVGElement; // links between consecutive glyphs (lanes)
+  private readonly poly: SVGPolylineElement;
   private readonly receptors: HTMLElement[] = [];
   private readonly nodes: HTMLDivElement[] = [];
   private readonly inners: HTMLSpanElement[] = [];
@@ -56,17 +58,23 @@ export class StripRenderer {
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
 
-    // one hue per column, swept blue→cyan→green→yellow across the fingers
+    // left hand blue, right hand yellow
     for (let i = 0; i < engine.n; i++) {
-      const t = engine.n > 1 ? i / (engine.n - 1) : 0;
-      const hue = (215 - 163 * t).toFixed(1);
-      this.laneColor.push(`hsl(${hue}, 70%, 63%)`);
-      this.laneGlow.push(`hsla(${hue}, 70%, 63%, 0.16)`);
+      const left = 2 * i < engine.n;
+      this.laneColor.push(left ? 'hsl(214, 82%, 67%)' : 'hsl(48, 85%, 60%)');
+      this.laneGlow.push(left ? 'hsla(214, 82%, 67%, 0.16)' : 'hsla(48, 85%, 60%, 0.16)');
     }
 
     this.grid = document.createElement('div');
     this.grid.className = 'lane-grid';
     root.appendChild(this.grid);
+
+    const NS = 'http://www.w3.org/2000/svg';
+    this.svg = document.createElementNS(NS, 'svg');
+    this.svg.setAttribute('class', 'link-layer');
+    this.poly = document.createElementNS(NS, 'polyline');
+    this.svg.appendChild(this.poly);
+    root.appendChild(this.svg);
 
     for (let i = 0; i < engine.n; i++) {
       const r = document.createElement('div');
@@ -116,6 +124,7 @@ export class StripRenderer {
       this.grid.style.setProperty('--grid-w', `${gridW.toFixed(1)}px`);
       this.grid.style.setProperty('--col-step', `${this.colStep.toFixed(2)}px`);
       this.grid.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
+      this.svg.style.display = 'block';
 
       const cx = w / 2, cy = h / 2;
       for (let i = 0; i < this.receptors.length; i++) {
@@ -134,6 +143,7 @@ export class StripRenderer {
       this.font = Math.round(this.W * 0.62);
       this.gapW = Math.round(this.W * 0.7);
       this.grid.style.display = 'none';
+      this.svg.style.display = 'none';
       for (const r of this.receptors) r.style.display = 'none';
       this.mag.style.display = 'block';
       this.mag.style.width = `${(this.W * 1.55).toFixed(0)}px`;
@@ -177,12 +187,13 @@ export class StripRenderer {
       const hitY = this.root.clientHeight / 2 + this.hitOffset;
       const vy = (hitY + this.flow + 0.5 * this.rowStep) % chunkH;
       this.grid.style.setProperty('--vy', `${vy.toFixed(2)}px`);
-      // light up + pulse the target's receptor; the rest stay dim
+      // show ONLY the target's receptor (a box around the current character), and pulse it
       const col = this.engine.chars.indexOf(this.engine.target());
       for (let i = 0; i < this.receptors.length; i++) {
         const active = i === col;
+        this.receptors[i].style.display = active ? 'block' : 'none';
         this.receptors[i].classList.toggle('active', active);
-        this.receptors[i].style.transform = `translate(-50%,-50%) scale(${active ? pulse.toFixed(3) : '1'})`;
+        if (active) this.receptors[i].style.transform = `translate(-50%,-50%) scale(${pulse.toFixed(3)})`;
       }
     } else {
       // chunked-row magnifier holds at centre and pulses on correct
@@ -198,6 +209,8 @@ export class StripRenderer {
     const flashActive = sinceErr < SHAKE_MS;
     const targetScale = lanes ? TARGET_SCALE_LANES : TARGET_SCALE_ROW;
     const sigma = lanes ? SIGMA_LANES : SIGMA_ROW;
+    const cw = this.root.clientWidth, ch = this.root.clientHeight;
+    const pts: string[] = []; // link path through the upcoming glyphs (lanes)
 
     for (let p = base; p < base + P; p++) {
       const nk = p % P;
@@ -226,8 +239,10 @@ export class StripRenderer {
       }
       let x: number, y: number;
       if (lanes) {
-        x = this.laneX(glyph) + shake;
-        y = this.hitOffset - along; // fall downward toward the hit-line
+        const lx = this.laneX(glyph);
+        y = this.hitOffset - along; // fall downward toward the type line
+        x = lx + shake;
+        if (p >= idx && glyph) pts.push(`${(cw / 2 + lx).toFixed(1)},${(ch / 2 + y).toFixed(1)}`);
       } else {
         x = along + shake;
         y = 0;
@@ -238,5 +253,7 @@ export class StripRenderer {
       node.classList.toggle('error', isTarget && flashActive);
       node.classList.toggle('current', isTarget);
     }
+
+    if (lanes) this.poly.setAttribute('points', pts.join(' '));
   }
 }

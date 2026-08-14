@@ -16,11 +16,11 @@ export const DEFAULT_CONFIG: GameConfig = {
   alphabet: DEFAULT_ALPHABET,
   durationMs: SCORED_DURATION_MS,
   lookahead: DEFAULT_LOOKAHEAD,
-  lanes: true, // piano-roll lanes with vertical chunk dividers; off = chunked single row
-  sound: false,
+  lanes: true, // falling DDR lanes; off = chunked single row
+  sound: true,
 };
 
-const STORAGE_KEY = 'brm.config.v3';
+const STORAGE_KEY = 'brm.config.v4';
 
 export function loadConfig(): GameConfig {
   try {

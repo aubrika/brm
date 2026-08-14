@@ -92,7 +92,11 @@ code { font-family: var(--mono); }
   border-right: 1px solid var(--grid-line);
 }
 
-/* per-column receptors at the type line; the target's lights up */
+/* links between consecutive glyphs — the path of what's coming next */
+.link-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; overflow: visible; }
+.link-layer polyline { fill: none; stroke: rgba(200, 212, 235, 0.22); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+
+/* the receptor box around the current character */
 .receptor {
   position: absolute; z-index: 1; pointer-events: none;
   transform: translate(-50%, -50%);

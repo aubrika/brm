@@ -84,11 +84,11 @@ continuous flow. It's a config option so graders can tune it to their comfort.
 By default the strip is a **falling-note layout** (think DDR): each key owns a vertical
 column ordered left→right by finger — `a` (left pinky) at the far left through `;` (right
 pinky) at the far right — so a glyph's column sits directly above the finger that types
-it. A **blue→yellow colour gradient across the columns** gives each finger its own hue, so
-the column can be read from colour alone. Glyphs fall to a type line near the bottom where
-the target's receptor lights up in its column colour, and **horizontal divider lines every
-four rows** chunk the falling stream into runs of four. Reading a *column* is pre-attentive
-and the chunk grouping lets the eye pre-read a run as a unit — together they enable pipelining.
+it. The **left hand is blue, the right hand yellow**, and **faint lines link each glyph to
+the next**, so the upcoming path is easy to trace. Glyphs fall to a type line near the
+bottom where a box marks the current target, and **horizontal divider lines every four
+rows** chunk the falling stream into runs of four. Reading a *column* is pre-attentive and
+the chunk grouping lets the eye pre-read a run as a unit — together they enable pipelining.
 
 Toggle **Falling lanes** off for a single **chunked row** instead (one flat line, letters
 grouped in fours with a gap, a fixed centre magnifier). Both keep the letters printed on
@@ -159,7 +159,7 @@ moves. So:
 - `?debug` surfaces measured keydown→paint latency so this is verifiable, not assumed.
 
 `prefers-reduced-motion` replaces the shake with a colour-only flash. Optional audio
-(off by default) uses `AudioContext` — a ~5 ms click on correct, a low tone on error —
+(on by default, toggleable) uses `AudioContext` — a ~5 ms click on correct, a low tone on error —
 never `<audio>` elements, whose latency is unacceptable.
 
 ## Verifiability
