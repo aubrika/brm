@@ -33,7 +33,6 @@ export class StripRenderer {
   private readonly layer: HTMLElement;
   private readonly mag: HTMLElement; // chunked-row magnifier
   private readonly grid: HTMLElement;
-  private readonly hitLine: HTMLElement;
   private readonly receptors: HTMLElement[] = [];
   private readonly nodes: HTMLDivElement[] = [];
   private readonly inners: HTMLSpanElement[] = [];
@@ -58,10 +57,6 @@ export class StripRenderer {
     this.grid = document.createElement('div');
     this.grid.className = 'lane-grid';
     root.appendChild(this.grid);
-
-    this.hitLine = document.createElement('div');
-    this.hitLine.className = 'hit-line';
-    root.appendChild(this.hitLine);
 
     for (let i = 0; i < engine.n; i++) {
       const r = document.createElement('div');
@@ -112,10 +107,6 @@ export class StripRenderer {
       this.grid.style.setProperty('--col-step', `${this.colStep.toFixed(2)}px`);
       this.grid.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
 
-      this.hitLine.style.display = 'block';
-      this.hitLine.style.setProperty('--grid-w', `${gridW.toFixed(1)}px`);
-      this.hitLine.style.setProperty('--hit', `${this.hitOffset.toFixed(1)}px`);
-
       const cx = w / 2, cy = h / 2;
       for (let i = 0; i < this.receptors.length; i++) {
         const r = this.receptors[i];
@@ -131,7 +122,6 @@ export class StripRenderer {
       this.font = Math.round(this.W * 0.62);
       this.gapW = Math.round(this.W * 0.7);
       this.grid.style.display = 'none';
-      this.hitLine.style.display = 'none';
       for (const r of this.receptors) r.style.display = 'none';
       this.mag.style.display = 'block';
       this.mag.style.width = `${(this.W * 1.55).toFixed(0)}px`;

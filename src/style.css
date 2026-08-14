@@ -92,14 +92,7 @@ code { font-family: var(--mono); }
   border-right: 1px solid var(--grid-line);
 }
 
-/* the hit-line the falling glyphs are typed at, and the per-column receptors */
-.hit-line {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%) translateY(var(--hit, 0px));
-  width: var(--grid-w, 0); height: 0; z-index: 1; pointer-events: none;
-  border-top: 2px solid rgba(110, 168, 254, 0.5);
-  box-shadow: 0 0 18px rgba(110, 168, 254, 0.22);
-}
+/* per-column receptors at the type line; the target's lights up */
 .receptor {
   position: absolute; z-index: 1; pointer-events: none;
   transform: translate(-50%, -50%);
