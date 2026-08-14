@@ -18,6 +18,7 @@ const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
 const CHUNK = 4; // group size
 const GAP = 0.5; // centre-gap width in lane-widths (1 = a full empty lane, 0 = none)
+const LINK_ARROWS = true; // true = per-digraph arrows coloured by the target's hand; false = one plain polyline
 const HIT_FRAC = 0.8; // hit-line position (fraction down the strip) in DDR lanes
 const TARGET_SCALE_LANES = 1.5;
 const TARGET_SCALE_ROW = 1.7;
@@ -36,7 +37,8 @@ export class StripRenderer {
   private readonly gridL: HTMLElement; // left-hand lane grid (dividers + chunk lines)
   private readonly gridR: HTMLElement; // right-hand lane grid; the gap between them stays empty
   private readonly svg: SVGSVGElement; // links between consecutive glyphs (lanes)
-  private readonly poly: SVGPolylineElement;
+  private readonly poly: SVGPolylineElement; // plain single-line variant (LINK_ARROWS = false)
+  private readonly arrows: SVGPathElement[] = []; // one per upcoming digraph (LINK_ARROWS = true)
   private readonly bands: HTMLElement[] = []; // per-column hand-tinted background wash
   private readonly receptors: HTMLElement[] = [];
   private readonly nodes: HTMLDivElement[] = [];
@@ -96,6 +98,12 @@ export class StripRenderer {
     this.svg.setAttribute('class', 'link-layer');
     this.poly = document.createElementNS(NS, 'polyline');
     this.svg.appendChild(this.poly);
+    for (let k = 0; k < this.poolSize; k++) {
+      const ap = document.createElementNS(NS, 'path');
+      ap.setAttribute('class', 'link-arrow');
+      this.svg.appendChild(ap);
+      this.arrows.push(ap);
+    }
     root.appendChild(this.svg);
 
     for (let i = 0; i < engine.n; i++) {
@@ -241,6 +249,29 @@ export class StripRenderer {
     return this.laneCentreX(i);
   }
 
+  // SVG path for an arrow from the border of an invisible box around the origin glyph to the
+  // border of the box around the target glyph, with a small arrowhead at the target end.
+  // Boxes scale with each glyph's fisheye. Returns null if the glyphs overlap (no room).
+  private arrowD(c0x: number, c0y: number, s0: number, c1x: number, c1y: number, s1: number): string | null {
+    const dx = c1x - c0x, dy = c1y - c0y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return null;
+    const ux = dx / len, uy = dy / len;
+    const hx = this.font * 0.52, hy = this.font * 0.6; // half-extents of the invisible box
+    const exit = (s: number): number =>
+      Math.min(ux !== 0 ? (hx * s) / Math.abs(ux) : Infinity, uy !== 0 ? (hy * s) / Math.abs(uy) : Infinity);
+    const t0 = exit(s0), t1 = exit(s1);
+    if (t0 + t1 >= len - 2) return null;
+    const sx = c0x + ux * t0, sy = c0y + uy * t0;
+    const ex = c1x - ux * t1, ey = c1y - uy * t1;
+    const ah = Math.min(8, (len - t0 - t1) * 0.5); // arrowhead length
+    const ca = Math.cos(0.42), sa = Math.sin(0.42);
+    const b1x = ex + (-ux * ca + uy * sa) * ah, b1y = ey + (-ux * sa - uy * ca) * ah;
+    const b2x = ex + (-ux * ca - uy * sa) * ah, b2y = ey + (ux * sa - uy * ca) * ah;
+    const r = (n: number): string => n.toFixed(1);
+    return `M${r(sx)} ${r(sy)}L${r(ex)} ${r(ey)}L${r(b1x)} ${r(b1y)}M${r(ex)} ${r(ey)}L${r(b2x)} ${r(b2y)}`;
+  }
+
   render(nowMs: number): void {
     const dt = this.lastFrameMs < 0 ? 16 : Math.min(64, nowMs - this.lastFrameMs);
     this.lastFrameMs = nowMs;
@@ -289,7 +320,10 @@ export class StripRenderer {
     const targetScale = lanes ? TARGET_SCALE_LANES : TARGET_SCALE_ROW;
     const sigma = lanes ? SIGMA_LANES : SIGMA_ROW;
     const cw = this.root.clientWidth, ch = this.root.clientHeight;
-    const pts: string[] = []; // link path through the upcoming glyphs (lanes)
+    const pts: string[] = []; // link path through the upcoming glyphs (LINK_ARROWS = false)
+    // per-glyph centres/scale/hand, captured for the per-digraph arrows (LINK_ARROWS = true)
+    const cX = new Array<number>(P), cY = new Array<number>(P), cCi = new Array<number>(P), cScl = new Array<number>(P);
+    const cVis = new Array<boolean>(P);
 
     for (let p = base; p < base + P; p++) {
       const nk = p % P;
@@ -329,7 +363,13 @@ export class StripRenderer {
         const lx = this.laneX(glyph);
         y = this.hitOffset - along; // fall downward toward the type line
         x = lx + shake;
-        if (p >= idx && glyph) pts.push(`${(cw / 2 + lx).toFixed(1)},${(ch / 2 + y).toFixed(1)}`);
+        const rel = p - base;
+        cX[rel] = cw / 2 + lx;
+        cY[rel] = ch / 2 + y;
+        cCi[rel] = this.engine.chars.indexOf(glyph);
+        cScl[rel] = scale;
+        cVis[rel] = glyph !== '' && gi >= 0; // only upcoming glyphs are linked
+        if (!LINK_ARROWS && p >= idx && glyph) pts.push(`${(cw / 2 + lx).toFixed(1)},${(ch / 2 + y).toFixed(1)}`);
       } else {
         x = along + shake;
         y = 0;
@@ -357,6 +397,30 @@ export class StripRenderer {
       }
     }
 
-    if (lanes) this.poly.setAttribute('points', pts.join(' '));
+    if (lanes) {
+      if (LINK_ARROWS) {
+        this.poly.setAttribute('points', ''); // hide the plain line
+        let ai = 0;
+        for (let p = idx; p < base + P - 1 && ai < this.arrows.length; p++) {
+          const r0 = p - base, r1 = r0 + 1;
+          if (r1 >= P || !cVis[r0] || !cVis[r1]) continue;
+          const path = this.arrows[ai++];
+          const d = this.arrowD(cX[r0], cY[r0], cScl[r0], cX[r1], cY[r1], cScl[r1]);
+          if (!d) {
+            path.style.display = 'none';
+            continue;
+          }
+          path.setAttribute('d', d);
+          const tci = cCi[r1]; // colour by the TARGET character's hand
+          path.setAttribute('stroke', tci >= 0 ? this.laneColor[tci] : 'rgba(200,212,235,0.5)');
+          path.style.opacity = Math.max(0.3, 1 - (p - idx) / (lookahead + 1)).toFixed(2);
+          path.style.display = 'block';
+        }
+        for (; ai < this.arrows.length; ai++) this.arrows[ai].style.display = 'none';
+      } else {
+        for (const a of this.arrows) a.style.display = 'none';
+        this.poly.setAttribute('points', pts.join(' '));
+      }
+    }
   }
 }
