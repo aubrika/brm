@@ -47,6 +47,8 @@ export class StripRenderer {
   private readonly edgeR: HTMLDivElement[] = [];
   private readonly edgeRInner: HTMLSpanElement[] = [];
   private edgeX = 0; // px offset from centre for the peripheral columns
+  private readonly split: number; // left-hand key count = index of the empty centre gap slot
+  private readonly nSlots: number; // visual lane slots including the centre gap
   private readonly poolSize: number;
   private readonly reducedMotion: boolean;
   private readonly laneColor: string[] = []; // per-column hue, blue (left) → yellow (right)
@@ -65,10 +67,12 @@ export class StripRenderer {
     this.root = root;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
+    this.split = Math.floor(engine.n / 2); // gap sits between the hands (integer split for odd N)
+    this.nSlots = engine.n + 1; // one extra slot for the empty centre lane
 
-    // left hand blue, right hand yellow
+    // left hand blue, right hand yellow (split matches the centre gap)
     for (let i = 0; i < engine.n; i++) {
-      const left = 2 * i < engine.n;
+      const left = i < this.split;
       this.laneColor.push(left ? 'hsl(214, 82%, 67%)' : 'hsl(48, 85%, 60%)');
       this.laneGlow.push(left ? 'hsla(214, 82%, 67%, 0.16)' : 'hsla(48, 85%, 60%, 0.16)');
     }
@@ -135,17 +139,17 @@ export class StripRenderer {
     const w = this.root.clientWidth || window.innerWidth;
     const h = this.root.clientHeight || 360;
     const lanes = this.engine.config.lanes;
-    const n = this.engine.n;
     const lookahead = this.engine.config.lookahead;
 
     if (lanes) {
-      // lanes take the centre ~80%; the outer margin holds the peripheral sequence columns
-      this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / n)));
+      // lanes (incl. the empty centre gap) take the centre ~80%; the outer margin holds the
+      // peripheral sequence columns
+      this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / this.nSlots)));
       const hitY = h * HIT_FRAC;
       this.hitOffset = hitY - h / 2;
       this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
       this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * 1.3) * 0.62));
-      const gridW = n * this.colStep;
+      const gridW = this.nSlots * this.colStep;
 
       this.grid.style.display = 'block';
       this.grid.style.setProperty('--grid-w', `${gridW.toFixed(1)}px`);
@@ -157,9 +161,9 @@ export class StripRenderer {
       for (let i = 0; i < this.bands.length; i++) {
         const b = this.bands[i];
         b.style.display = 'block';
-        b.style.left = `${(cx + (i - (n - 1) / 2) * this.colStep).toFixed(1)}px`;
+        b.style.left = `${(cx + this.slotX(this.slotOf(i))).toFixed(1)}px`;
         b.style.width = `${this.colStep.toFixed(1)}px`;
-        const left = 2 * i < n;
+        const left = i < this.split;
         const a = (i % 2 === 0 ? 1 : 0.4) * (left ? 0.08 : 0.058); // alternate intensity; balance blue vs (brighter) yellow
         b.style.background = left ? `hsla(214, 80%, 60%, ${a.toFixed(3)})` : `hsla(48, 85%, 55%, ${a.toFixed(3)})`;
       }
@@ -168,13 +172,13 @@ export class StripRenderer {
         r.style.display = 'block';
         r.style.width = `${(this.colStep * 0.82).toFixed(0)}px`;
         r.style.height = `${(this.rowStep * 1.15).toFixed(0)}px`;
-        r.style.left = `${(cx + (i - (n - 1) / 2) * this.colStep).toFixed(1)}px`;
+        r.style.left = `${(cx + this.slotX(this.slotOf(i))).toFixed(1)}px`;
         r.style.top = `${(cy + this.hitOffset).toFixed(1)}px`;
         r.style.setProperty('--rc', this.laneColor[i]);
         r.style.setProperty('--rcbg', this.laneGlow[i]);
       }
       // peripheral columns sit just outside the lane grid, clamped inside the container
-      this.edgeX = Math.min(w / 2 - this.font * 0.72, (n * this.colStep) / 2 + this.font);
+      this.edgeX = Math.min(w / 2 - this.font * 0.72, gridW / 2 + this.font);
       for (let i = 0; i < this.edgeL.length; i++) {
         this.edgeL[i].style.display = 'block';
         this.edgeR[i].style.display = 'block';
@@ -206,10 +210,18 @@ export class StripRenderer {
     return p * this.W + gaps * this.gapW;
   }
 
+  // character index → visual slot (right hand shifts one slot right, leaving an empty gap)
+  private slotOf(i: number): number {
+    return i < this.split ? i : i + 1;
+  }
+  private slotX(slot: number): number {
+    return (slot - (this.nSlots - 1) / 2) * this.colStep;
+  }
+
   private laneX(glyph: string): number {
     const i = this.engine.chars.indexOf(glyph);
     if (i < 0) return 0;
-    return (i - (this.engine.n - 1) / 2) * this.colStep;
+    return this.slotX(this.slotOf(i));
   }
 
   render(nowMs: number): void {
