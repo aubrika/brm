@@ -1,0 +1,20 @@
+{
+  "name": "bit-rate-maximizer",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A typing game that maximizes a human player's achieved bit rate (Shenoy et al.).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

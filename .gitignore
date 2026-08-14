@@ -1,0 +1,5 @@
+node_modules/
+*.log
+.DS_Store
+.vite/
+# NOTE: dist/ is intentionally committed as a zero-Node fallback (see README).
