@@ -3,3 +3,8 @@ node_modules/
 .DS_Store
 .vite/
 # NOTE: dist/ is intentionally committed as a zero-Node fallback (see README).
+
+# Run logs contain colleagues' keystroke timings — never commit them. The folder ships
+# empty (just .gitkeep + README.md); logs are generated locally at play time.
+logs/*.json
+logs/index.jsonl

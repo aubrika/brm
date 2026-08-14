@@ -4,12 +4,16 @@ import {
   DEFAULT_LOOKAHEAD,
 } from './scoring.js';
 
+export type ErrorFeedback = 'none' | 'flash' | 'shake' | 'flash+shake';
+
 export interface GameConfig {
   alphabet: string;
   durationMs: number; // locked to 60_000 for scored runs
   lookahead: number; // glyphs visible right of the target (>= MIN_LOOKAHEAD)
   lanes: boolean; // piano-roll vertical lanes + hand colour coding
   sound: boolean; // AudioContext click/tone feedback
+  errorFeedback: ErrorFeedback; // how a miss is shown (also recorded, for the feedback A/B)
+  label: string; // free-text machine name, stamped into each log's filename + meta
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
@@ -18,9 +22,11 @@ export const DEFAULT_CONFIG: GameConfig = {
   lookahead: DEFAULT_LOOKAHEAD,
   lanes: true, // falling DDR lanes; off = chunked single row
   sound: true,
+  errorFeedback: 'flash+shake',
+  label: '',
 };
 
-const STORAGE_KEY = 'brm.config.v4';
+const STORAGE_KEY = 'brm.config.v5';
 
 export function loadConfig(): GameConfig {
   try {

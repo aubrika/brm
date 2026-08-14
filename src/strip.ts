@@ -223,8 +223,10 @@ export class StripRenderer {
     const base = Math.max(0, idx - TAIL);
     const lookahead = this.engine.config.lookahead;
     const sinceErr = nowMs - this.engine.lastErrorMs;
-    const shakeActive = !this.reducedMotion && sinceErr < SHAKE_MS;
-    const flashActive = sinceErr < SHAKE_MS;
+    const fb = this.engine.config.errorFeedback; // 'none' | 'flash' | 'shake' | 'flash+shake'
+    const recentErr = sinceErr < SHAKE_MS;
+    const shakeActive = recentErr && !this.reducedMotion && fb.includes('shake');
+    const flashActive = recentErr && fb.includes('flash');
     const targetScale = lanes ? TARGET_SCALE_LANES : TARGET_SCALE_ROW;
     const sigma = lanes ? SIGMA_LANES : SIGMA_ROW;
     const cw = this.root.clientWidth, ch = this.root.clientHeight;

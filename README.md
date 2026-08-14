@@ -32,6 +32,9 @@ Play: **Practice** to warm up (untimed, `Esc` to exit), or **Start scored run** 
 
 - `?debug` — overlay showing keydown→paint latency and long-frame count.
 
+Every run is also saved locally to `logs/` (see below); a static-only server without the
+Vite plugin falls back to a manual JSON download.
+
 ## Why N = 8
 
 Model the score per keystroke. Over the window, gross keystrokes `= r·t` (rate `r` in
@@ -174,25 +177,83 @@ is exactly what the export reproduces. The sequence is sampled i.i.d. with repla
 **not** filtered (that would break i.i.d.), and `src/scoring.test.ts` asserts a χ²
 uniformity test and the `1/N` adjacent-repeat rate.
 
+## The report (a picture of the run, honest about small n)
+
+The post-run screen turns the score into a readable picture — computed entirely from the
+run log, no extra instrumentation. It is a **light instrument panel**, deliberately unlike
+the dark game, so the reveal reads as a result rather than a continuation of the task. The
+signature element is the **run tape**: the whole 60 s left-to-right, one tick per keystroke,
+height = the interval before it (taller = slower), colour = correct/error with a notch below
+the baseline so right/wrong is never colour-alone. Below it: an **IKI histogram** (bimodal
+"fast with stalls" vs unimodal "steady"), **where time went** (median interval for
+same-finger / same-hand / cross-hand transitions — time lost to the i.i.d. sequence's own
+structure, which a player can't feel), **misses** (target → pressed), and a **this-machine
+sparkline** of past runs.
+
+A 60 s run is ~120–250 keystrokes — a small sample — so the screen shows **counts, not
+two-decimal rates**, and **suppresses** any panel whose sample is too thin: misses below
+`Si = 5`, a transition bucket below 8, the sparkline on the first run. Overclaiming from
+small n is the thing it is built to avoid.
+
+## Run logging & cross-run analysis
+
+Each run (scored and practice) is written to `logs/` as a self-contained JSON log —
+`schemaVersion: 2`, carrying the full target sequence and every keystroke as `down`/`up`
+events with the live target index and verdict, plus a machine fingerprint (a random
+`installId`, refresh rate, and the measured `performance.now()` resolution). The write rides
+the existing Vite dev/preview server via a middleware plugin (`vite-plugin-runlog.ts`) — no
+new process, no database. It happens **once, after the timer expires**; nothing touches the
+network or allocates during the 60 s (`RunRecorder` buffers primitives into pre-sized typed
+arrays). If the endpoint is absent (a plain static server), a health probe reports it and the
+app falls back to the download button — never blocking, never retrying.
+
+These logs are colleagues' keystroke timings: they are **gitignored** (the repo ships `logs/`
+empty), only **in-alphabet keys** are recorded (never free text), and both the config and
+report screens say so plainly.
+
+```
+node scripts/analyze.mjs [--machine calvin] [--scored-only]
+```
+
+reads every log and prints transition costs, within-run quartiles, **post-error slowing broken
+out by feedback mode** (the rigorous version of the two-loop shake-vs-flash question), a
+confusion matrix, and an IKI histogram — then writes `logs/analysis.json`. Every on-screen
+number and every offline number is produced by the **same** functions in `src/stats.js`
+(imported by both the browser and the Node script), so the two can't drift. See
+[`logs/README.md`](logs/README.md) for the schema and the finger-map assumption.
+
 ## Tests
 
 ```
-npm test        # vitest, 27 cases
+npm test        # vitest, 31 cases across 2 files
 ```
 
-Covers the scoring math (including `Si > Sc` clamping to 0, `t` boundaries, `N = 3`), RNG
-uniformity (χ² for N = 3/8/10 + adjacent-repeat rate + a rejection-boundary case), the
-state machine (retry-until-correct, ignored keys, double-tap), and an end-to-end bit rate
-from a scripted keystroke log versus a hand-computed value.
+The scoring core (`src/scoring.ts`, 27 cases): the bit-rate math (including `Si > Sc`
+clamping to 0, `t` boundaries, `N = 3`), RNG uniformity (χ² for N = 3/8/10 + adjacent-repeat
+rate + a rejection-boundary case), the state machine (retry-until-correct, ignored keys,
+double-tap), and an end-to-end bit rate from a scripted keystroke log versus a hand-computed
+value. The report screen (`src/reportview.test.ts`, 4 cases): `renderReport` builds the full
+dashboard from a synthetic log without throwing, and the small-n suppression rules fire — run
+against a tiny DOM shim (no heavyweight test dependency), which also exercises the shared
+`src/stats.js` through DOM-facing code.
 
 ## Structure
 
 - `src/scoring.ts` — **pure, DOM-free** core: RNG, sequence generation, the bit-rate
   formula, and `reduceLog` (the authoritative fold). All of it unit-tested.
+- `src/stats.js` (+ `stats.d.ts`) — **shared, pure** run statistics (finger map, IKI,
+  transitions, histogram, confusion, rollovers), imported by both the report screen and the
+  offline analyzer so the two never drift. Plain JS so Node runs it with no build step.
 - `src/engine.ts` — live run state + the synchronous keydown handler.
 - `src/strip.ts` — the treadmill renderer: pooled glyph nodes, magnifier fisheye, lanes.
 - `src/app.ts` — screen router (config / run / report), 3-2-1 countdown, rAF loop.
-- `src/report.ts`, `src/audio.ts`, `src/latency.ts`, `src/config.ts` — report/JSON,
-  AudioContext feedback, the debug overlay, config persistence.
+- `src/reportview.ts` — the results dashboard (inline SVG: run tape, histogram, bars,
+  sparkline). `src/report.ts` — assembles the schema-v2 run log. `src/logging.ts` — the
+  `RunRecorder` + health probe + POST. `src/machine.ts` — the startup machine fingerprint.
+- `vite-plugin-runlog.ts` — the middleware that writes logs to `logs/`. `scripts/analyze.mjs`
+  — the offline cross-run analyzer.
+- `src/audio.ts`, `src/latency.ts`, `src/config.ts` — AudioContext feedback, the debug
+  overlay, config persistence.
 
-TypeScript strict throughout; no runtime dependencies.
+TypeScript strict throughout; no runtime dependencies (`@types/node` is dev-only, for the
+Vite log plugin).

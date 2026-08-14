@@ -1,15 +1,21 @@
 // Screen router + run loop. Three screens (config, run, report) plus an in-run 3-2-1
 // countdown. A single window keydown listener (attached once, { passive:false }) drives
 // the whole app; during play it is the latency-critical path — classify, count, advance,
-// synchronously — while a separate rAF loop reads state and draws.
+// synchronously — while a separate rAF loop reads state and draws. Alongside the scoring
+// log, a RunRecorder buffers a richer event log (down+up, verdict, live idx) entirely from
+// primitives, written to logs/ once at run end — never during the 60 s.
 
 import { Engine, type KeyInput } from './engine.js';
 import { StripRenderer } from './strip.js';
 import { AudioFeedback } from './audio.js';
 import { LatencyOverlay } from './latency.js';
-import { buildReport, downloadReport, type RunReport } from './report.js';
-import { loadConfig, saveConfig, type GameConfig } from './config.js';
+import { buildReport, downloadReport } from './report.js';
+import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
+import { probeMachine } from './machine.js';
+import { renderReport, type LogInfo } from './reportview.js';
+import { loadConfig, saveConfig, type GameConfig, type ErrorFeedback } from './config.js';
 import { MIN_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet } from './scoring.js';
+import type { MachineMeta, RunLog } from './stats.js';
 
 type Props = Record<string, string | number | boolean | EventListener>;
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -37,12 +43,20 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return e;
 }
 
+const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps frame was skipped
+
 interface RunCtx {
   engine: Engine;
   strip: StripRenderer;
+  recorder: RunRecorder;
   timed: boolean;
   phase: 'countdown' | 'playing' | 'done';
   countdownStart: number;
+  startedAt: string; // ISO, stamped when play begins
+  droppedFrames: number;
+  lastFrameMs: number;
+  pendingDownT: number; // run-relative t of a keydown awaiting its paint (latency sample)
+  pendingDown: boolean;
   rafId: number;
   ui: {
     time: HTMLElement;
@@ -60,11 +74,21 @@ export class App {
   private readonly latency: LatencyOverlay;
   private run: RunCtx | null = null;
 
+  // gathered once at startup; awaited (long-settled) when a run finishes
+  private machine: MachineMeta | null = null;
+  private readonly machinePromise: Promise<MachineMeta>;
+  private loggingAvailable = false;
+
   constructor(private readonly root: HTMLElement) {
     const params = new URLSearchParams(location.search);
     this.latency = new LatencyOverlay(params.has('debug'));
-    // one listener for the whole app; game input is handled synchronously here.
+
+    this.machinePromise = probeMachine().then((m) => (this.machine = m));
+    void probeHealth().then((ok) => (this.loggingAvailable = ok));
+
+    // one listener each for the whole app; game input is handled synchronously here.
     window.addEventListener('keydown', this.onKey, { passive: false });
+    window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('resize', () => this.run?.strip.resize());
     this.showConfig();
 
@@ -72,6 +96,12 @@ export class App {
     // (dispatches real keydowns, so it drives the same input path a human would).
     const auto = params.get('auto');
     if (auto === 'practice' || auto === 'scored') {
+      // Dev-only: ?secs=N shortens JUST this capture run so a full run→report can be driven
+      // headlessly. Never affects a real scored run (which is always 60 s).
+      const secs = Number(params.get('secs'));
+      if (Number.isFinite(secs) && secs >= 1 && secs <= 60) {
+        this.config = { ...this.config, durationMs: Math.round(secs * 1000) };
+      }
       this.startRun(auto === 'scored', true); // skip the countdown for headless capture
       if (params.has('demo')) this.startDemoTyper();
     }
@@ -90,6 +120,7 @@ export class App {
           key = others[Math.floor(Math.random() * others.length)] ?? key;
         }
         window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+        window.setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })), 30);
       }
       window.setTimeout(tick, 70 + Math.random() * 60);
     };
@@ -105,9 +136,11 @@ export class App {
       return;
     }
     if (this.run.phase !== 'playing') return;
-    const eng = this.run.engine;
+    const rc = this.run;
+    const eng = rc.engine;
     const inAlpha = eng.alphaSet.has(e.key);
-    if (inAlpha && !e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();
+    const modified = e.ctrlKey || e.metaKey || e.altKey;
+    if (inAlpha && !modified) e.preventDefault();
     const now = performance.now();
     this.latency.markKey(now);
     const input: KeyInput = {
@@ -117,7 +150,25 @@ export class App {
       metaKey: e.metaKey,
       altKey: e.altKey,
     };
-    eng.handleKey(input, now);
+    const idxBefore = eng.index;
+    const tRun = now - eng.startMs;
+    const outcome = eng.handleKey(input, now);
+    if (outcome === 'correct' || outcome === 'incorrect') {
+      rc.recorder.recordDown(e.key, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
+      rc.pendingDownT = tRun; // measure this keydown → next paint for the latency samples
+      rc.pendingDown = true;
+    } else if (!inAlpha && !modified && !e.repeat && e.key.length === 1) {
+      rc.recorder.outOfAlphabet++; // a genuine out-of-alphabet character (not a modifier/nav key)
+    }
+  };
+
+  // Key releases are logged (in-alphabet only — never free text) so rollover, the next key
+  // going down before the previous comes up, is measurable. Not part of scoring.
+  private onKeyUp = (e: KeyboardEvent): void => {
+    const rc = this.run;
+    if (this.mode !== 'run' || !rc || rc.phase !== 'playing') return;
+    if (!rc.engine.alphaSet.has(e.key)) return;
+    rc.recorder.recordUp(e.key, rc.engine.index, performance.now() - rc.engine.startMs);
   };
 
   // --------------------------------------------------------------- config ----
@@ -144,6 +195,27 @@ export class App {
       value: this.config.lookahead,
     }) as HTMLInputElement;
 
+    const machineLabel = el('input', {
+      type: 'text',
+      class: 'field-input',
+      value: this.config.label,
+      placeholder: 'e.g. calvin',
+      spellcheck: false,
+      autocomplete: 'off',
+    }) as HTMLInputElement;
+
+    const feedback = el('select', { class: 'field-input' }) as HTMLSelectElement;
+    for (const [val, text] of [
+      ['flash+shake', 'flash + shake'],
+      ['flash', 'flash only'],
+      ['shake', 'shake only'],
+      ['none', 'none'],
+    ] as Array<[ErrorFeedback, string]>) {
+      const opt = el('option', { value: val, text }) as HTMLOptionElement;
+      if (this.config.errorFeedback === val) opt.selected = true;
+      feedback.append(opt);
+    }
+
     const lanes = el('input', { type: 'checkbox', ...(this.config.lanes ? { checked: true } : {}) }) as HTMLInputElement;
     const sound = el('input', { type: 'checkbox', ...(this.config.sound ? { checked: true } : {}) }) as HTMLInputElement;
 
@@ -167,6 +239,8 @@ export class App {
         lookahead: la,
         lanes: lanes.checked,
         sound: sound.checked,
+        errorFeedback: feedback.value as ErrorFeedback,
+        label: machineLabel.value.trim().slice(0, 40),
       };
     };
 
@@ -197,6 +271,8 @@ export class App {
         el('div', { class: 'config-grid' }, [
           field('Alphabet', alpha, 'Unique single keys. N is derived from its length.'),
           field('Lookahead', look, 'Glyphs shown ahead of the target. Higher = more pipelining.'),
+          field('Machine name', machineLabel, 'Labels this machine’s logs. Optional.'),
+          field('Error feedback', feedback, 'How a miss is shown. Recorded, for comparing effects.'),
           el('div', { class: 'field toggles' }, [
             el('label', { class: 'toggle' }, [lanes, el('span', { text: ' Falling lanes' })]),
             el('label', { class: 'toggle' }, [sound, el('span', { text: ' Sound' })]),
@@ -209,6 +285,7 @@ export class App {
           el('button', { class: 'btn primary', onclick: startScored, text: 'Start scored run' }),
         ]),
         el('p', { class: 'strategy', text: 'Making frequent errors? Try a smaller alphabet (dfjk, N=4). Bottlenecked by reading speed? Try a larger one (asdfghjkl;, N=10). Warm up in Practice first.' }),
+        el('p', { class: 'consent', text: 'Runs are saved locally to the logs/ folder and never transmitted anywhere. Only in-alphabet keys are recorded — no free text.' }),
       ]),
     );
     alpha.focus();
@@ -249,14 +326,21 @@ export class App {
     this.run = {
       engine,
       strip,
+      recorder: new RunRecorder(),
       timed,
       phase: immediate ? 'playing' : 'countdown',
       countdownStart: now0,
+      startedAt: '',
+      droppedFrames: 0,
+      lastFrameMs: -1,
+      pendingDownT: 0,
+      pendingDown: false,
       rafId: 0,
       ui: { time, rate, stats, countdown, stripRoot },
     };
     if (immediate) {
       engine.start(now0);
+      this.run.startedAt = new Date().toISOString();
       countdown.classList.add('hidden');
     }
     this.run.rafId = requestAnimationFrame(this.loop);
@@ -275,6 +359,7 @@ export class App {
       if (left <= 0) {
         rc.phase = 'playing';
         rc.engine.start(now);
+        rc.startedAt = new Date().toISOString();
         rc.ui.countdown.classList.add('hidden');
       } else {
         rc.ui.countdown.classList.remove('hidden');
@@ -284,6 +369,8 @@ export class App {
     }
 
     if (rc.phase === 'playing') {
+      if (rc.lastFrameMs >= 0 && now - rc.lastFrameMs > DROPPED_FRAME_MS) rc.droppedFrames++;
+      rc.lastFrameMs = now;
       rc.engine.tick(now);
       if (rc.engine.state === 'ended') {
         rc.phase = 'done';
@@ -294,6 +381,11 @@ export class App {
     }
 
     rc.strip.render(now);
+    // this frame is the paint that follows any pending keydown → close keydown→paint proxy
+    if (rc.pendingDown) {
+      rc.recorder.recordLatency(rc.pendingDownT, now - rc.engine.startMs - rc.pendingDownT);
+      rc.pendingDown = false;
+    }
     this.latency.frame(now);
     rc.rafId = requestAnimationFrame(this.loop);
   };
@@ -321,53 +413,40 @@ export class App {
     if (!rc) return;
     cancelAnimationFrame(rc.rafId);
     const result = rc.engine.result();
-    const report = buildReport(rc.engine, result);
+    void this.completeRun(rc, result);
+  }
+
+  // Off the hot path (the run is over): assemble the log, write it if the endpoint is live,
+  // then render the report. Falls back to the download button when logging is unavailable.
+  private async completeRun(rc: RunCtx, result: ReturnType<Engine['result']>): Promise<void> {
+    const machine = this.machine ?? (await this.machinePromise);
+    const log = buildReport(rc.engine, result, {
+      recorder: rc.recorder,
+      machine,
+      mode: rc.timed ? 'scored' : 'practice',
+      startedAt: rc.startedAt || new Date().toISOString(),
+      droppedFrames: rc.droppedFrames,
+    });
     this.run = null;
-    this.showReport(report);
+
+    let logInfo: LogInfo = { available: this.loggingAvailable };
+    if (this.loggingAvailable) {
+      const res = await postLog(log);
+      logInfo = res.ok ? { available: true, path: res.path } : { available: false, reason: res.reason };
+    }
+    const indexRows: IndexRow[] = this.loggingAvailable ? await fetchIndex(machine.installId) : [];
+    this.showReport(log, logInfo, indexRows);
   }
 
   // --------------------------------------------------------------- report ----
-  private showReport(report: RunReport): void {
+  private showReport(log: RunLog, logInfo: LogInfo, indexRows: IndexRow[]): void {
     this.mode = 'report';
     this.root.replaceChildren();
-
-    const errRows = Object.entries(report.errorsByTarget).sort((a, b) => b[1] - a[1]);
-    const errList = errRows.length
-      ? el('div', { class: 'err-keys' }, errRows.map(([k, n]) =>
-          el('span', { class: 'err-key' }, [el('code', { text: k === ' ' ? '␣' : k }), el('span', { text: ` ×${n}` })]),
-        ))
-      : el('div', { class: 'err-keys muted', text: 'no errors' });
-
-    const stat = (label: string, value: string): HTMLElement =>
-      el('div', { class: 'report-stat' }, [
-        el('div', { class: 'rs-value', text: value }),
-        el('div', { class: 'rs-label', text: label }),
-      ]);
-
-    this.root.append(
-      el('div', { class: 'screen report' }, [
-        el('div', { class: 'headline' }, [
-          el('div', { class: 'big-rate', text: report.bitsPerSecond.toFixed(2) }),
-          el('div', { class: 'big-unit', text: 'bits / second' }),
-        ]),
-        el('div', { class: 'report-grid' }, [
-          stat('N', String(report.n)),
-          stat('correct (Sc)', String(report.sc)),
-          stat('incorrect (Si)', String(report.si)),
-          stat('time', `${report.tSeconds.toFixed(0)} s`),
-          stat('accuracy', `${(report.accuracy * 100).toFixed(1)}%`),
-          stat('gross / s', report.grossPerSecond.toFixed(2)),
-          stat('net bits', report.netBits.toFixed(1)),
-        ]),
-        el('div', { class: 'err-block' }, [el('div', { class: 'err-title', text: 'Errors by target key' }), errList]),
-        el('div', { class: 'buttons' }, [
-          el('button', { class: 'btn ghost', onclick: () => this.showConfig(), text: 'Config' }),
-          el('button', { class: 'btn ghost', onclick: () => downloadReport(report), text: 'Download JSON' }),
-          el('button', { class: 'btn primary', onclick: () => this.startRun(true), text: 'Run again' }),
-        ]),
-        el('p', { class: 'verify-note', text: 'The JSON contains the full generated sequence and every keystroke with timestamps, so the score can be recomputed and the sequence checked for uniformity independently.' }),
-      ]),
-    );
+    renderReport(this.root, log, indexRows, logInfo, {
+      onRunAgain: () => this.startRun(true),
+      onConfig: () => this.showConfig(),
+      onDownload: () => downloadReport(log),
+    });
   }
 }
 
