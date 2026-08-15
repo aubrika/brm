@@ -4,7 +4,7 @@
 
 export type Verdict = 'ok' | 'err';
 export type EventType = 'down' | 'up';
-export type Hand = 'L' | 'R';
+export type Hand = 'L' | 'R' | 'C'; // C = centre (the spacebar thumb)
 export type TransitionKind = 'sameFinger' | 'sameHand' | 'crossHand';
 
 /** One raw event, array-encoded: [t, type, key, idx, verdict]. */

@@ -4,7 +4,7 @@
 // log and hands it to reduceLog(); that fold is the single source of truth for the score,
 // so what the panel sees on screen is exactly what the exported log recomputes to.
 
-export const DEFAULT_ALPHABET = 'asdfjkl;';
+export const DEFAULT_ALPHABET = 'asdf jkl;'; // 8 fingers + the spacebar (thumb) as a central key → N=9
 export const SCORED_DURATION_MS = 60_000;
 export const DEFAULT_LOOKAHEAD = 7;
 export const MIN_LOOKAHEAD = 5;

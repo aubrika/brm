@@ -15,8 +15,10 @@ import type { IndexRow } from './logging.js';
 // carries over from play to report.
 const HAND_BLUE = 'hsl(214, 82%, 67%)';
 const HAND_YELLOW = 'hsl(48, 85%, 60%)';
+const HAND_GRAY = 'hsl(220, 9%, 62%)'; // the spacebar thumb
 function handColor(info: FingerInfo | undefined): string {
-  return info ? (info.hand === 'L' ? HAND_BLUE : HAND_YELLOW) : 'var(--rink)';
+  if (!info) return 'var(--rink)';
+  return info.hand === 'L' ? HAND_BLUE : info.hand === 'R' ? HAND_YELLOW : HAND_GRAY;
 }
 function coloredKey(map: Map<string, FingerInfo>, ch: string): HTMLElement {
   const e = h('code', { class: 'r-di-key', text: fmtKey(ch) });

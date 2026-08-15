@@ -28,7 +28,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   label: '',
 };
 
-const STORAGE_KEY = 'brm.config.v5';
+const STORAGE_KEY = 'brm.config.v7'; // bumped so the new asdf␣jkl; default takes effect
 
 export function loadConfig(): GameConfig {
   try {
