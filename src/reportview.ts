@@ -113,12 +113,13 @@ interface Bar {
   base: number; // portion before the first mistake
   errorDelay: number; // first mistake → correct (stacked on top)
   errCount: number;
+  errKeys: string[]; // the wrong keys pressed during this selection, in order
 }
 function buildBars(log: RunLog, downs: DownEvent[], med: number): Bar[] {
   const bars: Bar[] = [];
   let prevCorrectT: number | null = null;
   let prevCorrectKey: string | null = null;
-  let pending: Array<{ t: number; target: string }> = [];
+  let pending: Array<{ t: number; target: string; key: string }> = [];
   for (const d of downs) {
     if (d.verdict === 'ok') {
       let total: number, base: number, errorDelay: number;
@@ -136,18 +137,18 @@ function buildBars(log: RunLog, downs: DownEvent[], med: number): Bar[] {
           errorDelay = 0;
         }
       }
-      bars.push({ t: d.t, label: log.sequence[d.idx] ?? d.key, from: prevCorrectKey, total, base, errorDelay, errCount: pending.length });
+      bars.push({ t: d.t, label: log.sequence[d.idx] ?? d.key, from: prevCorrectKey, total, base, errorDelay, errCount: pending.length, errKeys: pending.map((p) => p.key) });
       prevCorrectT = d.t;
       prevCorrectKey = d.key;
       pending = [];
     } else if (d.verdict === 'err') {
-      pending.push({ t: d.t, target: log.sequence[d.idx] ?? '?' });
+      pending.push({ t: d.t, target: log.sequence[d.idx] ?? '?', key: d.key });
     }
   }
   // a run that ended mid-error (errors after the last correct) — show the wasted time
   if (pending.length && prevCorrectT !== null) {
     const last = pending[pending.length - 1];
-    bars.push({ t: last.t, label: last.target, from: prevCorrectKey, total: last.t - prevCorrectT, base: 0, errorDelay: last.t - prevCorrectT, errCount: pending.length });
+    bars.push({ t: last.t, label: last.target, from: prevCorrectKey, total: last.t - prevCorrectT, base: 0, errorDelay: last.t - prevCorrectT, errCount: pending.length, errKeys: pending.map((p) => p.key) });
   }
   return bars;
 }
@@ -182,7 +183,9 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
     const g = s('g', { class: b.errCount ? 'r-tick err' : 'r-tick ok', tabindex: '0', role: 'img' });
     g.append(s('rect', { class: 'r-seg-base', x: (x - barW / 2).toFixed(2), y: (baseY - baseH).toFixed(2), width: barW.toFixed(2), height: baseH.toFixed(2) }));
     if (errH > 0.01) g.append(s('rect', { class: 'r-seg-err', x: (x - barW / 2).toFixed(2), y: (baseY - totalH).toFixed(2), width: barW.toFixed(2), height: errH.toFixed(2) }));
-    const errPart = b.errCount ? ` · ${Math.round(b.errorDelay)}ms lost to ${b.errCount} error${b.errCount > 1 ? 's' : ''}` : '';
+    const errPart = b.errCount
+      ? ` · ${Math.round(b.errorDelay)}ms lost to ${b.errCount} error${b.errCount > 1 ? 's' : ''} (pressed ${b.errKeys.map(fmtKey).join(', ')})`
+      : '';
     const digraph = b.from ? `${fmtKey(b.from)} → ${fmtKey(b.label)}` : fmtKey(b.label);
     const label = `${(b.t / 1000).toFixed(2)}s · ${digraph} · ${Math.round(b.total)}ms${errPart}`;
     g.setAttribute('aria-label', label);

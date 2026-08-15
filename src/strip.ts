@@ -19,6 +19,8 @@ const SLACK = 3; // spare pooled nodes past the lookahead
 const CHUNK = 4; // group size
 const GAP = 0.5; // centre-gap width in lane-widths (1 = a full empty lane, 0 = none)
 const LINK_ARROWS = false; // true = per-digraph arrows coloured by the target's hand; false = one plain polyline
+const FOVEAL_CUE = true; // small hand-coloured preview of the next few chars, right above the target
+const FOVEAL_N = 3; // how many upcoming chars the foveal cue shows
 const HIT_FRAC = 0.8; // hit-line position (fraction down the strip) in DDR lanes
 const TARGET_SCALE_LANES = 1.5;
 const TARGET_SCALE_ROW = 1.7;
@@ -34,6 +36,8 @@ export class StripRenderer {
   private readonly root: HTMLElement;
   private readonly layer: HTMLElement;
   private readonly mag: HTMLElement; // chunked-row magnifier
+  private readonly foveal: HTMLElement; // small next-N preview pinned above the target
+  private readonly fovealInners: HTMLSpanElement[] = [];
   private readonly gridL: HTMLElement; // left-hand lane grid (dividers + chunk lines)
   private readonly gridR: HTMLElement; // right-hand lane grid; the gap between them stays empty
   private readonly svg: SVGSVGElement; // links between consecutive glyphs (lanes)
@@ -132,6 +136,16 @@ export class StripRenderer {
       this.edgeRInner.push(ri);
     }
     root.appendChild(this.layer);
+
+    this.foveal = document.createElement('div');
+    this.foveal.className = 'foveal';
+    for (let k = 0; k < FOVEAL_N; k++) {
+      const sp = document.createElement('span');
+      this.foveal.appendChild(sp);
+      this.fovealInners.push(sp);
+    }
+    root.appendChild(this.foveal);
+
     this.resize();
     this.flow = this.flowPos(engine.index);
   }
@@ -206,6 +220,8 @@ export class StripRenderer {
         this.edgeR[i].style.display = 'block';
       }
       this.mag.style.display = 'none';
+      this.foveal.style.display = FOVEAL_CUE ? 'flex' : 'none';
+      this.foveal.style.fontSize = `${Math.max(11, Math.round(this.font * 0.5))}px`;
     } else {
       this.W = Math.max(34, Math.min(78, Math.round(w / 22)));
       this.font = Math.round(this.W * 0.62);
@@ -222,6 +238,7 @@ export class StripRenderer {
       this.mag.style.display = 'block';
       this.mag.style.width = `${(this.W * 1.55).toFixed(0)}px`;
       this.mag.style.height = `${(this.font * 1.9).toFixed(0)}px`;
+      this.foveal.style.display = 'none';
     }
     this.layer.style.setProperty('--glyph-font', `${this.font}px`);
   }
@@ -302,6 +319,21 @@ export class StripRenderer {
         this.receptors[i].style.display = active ? 'block' : 'none';
         this.receptors[i].classList.toggle('active', active);
         if (active) this.receptors[i].style.transform = `translate(-50%,-50%) scale(${pulse.toFixed(3)})`;
+      }
+      // foveal cue: the next FOVEAL_N chars, small + hand-coloured, pinned just above the target
+      if (FOVEAL_CUE) {
+        const sequence = this.engine.sequence;
+        const tx = this.root.clientWidth / 2 + this.laneX(this.engine.target());
+        this.foveal.style.left = `${tx.toFixed(1)}px`;
+        this.foveal.style.top = `${(hitY - this.rowStep * 0.8).toFixed(1)}px`;
+        for (let k = 0; k < this.fovealInners.length; k++) {
+          const g = idx + 1 + k < sequence.length ? sequence[idx + 1 + k] : '';
+          const sp = this.fovealInners[k];
+          sp.textContent = g === ' ' ? '␣' : g;
+          const ci = this.engine.chars.indexOf(g);
+          sp.style.color = ci >= 0 ? this.laneColor[ci] : 'var(--muted)';
+          sp.style.opacity = g ? (1 - k * 0.24).toFixed(2) : '0';
+        }
       }
     } else {
       // chunked-row magnifier holds at centre and pulses on correct
