@@ -79,6 +79,19 @@ export function buildSymbols(alphabet: string, chord: boolean): string[] {
   return out;
 }
 
+// "Chords" mode symbol set: every 1-, 2-, and 3-key combination of the alphabet, each as a
+// sorted key-string ('a', 'as', 'ads'). A target may be several keys pressed at once.
+export function buildChordSymbols(alphabet: string): string[] {
+  const chars = [...alphabet];
+  const n = chars.length;
+  const out: string[] = [];
+  const sorted = (s: string): string => [...s].sort().join('');
+  for (let i = 0; i < n; i++) out.push(chars[i]);
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) out.push(sorted(chars[i] + chars[j]));
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) out.push(sorted(chars[i] + chars[j] + chars[k]));
+  return out;
+}
+
 // i.i.d. uniform sample with replacement from an arbitrary symbol list.
 export function sampleSequence(symbols: readonly string[], count: number, randInt: (n: number) => number): string[] {
   const n = symbols.length;

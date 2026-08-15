@@ -102,6 +102,8 @@ code { font-family: var(--mono); }
 .link-layer polyline { fill: none; stroke: rgba(200, 212, 235, 0.22); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
 /* per-digraph arrows: stroke colour is set inline to the target character's hand colour */
 .link-layer path.link-arrow { fill: none; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+/* horizontal link across the keys of a chord (chords mode) */
+.link-layer path.chord-link { fill: none; stroke: rgba(200, 212, 235, 0.3); stroke-width: 2; stroke-linecap: round; }
 
 /* the receptor box around the current character */
 .receptor {

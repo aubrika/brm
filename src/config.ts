@@ -6,6 +6,7 @@ export interface GameConfig {
   // ---- user-facing (config screen) ----
   leftFingers: string; // keys the left hand types (left→right) — supports alternate layouts
   rightFingers: string; // keys the right hand types (left→right)
+  chords: boolean; // targets are 1-3 key chords pressed together (experiment)
   label: string; // free-text machine name, stamped into each log's filename + meta
 
   // ---- derived / fixed (no longer exposed; kept for the engine/strip/report) ----
@@ -26,6 +27,7 @@ export function composeAlphabet(c: Pick<GameConfig, 'leftFingers' | 'rightFinger
 export const DEFAULT_CONFIG: GameConfig = {
   leftFingers: 'asdf',
   rightFingers: 'jkl;',
+  chords: false,
   label: '',
   alphabet: 'asdfjkl;',
   durationMs: SCORED_DURATION_MS,

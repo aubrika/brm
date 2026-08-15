@@ -34,6 +34,7 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
     n: engine.n,
     leftFingers: engine.config.leftFingers,
     rightFingers: engine.config.rightFingers,
+    chords: engine.config.chords,
     lookahead: engine.config.lookahead,
     lanes: engine.config.lanes,
     chord: engine.config.chord,

@@ -115,21 +115,33 @@ export class App {
       if (!rc || rc.phase === 'done') return;
       if (rc.phase === 'playing') {
         const eng = rc.engine;
-        const sym = eng.target();
-        const wantStar = sym.endsWith('*');
-        let base = wantStar ? sym.slice(0, -1) : sym;
-        if (Math.random() < errorRate) {
-          const others = eng.chars.filter((c) => c !== base);
-          base = others[Math.floor(Math.random() * others.length)] ?? base;
+        if (this.config.chords) {
+          const keys = [...eng.target()];
+          if (Math.random() < errorRate && keys.length) {
+            const others = eng.chars.filter((c) => !keys.includes(c));
+            if (others.length) keys[Math.floor(Math.random() * keys.length)] = others[Math.floor(Math.random() * others.length)];
+          }
+          for (const k of keys) window.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+          window.setTimeout(() => {
+            for (const k of keys) window.dispatchEvent(new KeyboardEvent('keyup', { key: k, bubbles: true }));
+          }, 40);
+        } else {
+          const sym = eng.target();
+          const wantStar = sym.endsWith('*');
+          let base = wantStar ? sym.slice(0, -1) : sym;
+          if (Math.random() < errorRate) {
+            const others = eng.chars.filter((c) => c !== base);
+            base = others[Math.floor(Math.random() * others.length)] ?? base;
+          }
+          if (wantStar) window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: base, bubbles: true }));
+          window.setTimeout(() => {
+            window.dispatchEvent(new KeyboardEvent('keyup', { key: base, bubbles: true }));
+            if (wantStar) window.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
+          }, 30);
         }
-        if (wantStar) window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: base, bubbles: true }));
-        window.setTimeout(() => {
-          window.dispatchEvent(new KeyboardEvent('keyup', { key: base, bubbles: true }));
-          if (wantStar) window.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
-        }, 30);
       }
-      window.setTimeout(tick, 70 + Math.random() * 60);
+      window.setTimeout(tick, (this.config.chords ? 320 : 70) + Math.random() * 80);
     };
     window.setTimeout(tick, 200);
   }
@@ -167,6 +179,15 @@ export class App {
     const idxBefore = eng.index;
     const tRun = now - eng.startMs;
     const outcome = eng.handleKey(input, now);
+    if (this.config.chords) {
+      // chords are scored on release; log the keydown with a placeholder verdict
+      if (inAlpha && !modified && !e.repeat) {
+        rc.recorder.recordDown(e.key, idxBefore, 'ok', tRun);
+        rc.pendingDownT = tRun;
+        rc.pendingDown = true;
+      }
+      return;
+    }
     if (outcome === 'correct' || outcome === 'incorrect') {
       const produced = symbolFor(e.key, this.spaceHeld, this.config.chord);
       rc.recorder.recordDown(produced, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
@@ -184,7 +205,9 @@ export class App {
     const rc = this.run;
     if (this.mode !== 'run' || !rc || rc.phase !== 'playing') return;
     if (!rc.engine.alphaSet.has(e.key)) return;
-    rc.recorder.recordUp(e.key, rc.engine.index, performance.now() - rc.engine.startMs);
+    const now = performance.now();
+    if (this.config.chords) rc.engine.handleKeyUp(e.key, now); // completes a chord on last release
+    rc.recorder.recordUp(e.key, rc.engine.index, now - rc.engine.startMs);
   };
 
   // --------------------------------------------------------------- config ----
@@ -215,6 +238,7 @@ export class App {
 
     const leftFingers = keyInput(this.config.leftFingers);
     const rightFingers = keyInput(this.config.rightFingers);
+    const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
 
@@ -238,6 +262,7 @@ export class App {
       err.textContent = '';
       return {
         ...parts,
+        chords: chords.checked,
         alphabet: v.alphabet,
         label: machineLabel.value.trim().slice(0, 40),
         durationMs: SCORED_DURATION_MS,
@@ -270,6 +295,9 @@ export class App {
           field('Your name', machineLabel, 'Labels this machine’s logs.'),
           field('Left hand', leftFingers, 'Keys the left hand types (edit for other layouts).'),
           field('Right hand', rightFingers, 'Keys the right hand types.'),
+          el('div', { class: 'field toggles' }, [
+            el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
+          ]),
         ]),
         err,
         el('div', { class: 'field-note', text: 'Duration is locked to 60 s for scored runs.' }),

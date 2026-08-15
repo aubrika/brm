@@ -9,7 +9,9 @@ import {
   type RunResult,
   isSelection,
   reduceLog,
+  bitRate,
   buildSymbols,
+  buildChordSymbols,
   sampleSequence,
   symbolFor,
   makeRandInt,
@@ -32,12 +34,18 @@ export class Engine {
   readonly config: GameConfig;
   readonly timed: boolean;
   readonly chars: string[]; // base keys (finger/hand come from these)
-  readonly symbols: string[]; // scored symbols (16 with chord: a, a*, …); n = symbols.length
+  readonly symbols: string[]; // scored symbols; n = symbols.length
   readonly chord: boolean;
+  readonly chords: boolean; // chords mode: a target is 1-3 keys pressed together
   readonly n: number;
   readonly alphaSet: Set<string>;
   readonly sequence: string[];
   readonly logBits: number; // log2(N - 1), precomputed
+
+  // chords mode: keys currently held, and every key pressed in the current press→release cycle
+  private readonly heldKeys = new Set<string>();
+  private readonly pressedKeys = new Set<string>();
+  private readonly chordErrors: Record<string, number> = {};
 
   sc = 0;
   si = 0;
@@ -58,8 +66,9 @@ export class Engine {
     this.timed = timed;
     this.chars = [...config.alphabet];
     this.chord = config.chord;
-    this.symbols = buildSymbols(config.alphabet, config.chord);
-    this.n = this.symbols.length; // N for the formula (16 with chord)
+    this.chords = config.chords;
+    this.symbols = config.chords ? buildChordSymbols(config.alphabet) : buildSymbols(config.alphabet, config.chord);
+    this.n = this.symbols.length; // N for the formula
     this.alphaSet = new Set(this.chars); // base keys are the selection keys
     this.sequence = sampleSequence(this.symbols, SEQUENCE_LENGTH, randInt);
     this.logBits = Math.log2(this.n - 1);
@@ -110,6 +119,12 @@ export class Engine {
     if (!isSelection(raw, this.alphaSet)) return 'ignored';
 
     this.lastEventMs = nowMs;
+    if (this.chords) {
+      // build up a chord; it is scored on release (see handleKeyUp)
+      this.pressedKeys.add(ev.key);
+      this.heldKeys.add(ev.key);
+      return 'ignored';
+    }
     const produced = symbolFor(ev.key, ev.space === true, this.chord);
     if (produced === this.target()) {
       this.sc++;
@@ -119,6 +134,30 @@ export class Engine {
       return 'correct';
     }
     this.si++;
+    this.lastErrorMs = nowMs;
+    this.onError?.();
+    return 'incorrect';
+  }
+
+  // Chords mode only. A selection = the set of keys pressed together in one press→release
+  // cycle, scored when the last key comes up (all keys released). The set must exactly match
+  // the target chord — missing, extra, or wrong keys all make it incorrect (retry-until-right).
+  handleKeyUp(key: string, nowMs: number): Outcome {
+    if (this.state !== 'running' || !this.chords) return 'ignored';
+    if (!this.heldKeys.delete(key)) return 'ignored';
+    if (this.heldKeys.size > 0 || this.pressedKeys.size === 0) return 'ignored';
+    const produced = [...this.pressedKeys].sort().join('');
+    this.pressedKeys.clear();
+    if (produced === this.target()) {
+      this.sc++;
+      this.index++;
+      this.lastCorrectMs = nowMs;
+      this.onCorrect?.();
+      return 'correct';
+    }
+    this.si++;
+    const target = this.target();
+    this.chordErrors[target] = (this.chordErrors[target] ?? 0) + 1;
     this.lastErrorMs = nowMs;
     this.onError?.();
     return 'incorrect';
@@ -149,9 +188,25 @@ export class Engine {
     return total > 0 ? this.sc / total : 1;
   }
 
-  // Authoritative result — recomputed from the raw log, so what the report shows is
-  // exactly what the exported log reproduces.
+  // Authoritative result. Single-key mode folds the raw log (reduceLog). Chords are scored
+  // live (they depend on key-up timing), so their result is built from the live counters.
   result(): RunResult {
+    if (this.chords) {
+      const t = this.config.durationMs / 1000;
+      const total = this.sc + this.si;
+      return {
+        n: this.n,
+        sc: this.sc,
+        si: this.si,
+        tSeconds: t,
+        bitsPerSecond: bitRate(this.n, this.sc, this.si, t),
+        accuracy: total > 0 ? this.sc / total : 0,
+        grossPerSecond: t > 0 ? total / t : 0,
+        netBits: Math.log2(this.n - 1) * Math.max(this.sc - this.si, 0),
+        errorsByTarget: this.chordErrors,
+        outcomes: [],
+      };
+    }
     return reduceLog(this.log, this.config.alphabet, this.sequence, this.config.durationMs, this.config.chord);
   }
 }

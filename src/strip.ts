@@ -38,6 +38,11 @@ export class StripRenderer {
   private readonly mag: HTMLElement; // chunked-row magnifier
   private readonly foveal: HTMLElement; // small next-N preview pinned above the target
   private readonly fovealInners: HTMLSpanElement[] = [];
+  // chords mode: a separate pool (up to 3 glyphs per position) + a horizontal link per chord
+  private chordLayer: HTMLElement | null = null;
+  private readonly chordNodes: HTMLDivElement[] = [];
+  private readonly chordInners: HTMLSpanElement[] = [];
+  private chordPoly: SVGPathElement | null = null;
   private readonly gridL: HTMLElement; // left-hand lane grid (dividers + chunk lines)
   private readonly gridR: HTMLElement; // right-hand lane grid; the gap between them stays empty
   private readonly svg: SVGSVGElement; // links between consecutive glyphs (lanes)
@@ -178,6 +183,26 @@ export class StripRenderer {
     }
     root.appendChild(this.foveal);
 
+    if (engine.config.chords) {
+      this.chordLayer = document.createElement('div');
+      this.chordLayer.className = 'strip-layer';
+      for (let k = 0; k < this.poolSize * 3; k++) {
+        const node = document.createElement('div');
+        node.className = 'glyph';
+        const inner = document.createElement('span');
+        inner.className = 'glyph-inner';
+        node.appendChild(inner);
+        this.chordLayer.appendChild(node);
+        this.chordNodes.push(node);
+        this.chordInners.push(inner);
+      }
+      root.appendChild(this.chordLayer);
+      const cp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      cp.setAttribute('class', 'chord-link');
+      this.svg.appendChild(cp);
+      this.chordPoly = cp;
+    }
+
     this.resize();
     this.flow = this.flowPos(engine.index);
   }
@@ -274,6 +299,19 @@ export class StripRenderer {
       this.foveal.style.display = 'none';
     }
     this.layer.style.setProperty('--glyph-font', `${this.font}px`);
+
+    if (this.chordLayer) {
+      const on = this.engine.config.chords && lanes;
+      this.chordLayer.style.display = on ? 'block' : 'none';
+      this.chordLayer.style.setProperty('--glyph-font', `${this.font}px`);
+      if (on) {
+        // chords render into their own pool; hide the single-key glyphs/edges/link
+        for (const n of this.nodes) n.style.display = 'none';
+        for (const n of this.edgeL) n.style.display = 'none';
+        for (const n of this.edgeR) n.style.display = 'none';
+        this.poly.setAttribute('points', '');
+      }
+    }
   }
 
   // cumulative flow position (px) of sequence position p
@@ -297,6 +335,64 @@ export class StripRenderer {
     const i = this.baseIndexOf(glyph);
     if (i < 0) return 0;
     return this.laneCentreX(i);
+  }
+
+  // chords mode: each sequence position is a 1-3 key chord. Its keys fall on the SAME row
+  // (one y per position), each in its own lane, joined by a horizontal link. The current
+  // target's keys are all boxed (their lane receptors light up) and enlarged together.
+  private renderChordFrame(nowMs: number): void {
+    const seq = this.engine.sequence;
+    const idx = this.engine.index;
+    const lookahead = this.engine.config.lookahead;
+    const cw = this.root.clientWidth, ch = this.root.clientHeight;
+    const sinceCorrect = nowMs - this.engine.lastCorrectMs;
+    const pulse = sinceCorrect < PULSE_MS ? 1 + 0.07 * (1 - sinceCorrect / PULSE_MS) : 1;
+    const sinceErr = nowMs - this.engine.lastErrorMs;
+    const flashActive = sinceErr < SHAKE_MS && this.engine.config.errorFeedback.includes('flash');
+
+    // box every lane in the current target chord (multiple receptors lit at once)
+    const targetKeys = new Set([...this.engine.target()]);
+    for (let i = 0; i < this.receptors.length; i++) {
+      const active = targetKeys.has(this.engine.chars[i]);
+      this.receptors[i].style.display = active ? 'block' : 'none';
+      this.receptors[i].classList.toggle('active', active);
+      if (active) this.receptors[i].style.transform = `translate(-50%,-50%) scale(${pulse.toFixed(3)})`;
+    }
+
+    let slot = 0;
+    const segs: string[] = [];
+    const maxP = idx + lookahead + SLACK + 1;
+    for (let p = idx; p < maxP && p < seq.length; p++) {
+      const chord = seq[p];
+      if (!chord) continue;
+      const along = this.flowPos(p) - this.flow;
+      const y = this.hitOffset - along;
+      const d = along / this.rowStep;
+      const scale = 1 + (TARGET_SCALE_LANES - 1) * Math.exp(-((d / SIGMA_LANES) ** 2));
+      const gi = p - idx;
+      const o = Math.max(0, 1 - gi / (lookahead + 2));
+      const isTarget = p === idx;
+      let minx = Infinity, maxx = -Infinity;
+      for (const key of chord) {
+        if (slot >= this.chordNodes.length) break;
+        const node = this.chordNodes[slot];
+        this.chordInners[slot].textContent = key;
+        slot++;
+        const lx = this.laneX(key);
+        node.className = 'glyph' + (isTarget ? ' current' : '') + (isTarget && flashActive ? ' error' : '');
+        const ci = this.engine.chars.indexOf(key);
+        node.style.setProperty('--gc', ci >= 0 ? this.laneColor[ci] : 'var(--ink)');
+        node.style.transform = `translate(-50%,-50%) translate3d(${lx.toFixed(2)}px,${y.toFixed(2)}px,0) scale(${scale.toFixed(3)})`;
+        node.style.opacity = o.toFixed(3);
+        node.style.zIndex = isTarget ? '3' : '1';
+        node.style.display = 'block';
+        if (lx < minx) minx = lx;
+        if (lx > maxx) maxx = lx;
+      }
+      if (maxx > minx) segs.push(`M${(cw / 2 + minx).toFixed(1)},${(ch / 2 + y).toFixed(1)}L${(cw / 2 + maxx).toFixed(1)},${(ch / 2 + y).toFixed(1)}`);
+    }
+    for (; slot < this.chordNodes.length; slot++) this.chordNodes[slot].style.display = 'none';
+    if (this.chordPoly) this.chordPoly.setAttribute('d', segs.join(' '));
   }
 
   // SVG path for an arrow from the border of an invisible box around the origin glyph to the
@@ -345,6 +441,10 @@ export class StripRenderer {
       const vy = (hitY + this.flow + 0.5 * this.rowStep) % chunkH;
       this.gridL.style.setProperty('--vy', `${vy.toFixed(2)}px`);
       this.gridR.style.setProperty('--vy', `${vy.toFixed(2)}px`);
+      if (this.engine.config.chords) {
+        this.renderChordFrame(nowMs);
+        return; // chords use their own pool; skip the single-key glyph path
+      }
       // show ONLY the target's receptor (a box around the current character), and pulse it
       const col = this.baseIndexOf(this.engine.target());
       for (let i = 0; i < this.receptors.length; i++) {

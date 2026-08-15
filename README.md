@@ -38,6 +38,9 @@ On the start screen you set:
 - **Left hand** — keys the left hand types (default `asdf`). Edit for other layouts.
 - **Right hand** — keys the right hand types (default `jkl;`).
 
+- **Chords** — off by default (experiment). When on, targets are 1–3 key chords you press
+  together and release; all keys of a chord appear on one line, linked and boxed at once.
+
 The alphabet is the two hands together, so the default is `asdfjkl;` (N = 8).
 
 Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
