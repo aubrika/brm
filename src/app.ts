@@ -7,13 +7,13 @@
 
 import { Engine, type KeyInput } from './engine.js';
 import { StripRenderer } from './strip.js';
-import { AudioFeedback } from './audio.js';
+import { AudioFeedback, laneScale } from './audio.js';
 import { LatencyOverlay } from './latency.js';
 import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, composeAlphabet, type GameConfig } from './config.js';
+import { loadConfig, saveConfig, composeAlphabet, laneOrder, type GameConfig } from './config.js';
 import { DEFAULT_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
 import type { MachineMeta, RunLog } from './stats.js';
 
@@ -74,6 +74,7 @@ export class App {
   private readonly latency: LatencyOverlay;
   private run: RunCtx | null = null;
   private spaceHeld = false; // chord modifier state (thumb on the spacebar)
+  private laneFreq = new Map<string, number>(); // base key → its lane's tone (Hz), rebuilt per run
 
   // gathered once at startup; awaited (long-settled) when a run finishes
   private machine: MachineMeta | null = null;
@@ -188,6 +189,10 @@ export class App {
       }
       return;
     }
+    if (outcome === 'correct') {
+      const freq = this.laneFreq.get(e.key); // sound the target's lane tone (auditory lane cue)
+      if (freq !== undefined) this.audio.tone(freq);
+    }
     if (outcome === 'correct' || outcome === 'incorrect') {
       const produced = symbolFor(e.key, this.spaceHeld, this.config.chord);
       rc.recorder.recordDown(produced, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
@@ -240,6 +245,7 @@ export class App {
     const rightFingers = keyInput(this.config.rightFingers);
     const leftTopRow = keyInput(this.config.leftTopRow);
     const rightTopRow = keyInput(this.config.rightTopRow);
+    const topRow = el('input', { type: 'checkbox', ...(this.config.topRow ? { checked: true } : {}) }) as HTMLInputElement;
     const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
@@ -255,6 +261,7 @@ export class App {
       const parts = {
         leftFingers: leftFingers.value,
         rightFingers: rightFingers.value,
+        topRow: topRow.checked,
         leftTopRow: leftTopRow.value,
         rightTopRow: rightTopRow.value,
       };
@@ -302,6 +309,7 @@ export class App {
           field('Left hand top row', leftTopRow, 'Sits above the home row, same finger columns.'),
           field('Right hand top row', rightTopRow, 'Sits above the home row, same finger columns.'),
           el('div', { class: 'field toggles' }, [
+            el('label', { class: 'toggle' }, [topRow, el('span', { text: ' Top row (adds a second row per hand)' })]),
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
           ]),
         ]),
@@ -331,7 +339,10 @@ export class App {
     if (this.config.sound) this.audio.unlock(); // user gesture (button click) is active
 
     const engine = new Engine(this.config, timed);
-    engine.onCorrect = () => this.audio.correct();
+    // each lane gets a distinct scale tone (do-re-mi… left→right); single-key correct hits play
+    // that tone from onKey. Chords have no single lane, so they keep the generic click.
+    this.laneFreq = new Map([...laneOrder(this.config)].map(([ch, i]) => [ch, laneScale(i)]));
+    engine.onCorrect = this.config.chords ? () => this.audio.correct() : null;
     engine.onError = () => this.audio.error();
 
     const stripRoot = el('div', { class: 'strip-root' });

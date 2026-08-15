@@ -97,7 +97,8 @@ export class StripRenderer {
     // colour, same everything else, just stacked a row higher on a real keyboard.
     const cfg = engine.config;
     const leftHome = [...cfg.leftFingers], rightHome = [...cfg.rightFingers];
-    const leftTop = [...cfg.leftTopRow], rightTop = [...cfg.rightTopRow];
+    const leftTop = cfg.topRow ? [...cfg.leftTopRow] : [];
+    const rightTop = cfg.topRow ? [...cfg.rightTopRow] : [];
     this.leftCount = Math.max(leftHome.length, leftTop.length);
     this.rightCount = Math.max(rightHome.length, rightTop.length);
     this.centerWidth = GAP; // no thumbs; a neutral centre gap
@@ -176,6 +177,8 @@ export class StripRenderer {
 
     this.layer = document.createElement('div');
     this.layer.className = 'strip-layer';
+    // top-row mode reserves a diacritic strip above every glyph (scoped in CSS to this class)
+    if (engine.config.topRow) this.layer.classList.add('diacritics');
     for (let k = 0; k < this.poolSize; k++) {
       const [node, inner] = this.mkGlyph('glyph');
       this.nodes.push(node);
@@ -247,8 +250,10 @@ export class StripRenderer {
       const hitY = h * HIT_FRAC;
       this.hitOffset = hitY - h / 2;
       this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
-      // cap the font so the diacritic strip + letter (box ≈ 1.4·font) fits inside one row's pitch
-      this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * 1.1) * 0.62));
+      // when the top row is on, glyphs carry a diacritic strip (box ≈ 1.4·font), so cap the font
+      // smaller to keep strip + letter inside one row's pitch; otherwise use the full size.
+      const rowFactor = this.engine.config.topRow ? 1.1 : 1.3;
+      this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * rowFactor) * 0.62));
       const cx = w / 2, cy = h / 2;
       const half = total / 2;
 

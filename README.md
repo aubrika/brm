@@ -37,14 +37,19 @@ On the start screen you set:
 - **Your name** — labels this machine's saved runs.
 - **Left hand home row** — keys the left hand types (default `asdf`). Edit for other layouts.
 - **Right hand home row** — keys the right hand types (default `jkl;`).
-- **Left hand top row** — the row above (default `qwer`). Each key shares its home-row finger's
-  column, so `q` falls in the same lane as `a`, `w` as `s`, and so on.
-- **Right hand top row** — the row above the right hand (default `uiop`).
+- **Left / Right hand top row** — the customizable second row (default `qwer` / `uiop`), used
+  only when the **Top row** toggle is on. Each top-row key shares its home-row finger's column,
+  so `q` falls in the same lane as `a`, `w` as `s`, and so on.
 
+- **Top row** — off by default (experiment). When on, the top rows join the alphabet, doubling
+  it to N = 16; each top-row glyph is marked with a caret.
 - **Chords** — off by default (experiment). When on, targets are 1–3 key chords you press
   together and release; all keys of a chord appear on one line, linked and boxed at once.
 
-The alphabet is all four rows together, so the default is `asdfjkl;qweruiop` (N = 16).
+The default alphabet is the two home rows, `asdfjkl;` (N = 8).
+
+Each lane also sounds a distinct note on a correct hit — a C-major scale climbing left to right
+(`a`=do … `;`=do an octave up) — an auditory cue for which finger just fired.
 
 Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
 
