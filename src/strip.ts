@@ -247,7 +247,8 @@ export class StripRenderer {
       const hitY = h * HIT_FRAC;
       this.hitOffset = hitY - h / 2;
       this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
-      this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * 1.3) * 0.62));
+      // cap the font so the diacritic strip + letter (box ≈ 1.4·font) fits inside one row's pitch
+      this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * 1.1) * 0.62));
       const cx = w / 2, cy = h / 2;
       const half = total / 2;
 
