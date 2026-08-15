@@ -66,6 +66,7 @@ export class StripRenderer {
   // per-key-index layout, precomputed from the hand structure (left fingers | thumbs | right)
   private readonly laneUnitOf: number[] = []; // lane centre in lane-widths from the strip centre
   private readonly laneKind: string[] = []; // 'L' | 'R' | 'T'(humb)
+  private readonly laneTop: boolean[] = []; // true = top-row key (shares its home finger's column)
   private readonly blockIndex: number[] = []; // position within its own block (band alternation)
   private readonly leftCount: number;
   private readonly rightCount: number;
@@ -89,36 +90,40 @@ export class StripRenderer {
     this.root = root;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
-    // lay out three groups: left fingers (blue) | thumbs (grey, centre) | right fingers (yellow)
+    // Two hand blocks (left fingers blue | neutral centre gap | right fingers yellow). Each
+    // hand has as many COLUMNS as its widest row; a top-row key shares the exact column of its
+    // home-row finger (q over a), so it differs only in the glyph shown — same lane, same
+    // colour, same everything else, just stacked a row higher on a real keyboard.
     const cfg = engine.config;
-    const leftKeys = [...cfg.leftFingers];
-    const rightKeys = [...cfg.rightFingers];
-    const thumbKeys: string[] = []; // centre keys (none for now); leaves a neutral centre gap
-    const leftSet = new Set(leftKeys), rightSet = new Set(rightKeys);
-    this.leftCount = leftKeys.length;
-    this.rightCount = rightKeys.length;
-    this.centerWidth = thumbKeys.length > 0 ? thumbKeys.length : GAP;
+    const leftHome = [...cfg.leftFingers], rightHome = [...cfg.rightFingers];
+    const leftTop = [...cfg.leftTopRow], rightTop = [...cfg.rightTopRow];
+    this.leftCount = Math.max(leftHome.length, leftTop.length);
+    this.rightCount = Math.max(rightHome.length, rightTop.length);
+    this.centerWidth = GAP; // no thumbs; a neutral centre gap
     this.totalUnits = this.leftCount + this.centerWidth + this.rightCount;
     const half = this.totalUnits / 2;
+    // char → {hand, column, top?}; the two rows of a hand index into the same columns
+    const place = new Map<string, { hand: 'L' | 'R'; col: number; top: boolean }>();
+    leftHome.forEach((c, j) => place.set(c, { hand: 'L', col: j, top: false }));
+    rightHome.forEach((c, j) => place.set(c, { hand: 'R', col: j, top: false }));
+    leftTop.forEach((c, j) => place.set(c, { hand: 'L', col: j, top: true }));
+    rightTop.forEach((c, j) => place.set(c, { hand: 'R', col: j, top: true }));
     const BLUE = 'hsl(214, 82%, 67%)', BLUE_G = 'hsla(214, 82%, 67%, 0.16)';
     const YELLOW = 'hsl(48, 85%, 60%)', YELLOW_G = 'hsla(48, 85%, 60%, 0.16)';
     const GREY = 'hsl(220, 9%, 62%)', GREY_G = 'hsla(220, 9%, 62%, 0.18)';
     for (let i = 0; i < engine.chars.length; i++) {
-      const ch = engine.chars[i];
-      if (leftSet.has(ch)) {
-        const j = leftKeys.indexOf(ch);
-        this.laneUnitOf.push(-half + j + 0.5);
-        this.laneKind.push('L'); this.blockIndex.push(j);
+      const p = place.get(engine.chars[i]);
+      if (p && p.hand === 'L') {
+        this.laneUnitOf.push(-half + p.col + 0.5);
+        this.laneKind.push('L'); this.laneTop.push(p.top); this.blockIndex.push(p.col);
         this.laneColor.push(BLUE); this.laneGlow.push(BLUE_G);
-      } else if (rightSet.has(ch)) {
-        const j = rightKeys.indexOf(ch);
-        this.laneUnitOf.push(-half + this.leftCount + this.centerWidth + j + 0.5);
-        this.laneKind.push('R'); this.blockIndex.push(j);
+      } else if (p && p.hand === 'R') {
+        this.laneUnitOf.push(-half + this.leftCount + this.centerWidth + p.col + 0.5);
+        this.laneKind.push('R'); this.laneTop.push(p.top); this.blockIndex.push(p.col);
         this.laneColor.push(YELLOW); this.laneGlow.push(YELLOW_G);
       } else {
-        const j = thumbKeys.indexOf(ch); // thumb (or an unclassified key) → centre, grey
-        this.laneUnitOf.push(-half + this.leftCount + (j >= 0 ? j + 0.5 : this.centerWidth / 2));
-        this.laneKind.push('T'); this.blockIndex.push(Math.max(0, j));
+        this.laneUnitOf.push(-half + this.leftCount + this.centerWidth / 2); // unclassified → centre, grey
+        this.laneKind.push('T'); this.laneTop.push(false); this.blockIndex.push(0);
         this.laneColor.push(GREY); this.laneGlow.push(GREY_G);
       }
     }
@@ -263,7 +268,8 @@ export class StripRenderer {
 
       for (let i = 0; i < this.bands.length; i++) {
         const b = this.bands[i];
-        if (this.laneKind[i] === 'T') { b.style.display = 'none'; continue; } // thumb/centre stays neutral
+        // thumb/centre stays neutral; a top-row key shares its home finger's band (drawn once)
+        if (this.laneKind[i] === 'T' || this.laneTop[i]) { b.style.display = 'none'; continue; }
         b.style.display = 'block';
         b.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
         b.style.width = `${this.colStep.toFixed(1)}px`;

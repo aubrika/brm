@@ -238,6 +238,8 @@ export class App {
 
     const leftFingers = keyInput(this.config.leftFingers);
     const rightFingers = keyInput(this.config.rightFingers);
+    const leftTopRow = keyInput(this.config.leftTopRow);
+    const rightTopRow = keyInput(this.config.rightTopRow);
     const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
@@ -253,6 +255,8 @@ export class App {
       const parts = {
         leftFingers: leftFingers.value,
         rightFingers: rightFingers.value,
+        leftTopRow: leftTopRow.value,
+        rightTopRow: rightTopRow.value,
       };
       const v = validateAlphabet(composeAlphabet(parts));
       if (!v.ok) {
@@ -293,8 +297,10 @@ export class App {
         el('p', { class: 'subtitle', text: 'Type the magnified target. Correct selections add bits; errors subtract. Accuracy is worth about twice raw speed.' }),
         el('div', { class: 'config-grid' }, [
           field('Your name', machineLabel, 'Labels this machine’s logs.'),
-          field('Left hand', leftFingers, 'Keys the left hand types (edit for other layouts).'),
-          field('Right hand', rightFingers, 'Keys the right hand types.'),
+          field('Left hand home row', leftFingers, 'Keys the left hand types (edit for other layouts).'),
+          field('Right hand home row', rightFingers, 'Keys the right hand types.'),
+          field('Left hand top row', leftTopRow, 'Sits above the home row, same finger columns.'),
+          field('Right hand top row', rightTopRow, 'Sits above the home row, same finger columns.'),
           el('div', { class: 'field toggles' }, [
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
           ]),

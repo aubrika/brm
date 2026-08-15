@@ -4,13 +4,15 @@ export type ErrorFeedback = 'none' | 'flash' | 'shake' | 'flash+shake';
 
 export interface GameConfig {
   // ---- user-facing (config screen) ----
-  leftFingers: string; // keys the left hand types (left→right) — supports alternate layouts
-  rightFingers: string; // keys the right hand types (left→right)
+  leftFingers: string; // keys the left hand home row types (left→right) — supports alternate layouts
+  rightFingers: string; // keys the right hand home row types (left→right)
+  leftTopRow: string; // left hand top row; each key sits in the same column as its home-row finger
+  rightTopRow: string; // right hand top row
   chords: boolean; // targets are 1-3 key chords pressed together (experiment)
   label: string; // free-text machine name, stamped into each log's filename + meta
 
   // ---- derived / fixed (no longer exposed; kept for the engine/strip/report) ----
-  alphabet: string; // leftFingers + rightFingers
+  alphabet: string; // leftFingers + rightFingers + leftTopRow + rightTopRow
   durationMs: number; // locked to 60_000 for scored runs
   lookahead: number; // fixed at 7
   lanes: boolean; // fixed: falling lanes
@@ -19,17 +21,21 @@ export interface GameConfig {
   errorFeedback: ErrorFeedback; // fixed: flash only
 }
 
-// The scored alphabet: the two hands concatenated, so the strip can group by position.
-export function composeAlphabet(c: Pick<GameConfig, 'leftFingers' | 'rightFingers'>): string {
-  return c.leftFingers + c.rightFingers;
+// The scored alphabet: all four key rows concatenated, so the strip can group by position.
+export function composeAlphabet(
+  c: Pick<GameConfig, 'leftFingers' | 'rightFingers' | 'leftTopRow' | 'rightTopRow'>,
+): string {
+  return c.leftFingers + c.rightFingers + c.leftTopRow + c.rightTopRow;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
   leftFingers: 'asdf',
   rightFingers: 'jkl;',
+  leftTopRow: 'qwer',
+  rightTopRow: 'uiop',
   chords: false,
   label: '',
-  alphabet: 'asdfjkl;',
+  alphabet: 'asdfjkl;qweruiop',
   durationMs: SCORED_DURATION_MS,
   lookahead: DEFAULT_LOOKAHEAD,
   lanes: true,
@@ -38,7 +44,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v8'; // structure changed (left/right fingers + thumbs)
+const STORAGE_KEY = 'brm.config.v9'; // added top-row keys (N=16)
 
 export function loadConfig(): GameConfig {
   try {

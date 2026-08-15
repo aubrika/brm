@@ -35,13 +35,16 @@ cd dist && python3 -m http.server 8000
 On the start screen you set:
 
 - **Your name** — labels this machine's saved runs.
-- **Left hand** — keys the left hand types (default `asdf`). Edit for other layouts.
-- **Right hand** — keys the right hand types (default `jkl;`).
+- **Left hand home row** — keys the left hand types (default `asdf`). Edit for other layouts.
+- **Right hand home row** — keys the right hand types (default `jkl;`).
+- **Left hand top row** — the row above (default `qwer`). Each key shares its home-row finger's
+  column, so `q` falls in the same lane as `a`, `w` as `s`, and so on.
+- **Right hand top row** — the row above the right hand (default `uiop`).
 
 - **Chords** — off by default (experiment). When on, targets are 1–3 key chords you press
   together and release; all keys of a chord appear on one line, linked and boxed at once.
 
-The alphabet is the two hands together, so the default is `asdfjkl;` (N = 8).
+The alphabet is all four rows together, so the default is `asdfjkl;qweruiop` (N = 16).
 
 Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
 
