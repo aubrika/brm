@@ -22,6 +22,7 @@ const LINK_ARROWS = false; // true = per-digraph arrows coloured by the target's
 const FOVEAL_CUE = false; // small hand-coloured preview of the next few chars, right above the target
 const FOVEAL_N = 3; // how many upcoming chars the foveal cue shows
 const LANE_HIGHLIGHT = true; // highlight the full lane of the current target (+ 50% for the next)
+const TOP_ROW_CARET = true; // a small caret above every top-row glyph (cue: reach up a row)
 const HIT_FRAC = 0.8; // hit-line position (fraction down the strip) in DDR lanes
 const TARGET_SCALE_LANES = 1.5;
 const TARGET_SCALE_ROW = 1.7;
@@ -536,8 +537,9 @@ export class StripRenderer {
         const chorded = glyph.endsWith('*');
         const baseCh = chorded ? glyph.slice(0, -1) : glyph;
         const displayCh = baseCh === ' ' ? '␣' : baseCh; // show the space key as an open box
-        const cls = chorded ? 'glyph chord' : 'glyph';
         const ci = this.baseIndexOf(glyph);
+        const topRow = TOP_ROW_CARET && ci >= 0 && this.laneTop[ci]; // caret cue for top-row keys
+        const cls = 'glyph' + (chorded ? ' chord' : '') + (topRow ? ' toprow' : '');
         const gc = ci >= 0 ? this.laneColor[ci] : 'var(--ink)';
         this.inners[nk].textContent = displayCh;
         node.className = cls;
