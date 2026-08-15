@@ -215,7 +215,6 @@ export class App {
 
     const leftFingers = keyInput(this.config.leftFingers);
     const rightFingers = keyInput(this.config.rightFingers);
-    const spacebar = el('input', { type: 'checkbox', ...(this.config.spacebar ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
 
@@ -230,7 +229,6 @@ export class App {
       const parts = {
         leftFingers: leftFingers.value,
         rightFingers: rightFingers.value,
-        spacebar: spacebar.checked,
       };
       const v = validateAlphabet(composeAlphabet(parts));
       if (!v.ok) {
@@ -270,11 +268,8 @@ export class App {
         el('p', { class: 'subtitle', text: 'Type the magnified target. Correct selections add bits; errors subtract. Accuracy is worth about twice raw speed.' }),
         el('div', { class: 'config-grid' }, [
           field('Your name', machineLabel, 'Labels this machine’s logs.'),
-          field('Left fingers', leftFingers, 'Keys typed by the left hand.'),
-          field('Right fingers', rightFingers, 'Keys typed by the right hand.'),
-          el('div', { class: 'field toggles' }, [
-            el('label', { class: 'toggle' }, [spacebar, el('span', { text: ' Spacebar as an extra key' })]),
-          ]),
+          field('Left hand', leftFingers, 'Keys the left hand types (edit for other layouts).'),
+          field('Right hand', rightFingers, 'Keys the right hand types.'),
         ]),
         err,
         el('div', { class: 'field-note', text: 'Duration is locked to 60 s for scored runs.' }),

@@ -4,13 +4,12 @@ export type ErrorFeedback = 'none' | 'flash' | 'shake' | 'flash+shake';
 
 export interface GameConfig {
   // ---- user-facing (config screen) ----
-  leftFingers: string; // keys typed by the left hand (left→right)
-  rightFingers: string; // keys typed by the right hand (left→right)
-  spacebar: boolean; // include the spacebar as an extra central key
+  leftFingers: string; // keys the left hand types (left→right) — supports alternate layouts
+  rightFingers: string; // keys the right hand types (left→right)
   label: string; // free-text machine name, stamped into each log's filename + meta
 
   // ---- derived / fixed (no longer exposed; kept for the engine/strip/report) ----
-  alphabet: string; // leftFingers + (space) + rightFingers
+  alphabet: string; // leftFingers + rightFingers
   durationMs: number; // locked to 60_000 for scored runs
   lookahead: number; // fixed at 7
   lanes: boolean; // fixed: falling lanes
@@ -19,18 +18,16 @@ export interface GameConfig {
   errorFeedback: ErrorFeedback; // fixed: flash only
 }
 
-// The scored alphabet, hands ordered left → centre(space) → right so the strip can group by
-// position. The spacebar, when included, sits between the hands.
-export function composeAlphabet(c: Pick<GameConfig, 'leftFingers' | 'rightFingers' | 'spacebar'>): string {
-  return c.leftFingers + (c.spacebar ? ' ' : '') + c.rightFingers;
+// The scored alphabet: the two hands concatenated, so the strip can group by position.
+export function composeAlphabet(c: Pick<GameConfig, 'leftFingers' | 'rightFingers'>): string {
+  return c.leftFingers + c.rightFingers;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
   leftFingers: 'asdf',
   rightFingers: 'jkl;',
-  spacebar: true, // the spacebar, in the centre → N = 9
   label: '',
-  alphabet: 'asdf jkl;',
+  alphabet: 'asdfjkl;',
   durationMs: SCORED_DURATION_MS,
   lookahead: DEFAULT_LOOKAHEAD,
   lanes: true,

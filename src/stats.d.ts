@@ -15,7 +15,6 @@ export interface RunConfig {
   n: number;
   leftFingers: string;
   rightFingers: string;
-  spacebar: boolean;
   lookahead: number;
   lanes: boolean;
   chord: boolean;

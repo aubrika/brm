@@ -35,15 +35,15 @@ cd dist && python3 -m http.server 8000
 On the start screen you set:
 
 - **Your name** — labels this machine's saved runs.
-- **Left fingers** — keys for the left hand (default `asdf`).
-- **Right fingers** — keys for the right hand (default `jkl;`).
-- **Spacebar as an extra key** — on by default. Adds the spacebar as one central key, so the
-  default alphabet is `asdf` + space + `jkl;` (N = 9).
+- **Left hand** — keys the left hand types (default `asdf`). Edit for other layouts.
+- **Right hand** — keys the right hand types (default `jkl;`).
+
+The alphabet is the two hands together, so the default is `asdfjkl;` (N = 8).
 
 Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
 
-Type the highlighted key at the bottom. Left-hand keys are blue, right-hand keys are yellow,
-thumb keys are grey. The bar above shows the keys coming next.
+Type the highlighted key at the bottom. Left-hand keys are blue, right-hand keys are yellow.
+The bar above shows the keys coming next.
 
 ## Runs and analysis
 
