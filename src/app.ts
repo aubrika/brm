@@ -14,7 +14,7 @@ import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
 import { loadConfig, saveConfig, type GameConfig, type ErrorFeedback } from './config.js';
-import { MIN_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet } from './scoring.js';
+import { MIN_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
 import type { MachineMeta, RunLog } from './stats.js';
 
 type Props = Record<string, string | number | boolean | EventListener>;
@@ -73,6 +73,7 @@ export class App {
   private readonly audio = new AudioFeedback(this.config.sound);
   private readonly latency: LatencyOverlay;
   private run: RunCtx | null = null;
+  private spaceHeld = false; // chord modifier state (thumb on the spacebar)
 
   // gathered once at startup; awaited (long-settled) when a run finishes
   private machine: MachineMeta | null = null;
@@ -114,13 +115,19 @@ export class App {
       if (!rc || rc.phase === 'done') return;
       if (rc.phase === 'playing') {
         const eng = rc.engine;
-        let key = eng.target();
+        const sym = eng.target();
+        const wantStar = sym.endsWith('*');
+        let base = wantStar ? sym.slice(0, -1) : sym;
         if (Math.random() < errorRate) {
-          const others = eng.chars.filter((c) => c !== key);
-          key = others[Math.floor(Math.random() * others.length)] ?? key;
+          const others = eng.chars.filter((c) => c !== base);
+          base = others[Math.floor(Math.random() * others.length)] ?? base;
         }
-        window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
-        window.setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })), 30);
+        if (wantStar) window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: base, bubbles: true }));
+        window.setTimeout(() => {
+          window.dispatchEvent(new KeyboardEvent('keyup', { key: base, bubbles: true }));
+          if (wantStar) window.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
+        }, 30);
       }
       window.setTimeout(tick, 70 + Math.random() * 60);
     };
@@ -136,6 +143,12 @@ export class App {
       return;
     }
     if (this.run.phase !== 'playing') return;
+    // spacebar is the chord modifier, not a selection — track it and never let it score/scroll
+    if (this.config.chord && e.key === ' ') {
+      e.preventDefault();
+      this.spaceHeld = true;
+      return;
+    }
     const rc = this.run;
     const eng = rc.engine;
     const inAlpha = eng.alphaSet.has(e.key);
@@ -149,12 +162,14 @@ export class App {
       ctrlKey: e.ctrlKey,
       metaKey: e.metaKey,
       altKey: e.altKey,
+      space: this.spaceHeld,
     };
     const idxBefore = eng.index;
     const tRun = now - eng.startMs;
     const outcome = eng.handleKey(input, now);
     if (outcome === 'correct' || outcome === 'incorrect') {
-      rc.recorder.recordDown(e.key, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
+      const produced = symbolFor(e.key, this.spaceHeld, this.config.chord);
+      rc.recorder.recordDown(produced, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
       rc.pendingDownT = tRun; // measure this keydown → next paint for the latency samples
       rc.pendingDown = true;
     } else if (!inAlpha && !modified && !e.repeat && e.key.length === 1) {
@@ -165,6 +180,7 @@ export class App {
   // Key releases are logged (in-alphabet only — never free text) so rollover, the next key
   // going down before the previous comes up, is measurable. Not part of scoring.
   private onKeyUp = (e: KeyboardEvent): void => {
+    if (e.key === ' ') this.spaceHeld = false;
     const rc = this.run;
     if (this.mode !== 'run' || !rc || rc.phase !== 'playing') return;
     if (!rc.engine.alphaSet.has(e.key)) return;
@@ -217,6 +233,7 @@ export class App {
     }
 
     const lanes = el('input', { type: 'checkbox', ...(this.config.lanes ? { checked: true } : {}) }) as HTMLInputElement;
+    const chord = el('input', { type: 'checkbox', ...(this.config.chord ? { checked: true } : {}) }) as HTMLInputElement;
     const sound = el('input', { type: 'checkbox', ...(this.config.sound ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
@@ -238,6 +255,7 @@ export class App {
         durationMs: SCORED_DURATION_MS,
         lookahead: la,
         lanes: lanes.checked,
+        chord: chord.checked,
         sound: sound.checked,
         errorFeedback: feedback.value as ErrorFeedback,
         label: machineLabel.value.trim().slice(0, 40),
@@ -275,6 +293,7 @@ export class App {
           field('Error feedback', feedback, 'How a miss is shown. Recorded, for comparing effects.'),
           el('div', { class: 'field toggles' }, [
             el('label', { class: 'toggle' }, [lanes, el('span', { text: ' Falling lanes' })]),
+            el('label', { class: 'toggle' }, [chord, el('span', { text: ' Chord (space → ×2 N)' })]),
             el('label', { class: 'toggle' }, [sound, el('span', { text: ' Sound' })]),
           ]),
         ]),
@@ -300,6 +319,7 @@ export class App {
   // ------------------------------------------------------------------ run ----
   private startRun(timed: boolean, immediate = false): void {
     this.mode = 'run';
+    this.spaceHeld = false;
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock(); // user gesture (button click) is active
 

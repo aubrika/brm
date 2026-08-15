@@ -138,6 +138,13 @@ code { font-family: var(--mono); }
   font-family: var(--mono); font-size: var(--glyph-font, 34px); font-weight: 500;
   line-height: 1; color: var(--gc, var(--ink)); white-space: pre;
 }
+/* chord symbols (a*): a small superscript star to the upper-right, in the glyph's hand colour,
+   positioned so the base letter stays centred in its lane */
+.glyph-inner { position: relative; }
+.glyph.chord .glyph-inner::after {
+  content: '*'; position: absolute; left: 100%; top: -0.12em;
+  font-size: 0.5em; font-weight: 700; opacity: 0.9;
+}
 .glyph.current .glyph-inner { font-weight: 700; text-shadow: 0 0 15px currentColor; }
 .glyph.error .glyph-inner { color: var(--error); text-shadow: 0 0 18px rgba(255,91,104,0.75); }
 /* peripheral (side-column) upcoming letters: greyed so only the current target stands out */

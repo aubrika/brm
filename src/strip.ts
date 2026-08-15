@@ -74,16 +74,16 @@ export class StripRenderer {
     this.root = root;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
-    this.split = Math.floor(engine.n / 2); // gap sits between the hands (integer split for odd N)
+    this.split = Math.floor(engine.chars.length / 2); // gap sits between the hands (integer split for odd N)
 
     // left hand blue, right hand yellow (split matches the centre gap)
-    for (let i = 0; i < engine.n; i++) {
+    for (let i = 0; i < engine.chars.length; i++) {
       const left = i < this.split;
       this.laneColor.push(left ? 'hsl(214, 82%, 67%)' : 'hsl(48, 85%, 60%)');
       this.laneGlow.push(left ? 'hsla(214, 82%, 67%, 0.16)' : 'hsla(48, 85%, 60%, 0.16)');
     }
 
-    for (let i = 0; i < engine.n; i++) {
+    for (let i = 0; i < engine.chars.length; i++) {
       const b = document.createElement('div');
       b.className = 'lane-band';
       root.appendChild(b);
@@ -110,7 +110,7 @@ export class StripRenderer {
     }
     root.appendChild(this.svg);
 
-    for (let i = 0; i < engine.n; i++) {
+    for (let i = 0; i < engine.chars.length; i++) {
       const r = document.createElement('div');
       r.className = 'receptor';
       root.appendChild(r);
@@ -169,7 +169,7 @@ export class StripRenderer {
     if (lanes) {
       // the lanes + centre gap span (n + GAP) lane-widths across the centre ~80%; the outer
       // margin holds the peripheral sequence columns
-      const total = this.engine.n + GAP;
+      const total = this.engine.chars.length + GAP;
       this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / total)));
       const hitY = h * HIT_FRAC;
       this.hitOffset = hitY - h / 2;
@@ -183,7 +183,7 @@ export class StripRenderer {
       const rightLeft = leftLeft + (this.split + GAP) * this.colStep;
       const blocks: Array<[HTMLElement, number, number]> = [
         [this.gridL, leftLeft, this.split * this.colStep],
-        [this.gridR, rightLeft, (this.engine.n - this.split) * this.colStep],
+        [this.gridR, rightLeft, (this.engine.chars.length - this.split) * this.colStep],
       ];
       for (const [g, gx, gw] of blocks) {
         g.style.display = 'block';
@@ -254,14 +254,20 @@ export class StripRenderer {
   // is pushed right by GAP lane-widths, leaving an empty centre gap; the whole set stays centred.
   private laneUnit(i: number): number {
     const shift = i < this.split ? 0 : GAP;
-    return i + shift + 0.5 - (this.engine.n + GAP) / 2;
+    return i + shift + 0.5 - (this.engine.chars.length + GAP) / 2;
   }
   private laneCentreX(i: number): number {
     return this.laneUnit(i) * this.colStep;
   }
 
+  // symbol → its BASE key index (a and a* share the same finger/lane); -1 if unknown
+  private baseIndexOf(symbol: string): number {
+    const base = symbol.endsWith('*') ? symbol.slice(0, -1) : symbol;
+    return this.engine.chars.indexOf(base);
+  }
+
   private laneX(glyph: string): number {
-    const i = this.engine.chars.indexOf(glyph);
+    const i = this.baseIndexOf(glyph);
     if (i < 0) return 0;
     return this.laneCentreX(i);
   }
@@ -313,7 +319,7 @@ export class StripRenderer {
       this.gridL.style.setProperty('--vy', `${vy.toFixed(2)}px`);
       this.gridR.style.setProperty('--vy', `${vy.toFixed(2)}px`);
       // show ONLY the target's receptor (a box around the current character), and pulse it
-      const col = this.engine.chars.indexOf(this.engine.target());
+      const col = this.baseIndexOf(this.engine.target());
       for (let i = 0; i < this.receptors.length; i++) {
         const active = i === col;
         this.receptors[i].style.display = active ? 'block' : 'none';
@@ -363,15 +369,19 @@ export class StripRenderer {
       const glyph = p < seq.length ? seq[p] : '';
       if (this.nodeSeq[nk] !== p) {
         this.nodeSeq[nk] = p;
-        this.inners[nk].textContent = glyph;
-        node.className = 'glyph';
-        const ci = this.engine.chars.indexOf(glyph);
+        // glyph may be a chord symbol like 'a*': show the base letter + a 'chord' class (star)
+        const chorded = glyph.endsWith('*');
+        const baseCh = chorded ? glyph.slice(0, -1) : glyph;
+        const cls = chorded ? 'glyph chord' : 'glyph';
+        const ci = this.baseIndexOf(glyph);
         const gc = ci >= 0 ? this.laneColor[ci] : 'var(--ink)';
+        this.inners[nk].textContent = baseCh;
+        node.className = cls;
         node.style.setProperty('--gc', gc);
-        this.edgeLInner[nk].textContent = glyph;
-        this.edgeRInner[nk].textContent = glyph;
-        this.edgeL[nk].className = 'glyph edge';
-        this.edgeR[nk].className = 'glyph edge';
+        this.edgeLInner[nk].textContent = baseCh;
+        this.edgeRInner[nk].textContent = baseCh;
+        this.edgeL[nk].className = `${cls} edge`;
+        this.edgeR[nk].className = `${cls} edge`;
         this.edgeL[nk].style.setProperty('--gc', gc);
         this.edgeR[nk].style.setProperty('--gc', gc);
       }
@@ -398,7 +408,7 @@ export class StripRenderer {
         const rel = p - base;
         cX[rel] = cw / 2 + lx;
         cY[rel] = ch / 2 + y;
-        cCi[rel] = this.engine.chars.indexOf(glyph);
+        cCi[rel] = this.baseIndexOf(glyph);
         cScl[rel] = scale;
         cVis[rel] = glyph !== '' && gi >= 0; // only upcoming glyphs are linked
         if (!LINK_ARROWS && p >= idx && glyph) pts.push(`${(cw / 2 + lx).toFixed(1)},${(ch / 2 + y).toFixed(1)}`);

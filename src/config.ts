@@ -11,6 +11,7 @@ export interface GameConfig {
   durationMs: number; // locked to 60_000 for scored runs
   lookahead: number; // glyphs visible right of the target (>= MIN_LOOKAHEAD)
   lanes: boolean; // piano-roll vertical lanes + hand colour coding
+  chord: boolean; // spacebar (thumb) as a modifier: doubles N via a* variants
   sound: boolean; // AudioContext click/tone feedback
   errorFeedback: ErrorFeedback; // how a miss is shown (also recorded, for the feedback A/B)
   label: string; // free-text machine name, stamped into each log's filename + meta
@@ -21,6 +22,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   durationMs: SCORED_DURATION_MS,
   lookahead: DEFAULT_LOOKAHEAD,
   lanes: true, // falling DDR lanes; off = chunked single row
+  chord: false,
   sound: true,
   errorFeedback: 'flash+shake',
   label: '',

@@ -62,11 +62,34 @@ export function makeRandInt(source: Uint32Source = cryptoSource): (n: number) =>
 // i.i.d. uniform sample with replacement. Back-to-back repeats are NOT filtered — doing so
 // would break i.i.d.; the expected adjacent-repeat rate is exactly 1/N (tested).
 export function generateSequence(alphabet: string, count: number, randInt: (n: number) => number): string[] {
+  return sampleSequence([...alphabet], count, randInt);
+}
+
+// The scored SYMBOL set. With chord on, every base key gains a "*" variant meaning "pressed
+// while the spacebar (thumb) is held" — doubling N without any hand movement. The base key
+// still determines finger/hand/lane; the star is purely the thumb.
+export function buildSymbols(alphabet: string, chord: boolean): string[] {
   const chars = [...alphabet];
-  const n = chars.length;
-  const out: string[] = new Array(count);
-  for (let i = 0; i < count; i++) out[i] = chars[randInt(n)];
+  if (!chord) return chars;
+  const out: string[] = [];
+  for (const c of chars) {
+    out.push(c);
+    out.push(c + '*');
+  }
   return out;
+}
+
+// i.i.d. uniform sample with replacement from an arbitrary symbol list.
+export function sampleSequence(symbols: readonly string[], count: number, randInt: (n: number) => number): string[] {
+  const n = symbols.length;
+  const out: string[] = new Array(count);
+  for (let i = 0; i < count; i++) out[i] = symbols[randInt(n)];
+  return out;
+}
+
+// The symbol a keydown produces: base key alone, or base+"*" when chord is on and space held.
+export function symbolFor(key: string, spaceHeld: boolean, chord: boolean): string {
+  return chord && spaceHeld ? key + '*' : key;
 }
 
 // ---------------------------------------------------------------- bit rate ----
@@ -79,12 +102,13 @@ export function bitRate(n: number, sc: number, si: number, tSeconds: number): nu
 
 // -------------------------------------------------------- state machine --------
 export interface RawKey {
-  key: string; // KeyboardEvent.key
+  key: string; // KeyboardEvent.key (the base key; space is tracked separately, not logged here)
   tMs: number; // ms since t=0 (the moment the first target was shown)
   repeat: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
+  space?: boolean; // was the spacebar held at this keydown? (chord mode; absent = false)
 }
 
 export type Outcome = 'correct' | 'incorrect' | 'ignored';
@@ -121,9 +145,10 @@ export function reduceLog(
   alphabet: string,
   sequence: readonly string[],
   windowMs: number,
+  chord = false,
 ): RunResult {
-  const set = new Set<string>([...alphabet]);
-  const n = set.size;
+  const set = new Set<string>([...alphabet]); // base keys (selection keys); space is not one
+  const n = chord ? set.size * 2 : set.size; // N = symbol count for the bit-rate formula
   let sc = 0;
   let si = 0;
   let index = 0;
@@ -134,8 +159,9 @@ export function reduceLog(
       outcomes.push('ignored');
       continue;
     }
+    const produced = symbolFor(k.key, k.space === true, chord);
     const target = index < sequence.length ? sequence[index] : '';
-    if (k.key === target) {
+    if (produced === target) {
       sc++;
       index++;
       outcomes.push('correct');

@@ -211,3 +211,39 @@ describe('end-to-end bit rate from a scripted log', () => {
     expect(r.errorsByTarget).toEqual({ d: 1, s: 1 });
   });
 });
+
+describe('chord mode (spacebar doubles N)', () => {
+  const alphabet = 'asdfjkl;';
+
+  it('scores base vs starred symbols by the space-held state, and N doubles', () => {
+    const seq = ['a', 'a*', 'k*', 'k'];
+    const log: RawKey[] = [
+      rawKey('a', 100), // target 'a', no space → 'a'  correct
+      rawKey('a', 200), // target 'a*', no space → 'a'  WRONG (missing thumb)
+      rawKey('a', 300, { space: true }), // target 'a*', space → 'a*'  correct
+      rawKey('k', 400, { space: true }), // target 'k*', space → 'k*'  correct
+      rawKey('k', 500), // target 'k', no space → 'k'  correct
+    ];
+    const r = reduceLog(log, alphabet, seq, 60_000, true);
+    expect(r.n).toBe(16); // N = 8 base × 2
+    expect(r.sc).toBe(4);
+    expect(r.si).toBe(1);
+    expect(r.errorsByTarget).toEqual({ 'a*': 1 }); // the miss was on the a* target
+  });
+
+  it('an unwanted thumb turns a correct base key into a wrong starred symbol', () => {
+    const seq = ['a'];
+    const log: RawKey[] = [rawKey('a', 100, { space: true })]; // produced 'a*' ≠ target 'a'
+    const r = reduceLog(log, alphabet, seq, 60_000, true);
+    expect(r.sc).toBe(0);
+    expect(r.si).toBe(1);
+  });
+
+  it('without chord, the space flag is ignored (base-key scoring)', () => {
+    const seq = ['a'];
+    const log: RawKey[] = [rawKey('a', 100, { space: true })];
+    const r = reduceLog(log, alphabet, seq, 60_000, false);
+    expect(r.n).toBe(8);
+    expect(r.sc).toBe(1);
+  });
+});

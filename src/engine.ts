@@ -9,7 +9,9 @@ import {
   type RunResult,
   isSelection,
   reduceLog,
-  generateSequence,
+  buildSymbols,
+  sampleSequence,
+  symbolFor,
   makeRandInt,
   SEQUENCE_LENGTH,
 } from './scoring.js';
@@ -21,6 +23,7 @@ export interface KeyInput {
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
+  space?: boolean; // was the spacebar held? (chord mode)
 }
 
 export type EngineState = 'idle' | 'running' | 'ended';
@@ -28,7 +31,9 @@ export type EngineState = 'idle' | 'running' | 'ended';
 export class Engine {
   readonly config: GameConfig;
   readonly timed: boolean;
-  readonly chars: string[];
+  readonly chars: string[]; // base keys (finger/hand come from these)
+  readonly symbols: string[]; // scored symbols (16 with chord: a, a*, …); n = symbols.length
+  readonly chord: boolean;
   readonly n: number;
   readonly alphaSet: Set<string>;
   readonly sequence: string[];
@@ -52,9 +57,11 @@ export class Engine {
     this.config = config;
     this.timed = timed;
     this.chars = [...config.alphabet];
-    this.n = this.chars.length;
-    this.alphaSet = new Set(this.chars);
-    this.sequence = generateSequence(config.alphabet, SEQUENCE_LENGTH, randInt);
+    this.chord = config.chord;
+    this.symbols = buildSymbols(config.alphabet, config.chord);
+    this.n = this.symbols.length; // N for the formula (16 with chord)
+    this.alphaSet = new Set(this.chars); // base keys are the selection keys
+    this.sequence = sampleSequence(this.symbols, SEQUENCE_LENGTH, randInt);
     this.logBits = Math.log2(this.n - 1);
   }
 
@@ -96,13 +103,15 @@ export class Engine {
       ctrlKey: ev.ctrlKey,
       metaKey: ev.metaKey,
       altKey: ev.altKey,
+      space: ev.space === true,
     };
     this.log.push(raw);
 
     if (!isSelection(raw, this.alphaSet)) return 'ignored';
 
     this.lastEventMs = nowMs;
-    if (ev.key === this.target()) {
+    const produced = symbolFor(ev.key, ev.space === true, this.chord);
+    if (produced === this.target()) {
       this.sc++;
       this.index++;
       this.lastCorrectMs = nowMs;
@@ -143,6 +152,6 @@ export class Engine {
   // Authoritative result — recomputed from the raw log, so what the report shows is
   // exactly what the exported log reproduces.
   result(): RunResult {
-    return reduceLog(this.log, this.config.alphabet, this.sequence, this.config.durationMs);
+    return reduceLog(this.log, this.config.alphabet, this.sequence, this.config.durationMs, this.config.chord);
   }
 }
