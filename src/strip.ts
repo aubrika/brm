@@ -55,10 +55,14 @@ export class StripRenderer {
   private readonly edgeR: HTMLDivElement[] = [];
   private readonly edgeRInner: HTMLSpanElement[] = [];
   private edgeX = 0; // px offset from centre for the peripheral columns
-  private readonly split: number; // left-hand finger-lane count
-  private readonly spaceIdx: number; // index of the ' ' key (central lane), or -1
-  private readonly laneN: number; // finger lanes (excludes the central space lane)
-  private readonly gap: number; // centre gap in lane-widths (a full lane when it holds ␣)
+  // per-key-index layout, precomputed from the hand structure (left fingers | thumbs | right)
+  private readonly laneUnitOf: number[] = []; // lane centre in lane-widths from the strip centre
+  private readonly laneKind: string[] = []; // 'L' | 'R' | 'T'(humb)
+  private readonly blockIndex: number[] = []; // position within its own block (band alternation)
+  private readonly leftCount: number;
+  private readonly rightCount: number;
+  private readonly centerWidth: number; // thumb lanes, or the empty gap when there are none
+  private readonly totalUnits: number; // full width in lane-widths
   private readonly poolSize: number;
   private readonly reducedMotion: boolean;
   private readonly laneColor: string[] = []; // per-column hue, blue (left) → yellow (right)
@@ -77,21 +81,38 @@ export class StripRenderer {
     this.root = root;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
-    this.spaceIdx = engine.chars.indexOf(' ');
-    this.laneN = engine.chars.length - (this.spaceIdx >= 0 ? 1 : 0);
-    this.gap = this.spaceIdx >= 0 ? 1 : GAP; // ␣ occupies a full central lane; else a half gap
-    this.split = Math.floor(this.laneN / 2); // gap sits between the hands
-
-    // left hand blue, right hand yellow, the central ␣ key grey
+    // lay out three groups: left fingers (blue) | thumbs (grey, centre) | right fingers (yellow)
+    const cfg = engine.config;
+    const leftKeys = [...cfg.leftFingers];
+    const rightKeys = [...cfg.rightFingers];
+    const thumbKeys = [...(cfg.thumbs ? cfg.leftThumb + cfg.rightThumb : '')];
+    const leftSet = new Set(leftKeys), rightSet = new Set(rightKeys);
+    this.leftCount = leftKeys.length;
+    this.rightCount = rightKeys.length;
+    this.centerWidth = thumbKeys.length > 0 ? thumbKeys.length : GAP;
+    this.totalUnits = this.leftCount + this.centerWidth + this.rightCount;
+    const half = this.totalUnits / 2;
+    const BLUE = 'hsl(214, 82%, 67%)', BLUE_G = 'hsla(214, 82%, 67%, 0.16)';
+    const YELLOW = 'hsl(48, 85%, 60%)', YELLOW_G = 'hsla(48, 85%, 60%, 0.16)';
+    const GREY = 'hsl(220, 9%, 62%)', GREY_G = 'hsla(220, 9%, 62%, 0.18)';
     for (let i = 0; i < engine.chars.length; i++) {
-      if (engine.chars[i] === ' ') {
-        this.laneColor.push('hsl(220, 9%, 62%)');
-        this.laneGlow.push('hsla(220, 9%, 62%, 0.18)');
-        continue;
+      const ch = engine.chars[i];
+      if (leftSet.has(ch)) {
+        const j = leftKeys.indexOf(ch);
+        this.laneUnitOf.push(-half + j + 0.5);
+        this.laneKind.push('L'); this.blockIndex.push(j);
+        this.laneColor.push(BLUE); this.laneGlow.push(BLUE_G);
+      } else if (rightSet.has(ch)) {
+        const j = rightKeys.indexOf(ch);
+        this.laneUnitOf.push(-half + this.leftCount + this.centerWidth + j + 0.5);
+        this.laneKind.push('R'); this.blockIndex.push(j);
+        this.laneColor.push(YELLOW); this.laneGlow.push(YELLOW_G);
+      } else {
+        const j = thumbKeys.indexOf(ch); // thumb (or an unclassified key) → centre, grey
+        this.laneUnitOf.push(-half + this.leftCount + (j >= 0 ? j + 0.5 : this.centerWidth / 2));
+        this.laneKind.push('T'); this.blockIndex.push(Math.max(0, j));
+        this.laneColor.push(GREY); this.laneGlow.push(GREY_G);
       }
-      const left = this.blockPos(i) < this.split;
-      this.laneColor.push(left ? 'hsl(214, 82%, 67%)' : 'hsl(48, 85%, 60%)');
-      this.laneGlow.push(left ? 'hsla(214, 82%, 67%, 0.16)' : 'hsla(48, 85%, 60%, 0.16)');
     }
 
     for (let i = 0; i < engine.chars.length; i++) {
@@ -178,25 +199,25 @@ export class StripRenderer {
     const lookahead = this.engine.config.lookahead;
 
     if (lanes) {
-      // finger lanes + centre gap span (laneN + gap) lane-widths across the centre ~80%; the
-      // outer margin holds the peripheral sequence columns
-      const total = this.laneN + this.gap;
+      // the hands + centre (thumbs or empty gap) span totalUnits lane-widths across the
+      // centre ~80%; the outer margin holds the peripheral sequence columns
+      const total = this.totalUnits;
       this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / total)));
       const hitY = h * HIT_FRAC;
       this.hitOffset = hitY - h / 2;
       this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
       this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * 1.3) * 0.62));
       const cx = w / 2, cy = h / 2;
+      const half = total / 2;
 
-      // two lane blocks with the gap between them; each block's chunk lines stop at its edges,
-      // so no divider crosses the gap and the gap width is exactly GAP·colStep.
-      const leftLeft = cx - (total / 2) * this.colStep;
-      const rightLeft = leftLeft + (this.split + this.gap) * this.colStep;
+      // one grid block per hand; the centre (thumbs / gap) has no dividers, so chunk lines
+      // never cross it. Block borders bound the neutral centre.
       const blocks: Array<[HTMLElement, number, number]> = [
-        [this.gridL, leftLeft, this.split * this.colStep],
-        [this.gridR, rightLeft, (this.laneN - this.split) * this.colStep],
+        [this.gridL, cx + -half * this.colStep, this.leftCount * this.colStep],
+        [this.gridR, cx + (-half + this.leftCount + this.centerWidth) * this.colStep, this.rightCount * this.colStep],
       ];
       for (const [g, gx, gw] of blocks) {
+        if (gw <= 0) { g.style.display = 'none'; continue; }
         g.style.display = 'block';
         g.style.left = `${gx.toFixed(1)}px`;
         g.style.width = `${gw.toFixed(1)}px`;
@@ -207,13 +228,12 @@ export class StripRenderer {
 
       for (let i = 0; i < this.bands.length; i++) {
         const b = this.bands[i];
-        if (this.engine.chars[i] === ' ') { b.style.display = 'none'; continue; } // ␣ lane stays neutral
+        if (this.laneKind[i] === 'T') { b.style.display = 'none'; continue; } // thumb/centre stays neutral
         b.style.display = 'block';
         b.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
         b.style.width = `${this.colStep.toFixed(1)}px`;
-        const q = this.blockPos(i);
-        const left = q < this.split;
-        const a = (q % 2 === 0 ? 1 : 0.4) * (left ? 0.08 : 0.058); // alternate intensity; balance blue vs (brighter) yellow
+        const left = this.laneKind[i] === 'L';
+        const a = (this.blockIndex[i] % 2 === 0 ? 1 : 0.4) * (left ? 0.08 : 0.058); // alternate intensity; balance blue vs (brighter) yellow
         b.style.background = left ? `hsla(214, 80%, 60%, ${a.toFixed(3)})` : `hsla(48, 85%, 55%, ${a.toFixed(3)})`;
       }
       for (let i = 0; i < this.receptors.length; i++) {
@@ -263,19 +283,8 @@ export class StripRenderer {
     return p * this.W + gaps * this.gapW;
   }
 
-  // character index → finger-block position (0..laneN-1), skipping the central space key
-  private blockPos(i: number): number {
-    return this.spaceIdx >= 0 && i > this.spaceIdx ? i - 1 : i;
-  }
-  // block position → x offset (px) of that lane's centre; the right hand is pushed past the
-  // gap, and the whole set stays centred. The space key (if any) sits dead centre in the gap.
-  private laneUnit(q: number): number {
-    const shift = q < this.split ? 0 : this.gap;
-    return q + shift + 0.5 - (this.laneN + this.gap) / 2;
-  }
   private laneCentreX(i: number): number {
-    if (this.engine.chars[i] === ' ') return 0;
-    return this.laneUnit(this.blockPos(i)) * this.colStep;
+    return this.laneUnitOf[i] * this.colStep;
   }
 
   // symbol → its BASE key index (a and a* share the same finger/lane); -1 if unknown

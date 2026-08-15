@@ -1,34 +1,52 @@
-import {
-  DEFAULT_ALPHABET,
-  SCORED_DURATION_MS,
-  DEFAULT_LOOKAHEAD,
-} from './scoring.js';
+import { SCORED_DURATION_MS, DEFAULT_LOOKAHEAD } from './scoring.js';
 
 export type ErrorFeedback = 'none' | 'flash' | 'shake' | 'flash+shake';
 
 export interface GameConfig {
-  alphabet: string;
-  durationMs: number; // locked to 60_000 for scored runs
-  lookahead: number; // glyphs visible right of the target (>= MIN_LOOKAHEAD)
-  lanes: boolean; // piano-roll vertical lanes + hand colour coding
-  chord: boolean; // spacebar (thumb) as a modifier: doubles N via a* variants
-  sound: boolean; // AudioContext click/tone feedback
-  errorFeedback: ErrorFeedback; // how a miss is shown (also recorded, for the feedback A/B)
+  // ---- user-facing (config screen) ----
+  leftFingers: string; // keys typed by the left hand (left→right)
+  rightFingers: string; // keys typed by the right hand (left→right)
+  thumbs: boolean; // include thumb keys in the centre
+  leftThumb: string; // left-thumb key(s); a space = the spacebar
+  rightThumb: string; // right-thumb key(s)
   label: string; // free-text machine name, stamped into each log's filename + meta
+
+  // ---- derived / fixed (no longer exposed; kept for the engine/strip/report) ----
+  alphabet: string; // leftFingers + thumbs + rightFingers
+  durationMs: number; // locked to 60_000 for scored runs
+  lookahead: number; // fixed at 7
+  lanes: boolean; // fixed: falling lanes
+  chord: boolean; // fixed off (may return later, not user-facing)
+  sound: boolean; // fixed on
+  errorFeedback: ErrorFeedback; // fixed: flash only
+}
+
+// The scored alphabet, hands ordered left → centre(thumbs) → right so the strip can group by
+// position. Thumb keys sit between the hands.
+export function composeAlphabet(
+  c: Pick<GameConfig, 'leftFingers' | 'rightFingers' | 'thumbs' | 'leftThumb' | 'rightThumb'>,
+): string {
+  const thumbs = c.thumbs ? c.leftThumb + c.rightThumb : '';
+  return c.leftFingers + thumbs + c.rightFingers;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
-  alphabet: DEFAULT_ALPHABET,
+  leftFingers: 'asdf',
+  rightFingers: 'jkl;',
+  thumbs: true,
+  leftThumb: '',
+  rightThumb: ' ', // the spacebar, in the centre → N = 9
+  label: '',
+  alphabet: 'asdf jkl;',
   durationMs: SCORED_DURATION_MS,
   lookahead: DEFAULT_LOOKAHEAD,
-  lanes: true, // falling DDR lanes; off = chunked single row
+  lanes: true,
   chord: false,
   sound: true,
-  errorFeedback: 'flash+shake',
-  label: '',
+  errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v7'; // bumped so the new asdf␣jkl; default takes effect
+const STORAGE_KEY = 'brm.config.v8'; // structure changed (left/right fingers + thumbs)
 
 export function loadConfig(): GameConfig {
   try {

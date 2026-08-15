@@ -32,6 +32,11 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
   const config: RunConfig = {
     alphabet: engine.config.alphabet,
     n: engine.n,
+    leftFingers: engine.config.leftFingers,
+    rightFingers: engine.config.rightFingers,
+    thumbs: engine.config.thumbs,
+    leftThumb: engine.config.leftThumb,
+    rightThumb: engine.config.rightThumb,
     lookahead: engine.config.lookahead,
     lanes: engine.config.lanes,
     chord: engine.config.chord,

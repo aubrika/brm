@@ -13,6 +13,11 @@ export type RawEvent = [number, EventType, string, number, Verdict | null];
 export interface RunConfig {
   alphabet: string;
   n: number;
+  leftFingers: string;
+  rightFingers: string;
+  thumbs: boolean;
+  leftThumb: string;
+  rightThumb: string;
   lookahead: number;
   lanes: boolean;
   chord: boolean;

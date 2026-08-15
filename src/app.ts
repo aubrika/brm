@@ -13,8 +13,8 @@ import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, type GameConfig, type ErrorFeedback } from './config.js';
-import { MIN_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
+import { loadConfig, saveConfig, composeAlphabet, type GameConfig } from './config.js';
+import { DEFAULT_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
 import type { MachineMeta, RunLog } from './stats.js';
 
 type Props = Record<string, string | number | boolean | EventListener>;
@@ -193,23 +193,16 @@ export class App {
     this.run = null;
     this.root.replaceChildren();
 
-    const alpha = el('input', {
-      type: 'text',
-      class: 'field-input mono',
-      value: this.config.alphabet,
-      spellcheck: false,
-      autocomplete: 'off',
-      autocapitalize: 'off',
-    }) as HTMLInputElement;
-
-    const look = el('input', {
-      type: 'number',
-      class: 'field-input',
-      min: MIN_LOOKAHEAD,
-      max: 14,
-      step: 1,
-      value: this.config.lookahead,
-    }) as HTMLInputElement;
+    const keyInput = (value: string, placeholder = ''): HTMLInputElement =>
+      el('input', {
+        type: 'text',
+        class: 'field-input mono',
+        value,
+        placeholder,
+        spellcheck: false,
+        autocomplete: 'off',
+        autocapitalize: 'off',
+      }) as HTMLInputElement;
 
     const machineLabel = el('input', {
       type: 'text',
@@ -220,45 +213,54 @@ export class App {
       autocomplete: 'off',
     }) as HTMLInputElement;
 
-    const feedback = el('select', { class: 'field-input' }) as HTMLSelectElement;
-    for (const [val, text] of [
-      ['flash+shake', 'flash + shake'],
-      ['flash', 'flash only'],
-      ['shake', 'shake only'],
-      ['none', 'none'],
-    ] as Array<[ErrorFeedback, string]>) {
-      const opt = el('option', { value: val, text }) as HTMLOptionElement;
-      if (this.config.errorFeedback === val) opt.selected = true;
-      feedback.append(opt);
-    }
-
-    const lanes = el('input', { type: 'checkbox', ...(this.config.lanes ? { checked: true } : {}) }) as HTMLInputElement;
-    const chord = el('input', { type: 'checkbox', ...(this.config.chord ? { checked: true } : {}) }) as HTMLInputElement;
-    const sound = el('input', { type: 'checkbox', ...(this.config.sound ? { checked: true } : {}) }) as HTMLInputElement;
+    const leftFingers = keyInput(this.config.leftFingers);
+    const rightFingers = keyInput(this.config.rightFingers);
+    const thumbs = el('input', { type: 'checkbox', ...(this.config.thumbs ? { checked: true } : {}) }) as HTMLInputElement;
+    const leftThumb = keyInput(this.config.leftThumb, '(none)');
+    const rightThumb = keyInput(this.config.rightThumb, 'spacebar = blank');
 
     const err = el('div', { class: 'field-error' });
 
+    const field = (label: string, control: Node, hint?: string): HTMLElement =>
+      el('label', { class: 'field' }, [
+        el('span', { class: 'field-label', text: label }),
+        control,
+        ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
+      ]);
+
+    const thumbBox = el('div', { class: 'thumb-box' }, [
+      field('Left thumb', leftThumb),
+      field('Right thumb', rightThumb, 'A blank space entry = the spacebar.'),
+    ]);
+    thumbBox.style.display = this.config.thumbs ? 'flex' : 'none';
+    thumbs.addEventListener('change', () => {
+      thumbBox.style.display = thumbs.checked ? 'flex' : 'none';
+    });
+
     const collect = (): GameConfig | null => {
-      const v = validateAlphabet(alpha.value);
+      const parts = {
+        leftFingers: leftFingers.value,
+        rightFingers: rightFingers.value,
+        thumbs: thumbs.checked,
+        leftThumb: thumbs.checked ? leftThumb.value : '',
+        rightThumb: thumbs.checked ? rightThumb.value : '',
+      };
+      const v = validateAlphabet(composeAlphabet(parts));
       if (!v.ok) {
         err.textContent = v.error;
-        alpha.focus();
         return null;
       }
       err.textContent = '';
-      let la = Math.round(Number(look.value));
-      if (!Number.isFinite(la) || la < MIN_LOOKAHEAD) la = MIN_LOOKAHEAD;
-      if (la > 14) la = 14;
-      look.value = String(la);
       return {
+        ...parts,
         alphabet: v.alphabet,
-        durationMs: SCORED_DURATION_MS,
-        lookahead: la,
-        lanes: lanes.checked,
-        chord: chord.checked,
-        sound: sound.checked,
-        errorFeedback: feedback.value as ErrorFeedback,
         label: machineLabel.value.trim().slice(0, 40),
+        durationMs: SCORED_DURATION_MS,
+        lookahead: DEFAULT_LOOKAHEAD,
+        lanes: true,
+        chord: false,
+        sound: true,
+        errorFeedback: 'flash',
       };
     };
 
@@ -275,26 +277,17 @@ export class App {
       this.startRun(true);
     };
 
-    const field = (label: string, control: Node, hint?: string): HTMLElement =>
-      el('label', { class: 'field' }, [
-        el('span', { class: 'field-label', text: label }),
-        control,
-        ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
-      ]);
-
     this.root.append(
       el('div', { class: 'screen config' }, [
         el('h1', { class: 'title', text: 'Bit-Rate Maximizer' }),
         el('p', { class: 'subtitle', text: 'Type the magnified target. Correct selections add bits; errors subtract. Accuracy is worth about twice raw speed.' }),
         el('div', { class: 'config-grid' }, [
-          field('Alphabet', alpha, 'Unique single keys. N is derived from its length.'),
-          field('Lookahead', look, 'Glyphs shown ahead of the target. Higher = more pipelining.'),
-          field('Machine name', machineLabel, 'Labels this machine’s logs. Optional.'),
-          field('Error feedback', feedback, 'How a miss is shown. Recorded, for comparing effects.'),
-          el('div', { class: 'field toggles' }, [
-            el('label', { class: 'toggle' }, [lanes, el('span', { text: ' Falling lanes' })]),
-            el('label', { class: 'toggle' }, [chord, el('span', { text: ' Chord (space → ×2 N)' })]),
-            el('label', { class: 'toggle' }, [sound, el('span', { text: ' Sound' })]),
+          field('Your name', machineLabel, 'Labels this machine’s logs.'),
+          field('Left fingers', leftFingers, 'Keys typed by the left hand.'),
+          field('Right fingers', rightFingers, 'Keys typed by the right hand.'),
+          el('div', { class: 'field' }, [
+            el('label', { class: 'toggle' }, [thumbs, el('span', { text: ' Thumbs' })]),
+            thumbBox,
           ]),
         ]),
         err,
@@ -303,11 +296,10 @@ export class App {
           el('button', { class: 'btn ghost', onclick: startPractice, text: 'Practice' }),
           el('button', { class: 'btn primary', onclick: startScored, text: 'Start scored run' }),
         ]),
-        el('p', { class: 'strategy', text: 'Making frequent errors? Try a smaller alphabet (dfjk, N=4). Bottlenecked by reading speed? Try a larger one (asdfghjkl;, N=10). Warm up in Practice first.' }),
         el('p', { class: 'consent', text: 'Runs are saved locally to the logs/ folder and never transmitted anywhere. Only in-alphabet keys are recorded — no free text.' }),
       ]),
     );
-    alpha.focus();
+    machineLabel.focus();
   }
 
   private commit(c: GameConfig): void {
