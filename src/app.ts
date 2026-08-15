@@ -215,9 +215,7 @@ export class App {
 
     const leftFingers = keyInput(this.config.leftFingers);
     const rightFingers = keyInput(this.config.rightFingers);
-    const thumbs = el('input', { type: 'checkbox', ...(this.config.thumbs ? { checked: true } : {}) }) as HTMLInputElement;
-    const leftThumb = keyInput(this.config.leftThumb, '(none)');
-    const rightThumb = keyInput(this.config.rightThumb, 'spacebar = blank');
+    const spacebar = el('input', { type: 'checkbox', ...(this.config.spacebar ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
 
@@ -228,22 +226,11 @@ export class App {
         ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
       ]);
 
-    const thumbBox = el('div', { class: 'thumb-box' }, [
-      field('Left thumb', leftThumb),
-      field('Right thumb', rightThumb, 'A blank space entry = the spacebar.'),
-    ]);
-    thumbBox.style.display = this.config.thumbs ? 'flex' : 'none';
-    thumbs.addEventListener('change', () => {
-      thumbBox.style.display = thumbs.checked ? 'flex' : 'none';
-    });
-
     const collect = (): GameConfig | null => {
       const parts = {
         leftFingers: leftFingers.value,
         rightFingers: rightFingers.value,
-        thumbs: thumbs.checked,
-        leftThumb: thumbs.checked ? leftThumb.value : '',
-        rightThumb: thumbs.checked ? rightThumb.value : '',
+        spacebar: spacebar.checked,
       };
       const v = validateAlphabet(composeAlphabet(parts));
       if (!v.ok) {
@@ -285,9 +272,8 @@ export class App {
           field('Your name', machineLabel, 'Labels this machine’s logs.'),
           field('Left fingers', leftFingers, 'Keys typed by the left hand.'),
           field('Right fingers', rightFingers, 'Keys typed by the right hand.'),
-          el('div', { class: 'field' }, [
-            el('label', { class: 'toggle' }, [thumbs, el('span', { text: ' Thumbs' })]),
-            thumbBox,
+          el('div', { class: 'field toggles' }, [
+            el('label', { class: 'toggle' }, [spacebar, el('span', { text: ' Spacebar as an extra key' })]),
           ]),
         ]),
         err,

@@ -85,7 +85,7 @@ export class StripRenderer {
     const cfg = engine.config;
     const leftKeys = [...cfg.leftFingers];
     const rightKeys = [...cfg.rightFingers];
-    const thumbKeys = [...(cfg.thumbs ? cfg.leftThumb + cfg.rightThumb : '')];
+    const thumbKeys = cfg.spacebar ? [' '] : []; // the spacebar, centred between the hands
     const leftSet = new Set(leftKeys), rightSet = new Set(rightKeys);
     this.leftCount = leftKeys.length;
     this.rightCount = rightKeys.length;

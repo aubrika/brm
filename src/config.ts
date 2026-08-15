@@ -6,13 +6,11 @@ export interface GameConfig {
   // ---- user-facing (config screen) ----
   leftFingers: string; // keys typed by the left hand (left→right)
   rightFingers: string; // keys typed by the right hand (left→right)
-  thumbs: boolean; // include thumb keys in the centre
-  leftThumb: string; // left-thumb key(s); a space = the spacebar
-  rightThumb: string; // right-thumb key(s)
+  spacebar: boolean; // include the spacebar as an extra central key
   label: string; // free-text machine name, stamped into each log's filename + meta
 
   // ---- derived / fixed (no longer exposed; kept for the engine/strip/report) ----
-  alphabet: string; // leftFingers + thumbs + rightFingers
+  alphabet: string; // leftFingers + (space) + rightFingers
   durationMs: number; // locked to 60_000 for scored runs
   lookahead: number; // fixed at 7
   lanes: boolean; // fixed: falling lanes
@@ -21,21 +19,16 @@ export interface GameConfig {
   errorFeedback: ErrorFeedback; // fixed: flash only
 }
 
-// The scored alphabet, hands ordered left → centre(thumbs) → right so the strip can group by
-// position. Thumb keys sit between the hands.
-export function composeAlphabet(
-  c: Pick<GameConfig, 'leftFingers' | 'rightFingers' | 'thumbs' | 'leftThumb' | 'rightThumb'>,
-): string {
-  const thumbs = c.thumbs ? c.leftThumb + c.rightThumb : '';
-  return c.leftFingers + thumbs + c.rightFingers;
+// The scored alphabet, hands ordered left → centre(space) → right so the strip can group by
+// position. The spacebar, when included, sits between the hands.
+export function composeAlphabet(c: Pick<GameConfig, 'leftFingers' | 'rightFingers' | 'spacebar'>): string {
+  return c.leftFingers + (c.spacebar ? ' ' : '') + c.rightFingers;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
   leftFingers: 'asdf',
   rightFingers: 'jkl;',
-  thumbs: true,
-  leftThumb: '',
-  rightThumb: ' ', // the spacebar, in the centre → N = 9
+  spacebar: true, // the spacebar, in the centre → N = 9
   label: '',
   alphabet: 'asdf jkl;',
   durationMs: SCORED_DURATION_MS,

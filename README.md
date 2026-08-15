@@ -37,9 +37,8 @@ On the start screen you set:
 - **Your name** — labels this machine's saved runs.
 - **Left fingers** — keys for the left hand (default `asdf`).
 - **Right fingers** — keys for the right hand (default `jkl;`).
-- **Thumbs** — on by default. Adds thumb keys in the middle. A blank space entry is the
-  spacebar. Default is the spacebar as one central key, so the default alphabet is
-  `asdf` + space + `jkl;` (N = 9).
+- **Spacebar as an extra key** — on by default. Adds the spacebar as one central key, so the
+  default alphabet is `asdf` + space + `jkl;` (N = 9).
 
 Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
 
