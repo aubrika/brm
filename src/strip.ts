@@ -21,6 +21,7 @@ const GAP = 0.5; // centre-gap width in lane-widths (1 = a full empty lane, 0 = 
 const LINK_ARROWS = false; // true = per-digraph arrows coloured by the target's hand; false = one plain polyline
 const FOVEAL_CUE = false; // small hand-coloured preview of the next few chars, right above the target
 const FOVEAL_N = 3; // how many upcoming chars the foveal cue shows
+const LANE_HIGHLIGHT = true; // highlight the full lane of the current target (+ 50% for the next)
 const HIT_FRAC = 0.8; // hit-line position (fraction down the strip) in DDR lanes
 const TARGET_SCALE_LANES = 1.5;
 const TARGET_SCALE_ROW = 1.7;
@@ -49,6 +50,8 @@ export class StripRenderer {
   private readonly poly: SVGPolylineElement; // plain single-line variant (LINK_ARROWS = false)
   private readonly arrows: SVGPathElement[] = []; // one per upcoming digraph (LINK_ARROWS = true)
   private readonly bands: HTMLElement[] = []; // per-column hand-tinted background wash
+  private readonly laneHiCur: HTMLElement; // full-height highlight on the current target's lane
+  private readonly laneHiNext: HTMLElement; // 50% highlight on the next target's lane
   private readonly receptors: HTMLElement[] = [];
   private readonly nodes: HTMLDivElement[] = [];
   private readonly inners: HTMLSpanElement[] = [];
@@ -126,6 +129,13 @@ export class StripRenderer {
       root.appendChild(b);
       this.bands.push(b);
     }
+
+    this.laneHiCur = document.createElement('div');
+    this.laneHiCur.className = 'lane-hi';
+    root.appendChild(this.laneHiCur);
+    this.laneHiNext = document.createElement('div');
+    this.laneHiNext.className = 'lane-hi next';
+    root.appendChild(this.laneHiNext);
 
     this.gridL = document.createElement('div');
     this.gridL.className = 'lane-grid';
@@ -442,6 +452,8 @@ export class StripRenderer {
       this.gridL.style.setProperty('--vy', `${vy.toFixed(2)}px`);
       this.gridR.style.setProperty('--vy', `${vy.toFixed(2)}px`);
       if (this.engine.config.chords) {
+        this.laneHiCur.style.display = 'none';
+        this.laneHiNext.style.display = 'none';
         this.renderChordFrame(nowMs);
         return; // chords use their own pool; skip the single-key glyph path
       }
@@ -452,6 +464,22 @@ export class StripRenderer {
         this.receptors[i].style.display = active ? 'block' : 'none';
         this.receptors[i].classList.toggle('active', active);
         if (active) this.receptors[i].style.transform = `translate(-50%,-50%) scale(${pulse.toFixed(3)})`;
+      }
+      // highlight the whole lane of the current target (+ 50% for the next one)
+      if (LANE_HIGHLIGHT) {
+        const cxr = this.root.clientWidth / 2;
+        this.laneHiCur.style.display = 'block';
+        this.laneHiCur.style.width = `${this.colStep.toFixed(1)}px`;
+        this.laneHiCur.style.left = `${(cxr + this.laneX(this.engine.target())).toFixed(1)}px`;
+        this.laneHiCur.style.setProperty('--hc', this.laneColor[col] ?? 'var(--ink)');
+        const nxt = idx + 1 < this.engine.sequence.length ? this.engine.sequence[idx + 1] : '';
+        const nci = nxt ? this.baseIndexOf(nxt) : -1;
+        this.laneHiNext.style.display = nci >= 0 ? 'block' : 'none';
+        if (nci >= 0) {
+          this.laneHiNext.style.width = `${this.colStep.toFixed(1)}px`;
+          this.laneHiNext.style.left = `${(cxr + this.laneCentreX(nci)).toFixed(1)}px`;
+          this.laneHiNext.style.setProperty('--hc', this.laneColor[nci] ?? 'var(--ink)');
+        }
       }
       // foveal cue: the next FOVEAL_N chars, small + hand-coloured, pinned just above the target
       if (FOVEAL_CUE) {
@@ -471,6 +499,8 @@ export class StripRenderer {
     } else {
       // chunked-row magnifier holds at centre and pulses on correct
       this.mag.style.transform = `translate(-50%,-50%) scale(${pulse.toFixed(3)})`;
+      this.laneHiCur.style.display = 'none';
+      this.laneHiNext.style.display = 'none';
     }
 
     const seq = this.engine.sequence;

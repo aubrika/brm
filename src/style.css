@@ -97,6 +97,17 @@ code { font-family: var(--mono); }
 /* per-column hand wash (left = blue, right = yellow), alternating intensity */
 .lane-band { position: absolute; top: 0; height: 100%; z-index: 0; pointer-events: none; transform: translateX(-50%); }
 
+/* full-height highlight on the current target's lane (--hc = its hand colour); .next = 50% */
+.lane-hi {
+  position: absolute; top: 0; height: 100%; z-index: 0; pointer-events: none;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--hc, #6ea8fe) 13%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--hc, #6ea8fe) 24%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--hc, #6ea8fe) 24%, transparent);
+  box-shadow: inset 0 0 26px color-mix(in srgb, var(--hc, #6ea8fe) 10%, transparent);
+}
+.lane-hi.next { opacity: 0.5; }
+
 /* links between consecutive glyphs — the path of what's coming next */
 .link-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; overflow: visible; }
 .link-layer polyline { fill: none; stroke: rgba(200, 212, 235, 0.22); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
