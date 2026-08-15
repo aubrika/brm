@@ -19,7 +19,7 @@ const SLACK = 3; // spare pooled nodes past the lookahead
 const CHUNK = 4; // group size
 const GAP = 0.5; // centre-gap width in lane-widths (1 = a full empty lane, 0 = none)
 const LINK_ARROWS = false; // true = per-digraph arrows coloured by the target's hand; false = one plain polyline
-const FOVEAL_CUE = true; // small hand-coloured preview of the next few chars, right above the target
+const FOVEAL_CUE = false; // small hand-coloured preview of the next few chars, right above the target
 const FOVEAL_N = 3; // how many upcoming chars the foveal cue shows
 const HIT_FRAC = 0.8; // hit-line position (fraction down the strip) in DDR lanes
 const TARGET_SCALE_LANES = 1.5;
