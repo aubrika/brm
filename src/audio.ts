@@ -56,10 +56,44 @@ export class AudioFeedback {
     this.blip(170, 95, 0.16, 'sine'); // low tone
   }
 
-  // A clean musical note for a correct selection, pitched by the target's lane (see laneScale).
-  // Triangle wave: warm, clear fundamental, so adjacent scale steps are easy to tell apart.
-  tone(freq: number): void {
-    this.blip(freq, 130, 0.16, 'triangle');
+  // A single sustained voice that holds the CURRENT target's lane pitch and steps to a new one
+  // when the target changes — so the note for the key you must press next rings continuously
+  // until you press it, and typing plays a little melody. Idempotent per frame: only the
+  // oscillator frequency moves, and only when it actually changes.
+  private hold: { osc: OscillatorNode; gain: GainNode } | null = null;
+  private holdFreq = 0;
+
+  holdTone(freq: number): void {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    if (!this.hold) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.setTargetAtTime(0.075, ctx.currentTime, 0.02); // gentle fade-in, no click
+      osc.connect(g).connect(ctx.destination);
+      osc.start();
+      this.hold = { osc, gain: g };
+    } else if (freq !== this.holdFreq) {
+      // step to the next lane's pitch, with a tiny smoothing so the transition doesn't click
+      this.hold.osc.frequency.setTargetAtTime(freq, ctx.currentTime, 0.006);
+    }
+    this.holdFreq = freq;
+  }
+
+  stopHold(): void {
+    if (!this.hold || !this.ctx) {
+      this.hold = null;
+      this.holdFreq = 0;
+      return;
+    }
+    const t = this.ctx.currentTime;
+    this.hold.gain.gain.setTargetAtTime(0.0001, t, 0.03); // fade out, then stop
+    this.hold.osc.stop(t + 0.2);
+    this.hold = null;
+    this.holdFreq = 0;
   }
 }
 

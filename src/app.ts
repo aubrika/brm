@@ -189,10 +189,6 @@ export class App {
       }
       return;
     }
-    if (outcome === 'correct') {
-      const freq = this.laneFreq.get(e.key); // sound the target's lane tone (auditory lane cue)
-      if (freq !== undefined) this.audio.tone(freq);
-    }
     if (outcome === 'correct' || outcome === 'incorrect') {
       const produced = symbolFor(e.key, this.spaceHeld, this.config.chord);
       rc.recorder.recordDown(produced, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
@@ -416,6 +412,12 @@ export class App {
         return;
       }
       this.updateHud(now, rc);
+      // hold the current target's lane note until it's pressed (single-key mode; chords have no
+      // single lane). Idempotent — only steps pitch when the target changes.
+      if (!this.config.chords) {
+        const freq = this.laneFreq.get(rc.engine.target());
+        if (freq !== undefined) this.audio.holdTone(freq);
+      }
     }
 
     rc.strip.render(now);
@@ -442,6 +444,7 @@ export class App {
 
   private abortRun(): void {
     if (this.run) cancelAnimationFrame(this.run.rafId);
+    this.audio.stopHold();
     this.run = null;
     this.showConfig();
   }
@@ -450,6 +453,7 @@ export class App {
     const rc = this.run;
     if (!rc) return;
     cancelAnimationFrame(rc.rafId);
+    this.audio.stopHold();
     const result = rc.engine.result();
     void this.completeRun(rc, result);
   }
