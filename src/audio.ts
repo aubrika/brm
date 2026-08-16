@@ -195,17 +195,31 @@ export class AudioFeedback {
     }
   }
 
+  // A kickdrum beat, not a tick: a low sine that drops in pitch (the "thump") plus a short mid
+  // transient (the "beater") so it still reads on laptop speakers that roll off the sub-bass.
   private clickAt(ctx: AudioContext, at: number, master: GainNode): void {
-    const osc = ctx.createOscillator();
-    const env = ctx.createGain(); // per-click envelope; master holds the volume
-    osc.type = 'triangle';
-    osc.frequency.value = 1600; // above the lane tones (which top out ~1.3 kHz) so it cuts through
-    env.gain.setValueAtTime(0.0001, at);
-    env.gain.linearRampToValueAtTime(1, at + 0.002); // 2 ms attack
-    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.012); // ~10 ms decay, no click-on-the-click
-    osc.connect(env).connect(master);
-    osc.start(at);
-    osc.stop(at + 0.03);
+    const body = ctx.createOscillator();
+    const bodyEnv = ctx.createGain();
+    body.type = 'sine';
+    body.frequency.setValueAtTime(180, at); // punch...
+    body.frequency.exponentialRampToValueAtTime(52, at + 0.07); // ...dropping to a low thump
+    bodyEnv.gain.setValueAtTime(0.0001, at);
+    bodyEnv.gain.linearRampToValueAtTime(1, at + 0.005); // fast attack
+    bodyEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.15); // punchy decay
+    body.connect(bodyEnv).connect(master);
+    body.start(at);
+    body.stop(at + 0.2);
+
+    const beater = ctx.createOscillator();
+    const beaterEnv = ctx.createGain();
+    beater.type = 'triangle';
+    beater.frequency.value = 1100; // the attack click, carries the beat on small speakers
+    beaterEnv.gain.setValueAtTime(0.0001, at);
+    beaterEnv.gain.linearRampToValueAtTime(0.45, at + 0.001);
+    beaterEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.018);
+    beater.connect(beaterEnv).connect(master);
+    beater.start(at);
+    beater.stop(at + 0.04);
   }
 }
 

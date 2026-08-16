@@ -46,14 +46,11 @@ On the start screen you set:
 - **Chords** — off by default (experiment). When on, targets are 1–3 key chords you press
   together and release; all keys of a chord appear on one line, linked and boxed at once.
 
-- **Pacer** — an optional click track to pace against (default Off; experiment). *Proportional*
-  ticks slightly above your measured keystroke rate (see **Push**); *Hill-climbing* searches for
-  the tempo that maximizes your bit rate. It is a suggestion only — it never gates a target or
-  affects scoring. On in practice by default; scored runs stay unpaced unless you tick **Pace
-  scored runs too**. **Push** sets how far above your rate the click runs; **Pacer volume** its
-  loudness. See `bitrate-pacer-spec.md`.
-
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
+
+A **pacer** plays a kickdrum beat to pace against, running 20% above your measured keystroke rate
+(re-estimated every 2 s from a trailing 10 s window, eased ≤5% per step). It is a suggestion only
+— it never gates a target or affects scoring (see `bitrate-pacer-spec.md`).
 
 Each finger sounds one of four consonant tones (the degrees of a major-6th chord), the same four
 on both hands; the hand is carried by the octave (left hand low, right hand an octave up). Voiced

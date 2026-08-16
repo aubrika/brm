@@ -255,17 +255,6 @@ export class App {
     const topRow = el('input', { type: 'checkbox', ...(this.config.topRow ? { checked: true } : {}) }) as HTMLInputElement;
     const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
 
-    const selectInput = (opts: Array<[string, string]>, current: string): HTMLSelectElement => {
-      const s = el('select', { class: 'field-input' }) as HTMLSelectElement;
-      for (const [val, label] of opts) s.append(el('option', { value: val, text: label }));
-      s.value = current;
-      return s;
-    };
-    const pacerMode = selectInput([['off', 'Off'], ['proportional', 'Proportional'], ['hillclimb', 'Hill-climbing']], this.config.pacer);
-    const pacerPush = selectInput([['0.05', '5%'], ['0.1', '10%'], ['0.15', '15%'], ['0.2', '20%']], String(this.config.pacerPush));
-    const pacerVolume = selectInput([['0.05', 'Low'], ['0.09', 'Medium'], ['0.16', 'High']], String(this.config.pacerVolume));
-    const pacerScored = el('input', { type: 'checkbox', ...(this.config.pacerScored ? { checked: true } : {}) }) as HTMLInputElement;
-
     const err = el('div', { class: 'field-error' });
 
     const field = (label: string, control: Node, hint?: string): HTMLElement =>
@@ -294,10 +283,11 @@ export class App {
         chords: chords.checked,
         alphabet: v.alphabet,
         label: machineLabel.value.trim().slice(0, 40),
-        pacer: pacerMode.value as GameConfig['pacer'],
-        pacerPush: Number(pacerPush.value) || 0.1,
-        pacerVolume: Number(pacerVolume.value) || 0.09,
-        pacerScored: pacerScored.checked,
+        // pacer is fixed: always-on proportional, 20% above measured rate, kick at a fixed volume
+        pacer: 'proportional',
+        pacerPush: 0.2,
+        pacerVolume: 0.16,
+        pacerScored: true,
         durationMs: SCORED_DURATION_MS,
         lookahead: DEFAULT_LOOKAHEAD,
         lanes: true,
@@ -330,13 +320,9 @@ export class App {
           field('Right hand home row', rightFingers, 'Keys the right hand types.'),
           field('Left hand top row', leftTopRow, 'Sits above the home row, same finger columns.'),
           field('Right hand top row', rightTopRow, 'Sits above the home row, same finger columns.'),
-          field('Pacer', pacerMode, 'A click track to pace against — a target to push at.'),
-          field('Push', pacerPush, 'Click runs this far above your measured rate.'),
-          field('Pacer volume', pacerVolume, 'Kept low — sits under your attention.'),
           el('div', { class: 'field toggles' }, [
             el('label', { class: 'toggle' }, [topRow, el('span', { text: ' Top row (adds a second row per hand)' })]),
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
-            el('label', { class: 'toggle' }, [pacerScored, el('span', { text: ' Pace scored runs too (default: practice only)' })]),
           ]),
         ]),
         err,

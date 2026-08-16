@@ -61,10 +61,10 @@ export const DEFAULT_CONFIG: GameConfig = {
   rightTopRow: 'uiop',
   chords: false,
   label: '',
-  pacer: 'off',
-  pacerPush: 0.1,
-  pacerVolume: 0.09,
-  pacerScored: false,
+  pacer: 'proportional', // fixed: always-on proportional pacer (no longer user-configurable)
+  pacerPush: 0.2, // fixed: click runs 20% above the measured rate
+  pacerVolume: 0.16, // fixed: kickdrum volume
+  pacerScored: true, // fixed: paces every run (practice and scored)
   alphabet: 'asdfjkl;',
   durationMs: SCORED_DURATION_MS,
   lookahead: DEFAULT_LOOKAHEAD,
@@ -74,7 +74,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v12'; // adaptive pacer replaces the fixed metronome
+const STORAGE_KEY = 'brm.config.v13'; // pacer fixed (proportional, 20%, always on); options removed
 
 export function loadConfig(): GameConfig {
   try {
