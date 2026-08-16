@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Engine, type KeyInput } from './engine.js';
-import { DEFAULT_CONFIG, CHALLENGE_LEAD_S, CHALLENGE_BAND } from './config.js';
+import { DEFAULT_CONFIG, CHALLENGE_ABOVE, CHALLENGE_BELOW } from './config.js';
 
 const key = (k: string): KeyInput => ({ key: k, repeat: false, ctrlKey: false, metaKey: false, altKey: false });
 
@@ -51,44 +51,53 @@ describe('chords mode (press keys together, scored on release)', () => {
   });
 });
 
-// challenge mode: fixed-rate scroll; the index advances by time, and a target unhit before its
-// band passes is a miss. All targets are 'a' (randInt → 0). Past-band time = 2000 ms:
-// progress = (2 − LEAD)·RATE = 0.8 > BAND(0.7), so target 0 resolves; < 1.7, so target 1 doesn't.
+// challenge mode: the roll's scroll position (challengeProgress) is set by the app; the engine hits
+// the current target while it's in the band [−ABOVE, BELOW] and misses it once it scrolls past BELOW.
+// All targets are 'a' (randInt → 0).
 const challengeEngine = (): Engine =>
   new Engine({ ...DEFAULT_CONFIG, challenge: true, chords: false, alphabet: 'asdfjkl;' }, true, () => 0);
-const PAST_BAND_MS = (CHALLENGE_LEAD_S + CHALLENGE_BAND / 2 + 0.4) * 1000; // safely past target 0's band
 
-describe('challenge mode (fixed-rate scroll, hit before the band passes)', () => {
-  it('a correct hit scores but does not advance the index — time does', () => {
+describe('challenge mode (rhythm scroll, hit while the target is in the band)', () => {
+  it('a correct hit while the target is in the band scores and advances', () => {
     const eng = challengeEngine();
     eng.start(0);
+    eng.challengeProgress = 0; // target 0 is at the hit line
     expect(eng.target()).toBe('a');
     eng.handleKey(key('a'), 100);
     expect(eng.sc).toBe(1);
-    expect(eng.index).toBe(0); // the hit clears the target; the index moves on the clock
-    eng.handleKey(key('a'), 150); // pressing the already-cleared target again is ignored
-    expect(eng.sc).toBe(1);
-    eng.tick(PAST_BAND_MS); // band passes → advance, no miss (it was hit)
-    expect(eng.index).toBe(1);
-    expect(eng.si).toBe(0);
+    expect(eng.index).toBe(1); // the hit clears it and advances to the next target
   });
 
-  it('a target left unhit past the band is a miss', () => {
+  it('a correct key pressed before the target reaches the band is ignored (no penalty)', () => {
     const eng = challengeEngine();
     eng.start(0);
-    eng.tick(PAST_BAND_MS);
-    expect(eng.si).toBe(1); // missed target 0
+    eng.challengeProgress = -(CHALLENGE_ABOVE + 0.5); // target 0 still above the band
+    eng.handleKey(key('a'), 100);
+    expect(eng.sc).toBe(0);
+    expect(eng.si).toBe(0);
+    expect(eng.index).toBe(0);
+  });
+
+  it('a target that scrolls past the bottom of the band unhit is a miss', () => {
+    const eng = challengeEngine();
+    eng.start(0);
+    eng.challengeProgress = CHALLENGE_BELOW + 0.1; // target 0 has scrolled past the band
+    eng.tick(200);
+    expect(eng.si).toBe(1);
     expect(eng.index).toBe(1);
     expect(eng.sc).toBe(0);
   });
 
-  it('a wrong key is an error and does not clear the target', () => {
+  it('a wrong key is an error and does not advance', () => {
     const eng = challengeEngine();
     eng.start(0);
+    eng.challengeProgress = 0;
     eng.handleKey(key('s'), 100); // wrong key
     expect(eng.si).toBe(1);
     expect(eng.sc).toBe(0);
-    eng.handleKey(key('a'), 150); // the correct key still clears it, within the band
+    expect(eng.index).toBe(0);
+    eng.handleKey(key('a'), 150); // the correct key still clears it
     expect(eng.sc).toBe(1);
+    expect(eng.index).toBe(1);
   });
 });

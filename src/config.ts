@@ -3,11 +3,13 @@ import type { PacerMode } from './pacer.js';
 
 export type ErrorFeedback = 'none' | 'flash' | 'shake' | 'flash+shake';
 
-// CHALLENGE MODE (experiment): the piano roll scrolls at a fixed rate like a rhythm game, and each
-// target must be selected before it leaves the target band or it counts as a miss.
-export const CHALLENGE_RATE_HZ = 2.0; // targets per second — the fixed scroll rate
-export const CHALLENGE_LEAD_S = 1.6; // lead-in: the first target scrolls in for this long before the band
-export const CHALLENGE_BAND = 0.7; // hittable window past the hit line, in target-rows (miss beyond it)
+// CHALLENGE MODE (experiment): the piano roll scrolls like a rhythm game and each target must be hit
+// while it is inside the target band or it counts as a miss. The scroll rate follows the pacer beat
+// (one target per beat), seeded at a fixed rate until the pacer establishes a tempo.
+export const CHALLENGE_SEED_HZ = 2.0; // scroll rate (targets/s) before the pacer establishes a tempo
+export const CHALLENGE_LEAD_BEATS = 3.0; // lead-in: beats before the first target reaches the band
+export const CHALLENGE_ABOVE = 0.7; // target hittable from this many rows ABOVE the hit line...
+export const CHALLENGE_BELOW = 1.3; // ...to this many rows BELOW; scrolling past that is a miss
 
 export interface GameConfig {
   // ---- user-facing (config screen) ----
@@ -17,7 +19,7 @@ export interface GameConfig {
   leftTopRow: string; // left hand top row; each key sits in the same column as its home-row finger
   rightTopRow: string; // right hand top row
   chords: boolean; // targets are 1-3 key chords pressed together (experiment)
-  challenge: boolean; // CHALLENGE MODE: fixed-rate scroll, hit the target before it leaves the band
+  challenge: boolean; // CHALLENGE MODE: rhythm scroll (rate = pacer beat), hit while in the target band
   label: string; // free-text machine name, stamped into each log's filename + meta
 
   // ---- adaptive auditory pacer (experiment; never gates scoring — see bitrate-pacer-spec.md) ----

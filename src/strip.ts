@@ -13,7 +13,7 @@
 // Hand colour (teal = left, amber = right) applies to both.
 
 import type { Engine } from './engine.js';
-import { CHALLENGE_RATE_HZ, CHALLENGE_LEAD_S, CHALLENGE_BAND } from './config.js';
+import { CHALLENGE_ABOVE, CHALLENGE_BELOW } from './config.js';
 
 const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
@@ -321,8 +321,8 @@ export class StripRenderer {
       // hittable while inside it; below it (CHALLENGE_BAND rows past the line) is a miss.
       if (this.engine.config.challenge) {
         this.hitBand.style.display = 'block';
-        this.hitBand.style.top = `${(cy + this.hitOffset - 0.35 * this.rowStep).toFixed(1)}px`;
-        this.hitBand.style.height = `${((CHALLENGE_BAND + 0.35) * this.rowStep).toFixed(1)}px`;
+        this.hitBand.style.top = `${(cy + this.hitOffset - CHALLENGE_ABOVE * this.rowStep).toFixed(1)}px`;
+        this.hitBand.style.height = `${((CHALLENGE_ABOVE + CHALLENGE_BELOW) * this.rowStep).toFixed(1)}px`;
       } else {
         this.hitBand.style.display = 'none';
       }
@@ -481,11 +481,10 @@ export class StripRenderer {
     const step = lanes ? this.rowStep : this.W;
 
     if (this.engine.config.challenge && this.engine.state === 'running') {
-      // CHALLENGE MODE: the roll scrolls at a fixed rate, driven purely by time. progress counts
-      // targets past the hit line; the engine advances its index on the same clock, so what you
+      // CHALLENGE MODE: the roll scrolls to the beat position the app integrated from the pacer
+      // tempo (engine.challengeProgress). The engine scores misses off the same value, so what you
       // see at the band is exactly what you must hit.
-      const elapsed = (nowMs - this.engine.startMs) / 1000;
-      this.flow = (elapsed - CHALLENGE_LEAD_S) * CHALLENGE_RATE_HZ * this.rowStep;
+      this.flow = this.engine.challengeProgress * this.rowStep;
     } else {
       // flow toward the target; clamp lag so during a burst the target stays in the zone
       const targetFlow = this.flowPos(idx);

@@ -17,7 +17,7 @@ import {
   makeRandInt,
   SEQUENCE_LENGTH,
 } from './scoring.js';
-import { type GameConfig, CHALLENGE_RATE_HZ, CHALLENGE_LEAD_S, CHALLENGE_BAND } from './config.js';
+import { type GameConfig, CHALLENGE_ABOVE, CHALLENGE_BELOW } from './config.js';
 
 export interface KeyInput {
   key: string;
@@ -47,7 +47,9 @@ export class Engine {
   private readonly heldKeys = new Set<string>();
   private readonly pressedKeys = new Set<string>();
   private readonly chordErrors: Record<string, number> = {};
-  private currentHit = false; // challenge mode: has the current target been cleared this slot?
+  // challenge mode: rows the roll has scrolled past the hit line (target i is AT the line when this
+  // == i). Set each frame by the app, which integrates the pacer-driven scroll rate over time.
+  challengeProgress = 0;
 
   sc = 0;
   si = 0;
@@ -130,12 +132,13 @@ export class Engine {
     }
     const produced = symbolFor(ev.key, ev.space === true, this.chord);
     if (this.challenge) {
-      // Fixed-rate scroll: the target index advances by TIME (see challengeTick), not by hitting.
-      // A correct press clears the current target for this slot; the index moves on its own.
+      // The target is hittable while inside the band (ABOVE the line … BELOW it). A correct hit
+      // clears it and advances; a correct key pressed before the target reaches the band is too
+      // early and ignored (no penalty); a wrong key is an error and does not advance.
       if (produced === this.target()) {
-        if (this.currentHit) return 'ignored'; // already cleared this target — no double count
-        this.currentHit = true;
+        if (this.challengeProgress < this.index - CHALLENGE_ABOVE) return 'ignored'; // not in the band yet
         this.sc++;
+        this.index++;
         this.lastCorrectMs = nowMs;
         this.onCorrect?.();
         return 'correct';
@@ -158,19 +161,16 @@ export class Engine {
     return 'incorrect';
   }
 
-  // Challenge mode: advance the target index by the fixed scroll rate. A target still current when
-  // its band has passed (never cleared) is a miss — counted like an incorrect selection. Called
-  // each frame from tick(); the scroll (strip.ts) uses the same rate so visual and scoring agree.
+  // Challenge mode: a target that scrolls past the bottom of the band (challengeProgress beyond it
+  // by more than BELOW) without being hit is a miss — counted like an incorrect selection. The
+  // scroll position is supplied by the app (challengeProgress), which the strip renders from too,
+  // so what you see at the band is exactly what scoring uses. Called each frame from tick().
   private challengeTick(nowMs: number): void {
-    const progress = ((nowMs - this.startMs) / 1000 - CHALLENGE_LEAD_S) * CHALLENGE_RATE_HZ;
-    while (this.index < this.sequence.length && progress > this.index + CHALLENGE_BAND) {
-      if (!this.currentHit) {
-        this.si++; // missed: the target left the band unhit
-        this.lastErrorMs = nowMs;
-        this.onError?.();
-      }
+    while (this.index < this.sequence.length && this.challengeProgress - this.index > CHALLENGE_BELOW) {
+      this.si++; // missed: the target left the band unhit
+      this.lastErrorMs = nowMs;
+      this.onError?.();
       this.index++;
-      this.currentHit = false;
     }
   }
 

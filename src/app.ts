@@ -14,7 +14,7 @@ import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, composeAlphabet, laneAudio, type GameConfig } from './config.js';
+import { loadConfig, saveConfig, composeAlphabet, laneAudio, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
 import { DEFAULT_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
 import type { MachineMeta, RunLog } from './stats.js';
 
@@ -57,6 +57,7 @@ interface RunCtx {
   startedAt: string; // ISO, stamped when play begins
   pacer: PacerController | null; // the tempo controller (null when the pacer is off for this run)
   pacerStarted: boolean; // whether the click scheduler has been kicked off yet
+  challengeBeat: number; // challenge mode: cumulative beat position, integrated from the pacer tempo
   droppedFrames: number;
   lastFrameMs: number;
   pendingDownT: number; // run-relative t of a keydown awaiting its paint (latency sample)
@@ -366,8 +367,9 @@ export class App {
     // The pacer is a training device: on by default only in practice; scored runs measure the
     // player unaided unless they explicitly opt in. It only reads rate/B and emits sound — it can
     // never gate scoring or advancement (spec §1).
-    // the pacer is an adaptive click; challenge mode already fixes the rate, so it's off there
-    const pacerOn = this.config.pacer !== 'off' && !this.config.challenge && (timed ? this.config.pacerScored : true);
+    // In challenge mode the pacer beat drives the scroll rate, so it always runs; otherwise it's a
+    // practice-by-default click (scored only on opt-in).
+    const pacerOn = this.config.pacer !== 'off' && (this.config.challenge || (timed ? this.config.pacerScored : true));
     const pacer = pacerOn
       ? new PacerController({ mode: this.config.pacer, push: this.config.pacerPush, logBits: engine.logBits })
       : null;
@@ -399,6 +401,7 @@ export class App {
       startedAt: '',
       pacer,
       pacerStarted: false,
+      challengeBeat: 0,
       droppedFrames: 0,
       lastFrameMs: -1,
       pendingDownT: 0,
@@ -444,8 +447,16 @@ export class App {
     }
 
     if (rc.phase === 'playing') {
+      const dtMs = rc.lastFrameMs >= 0 ? Math.min(64, now - rc.lastFrameMs) : 16;
       if (rc.lastFrameMs >= 0 && now - rc.lastFrameMs > DROPPED_FRAME_MS) rc.droppedFrames++;
       rc.lastFrameMs = now;
+      // CHALLENGE MODE: integrate the scroll rate (the pacer's tempo, or a seed until it establishes)
+      // into a beat position; the engine scores misses and the strip scrolls from the same value.
+      if (this.config.challenge) {
+        const tempo = rc.pacer && rc.pacer.started ? rc.pacer.currentTempo : CHALLENGE_SEED_HZ;
+        rc.challengeBeat += tempo * (dtMs / 1000);
+        rc.engine.challengeProgress = rc.challengeBeat - CHALLENGE_LEAD_BEATS;
+      }
       rc.engine.tick(now);
       if (rc.engine.state === 'ended') {
         rc.phase = 'done';
