@@ -2,6 +2,8 @@
 // unacceptable). A ~5 ms click on a correct selection, a distinct low tone on error.
 // Off by default; unlocked on a user gesture (browsers require it).
 
+import { scheduleClicks } from './pacer.js';
+
 export class AudioFeedback {
   private ctx: AudioContext | null = null;
   private enabled: boolean;
@@ -124,43 +126,86 @@ export class AudioFeedback {
     this.holdFreq = 0;
   }
 
-  // ---- metronome: a steady pacing tick, scheduled on the audio clock ----
-  // Ticks are placed at exact audio-clock times (not rAF times), so spacing is sample-accurate
-  // despite frame jitter. startMetronome sets the period; pumpMetronome (called each frame)
-  // schedules any ticks falling inside a short lookahead window.
-  private metro: { period: number; next: number } | null = null;
+  // ---- pacer: an adaptive click track, scheduled on the audio clock ----
+  // A short ~1 kHz click at a tempo the controller (pacer.ts) sets and retunes. Clicks are placed
+  // at exact audio-clock times via a lookahead scheduler woken by a 25 ms timer, so their spacing
+  // is sample-accurate regardless of frame jitter or load. A tempo change takes effect at the next
+  // click, never retroactively. Every scheduled click's time is captured (converted to the
+  // performance.now() clock) so the log can align it with the keystroke events. The pacer NEVER
+  // sounds on keypress — it is pacing, not feedback — and never gates anything (see spec §1).
+  private pacer: {
+    intervalId: number;
+    nextClick: number; // audio-clock time (s)
+    tempo: number; // Hz
+    master: GainNode; // reused volume node
+    perfOffsetMs: number; // performance.now() − currentTime·1000, captured once at start
+    clickTimes: number[]; // absolute performance.now() ms, one per emitted click
+  } | null = null;
 
-  startMetronome(periodSec: number): void {
+  private static readonly PACER_LOOKAHEAD = 0.1; // schedule clicks up to 100 ms ahead
+
+  // Begin the click track at tempoHz. Returns false if audio is unavailable (caller records that
+  // and proceeds — the pacer must never block a run).
+  startPacer(tempoHz: number, gain: number): boolean {
     const ctx = this.ensure();
-    if (!ctx || !(periodSec > 0)) return;
-    this.metro = { period: periodSec, next: ctx.currentTime + 0.12 };
+    if (!ctx || !(tempoHz > 0)) return false;
+    const master = ctx.createGain();
+    master.gain.value = gain;
+    master.connect(ctx.destination);
+    const p = {
+      intervalId: 0,
+      nextClick: ctx.currentTime + 0.15,
+      tempo: tempoHz,
+      master,
+      perfOffsetMs: performance.now() - ctx.currentTime * 1000,
+      clickTimes: [] as number[],
+    };
+    p.intervalId = window.setInterval(() => this.pumpPacer(), 25);
+    this.pacer = p;
+    return true;
   }
 
-  stopMetronome(): void {
-    this.metro = null;
+  setPacerTempo(tempoHz: number): void {
+    if (this.pacer && tempoHz > 0) this.pacer.tempo = tempoHz;
   }
 
-  pumpMetronome(): void {
+  // Stop the click track; return the captured click times (absolute performance.now() ms).
+  stopPacer(): number[] {
+    const p = this.pacer;
+    if (!p) return [];
+    clearInterval(p.intervalId);
+    try {
+      p.master.disconnect();
+    } catch {
+      /* already gone */
+    }
+    this.pacer = null;
+    return p.clickTimes;
+  }
+
+  private pumpPacer(): void {
     const ctx = this.ctx;
-    if (!ctx || !this.metro) return;
-    const lookahead = 0.12; // schedule ticks up to 120 ms ahead
-    while (this.metro.next < ctx.currentTime + lookahead) {
-      this.tickAt(ctx, this.metro.next);
-      this.metro.next += this.metro.period;
+    const p = this.pacer;
+    if (!ctx || !p) return;
+    const { clicks, nextClick } = scheduleClicks(ctx.currentTime, p.nextClick, p.tempo, AudioFeedback.PACER_LOOKAHEAD);
+    p.nextClick = nextClick;
+    for (const at of clicks) {
+      this.clickAt(ctx, at, p.master);
+      p.clickTimes.push(Math.round((at * 1000 + p.perfOffsetMs) * 1000) / 1000);
     }
   }
 
-  private tickAt(ctx: AudioContext, t: number): void {
+  private clickAt(ctx: AudioContext, at: number, master: GainNode): void {
     const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.value = 2000; // a short, dry click that sits above the sustained lane tone
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.06, t + 0.001);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.028);
-    osc.connect(g).connect(ctx.destination);
-    osc.start(t);
-    osc.stop(t + 0.05);
+    const env = ctx.createGain(); // per-click envelope; master holds the volume
+    osc.type = 'triangle';
+    osc.frequency.value = 1000; // ~1 kHz, short — sits under the player's attention
+    env.gain.setValueAtTime(0.0001, at);
+    env.gain.linearRampToValueAtTime(1, at + 0.002); // 2 ms attack
+    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.01); // ~8 ms decay, no click-on-the-click
+    osc.connect(env).connect(master);
+    osc.start(at);
+    osc.stop(at + 0.03);
   }
 }
 

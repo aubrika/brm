@@ -1,4 +1,5 @@
 import { SCORED_DURATION_MS, DEFAULT_LOOKAHEAD } from './scoring.js';
+import type { PacerMode } from './pacer.js';
 
 export type ErrorFeedback = 'none' | 'flash' | 'shake' | 'flash+shake';
 
@@ -10,8 +11,13 @@ export interface GameConfig {
   leftTopRow: string; // left hand top row; each key sits in the same column as its home-row finger
   rightTopRow: string; // right hand top row
   chords: boolean; // targets are 1-3 key chords pressed together (experiment)
-  targetBitRate: number; // metronome ticks at the clean-accuracy pace needed to hit this bit rate
   label: string; // free-text machine name, stamped into each log's filename + meta
+
+  // ---- adaptive auditory pacer (experiment; never gates scoring — see bitrate-pacer-spec.md) ----
+  pacer: PacerMode; // 'off' | 'proportional' | 'hillclimb'
+  pacerPush: number; // proportional: click tempo = measured rate × (1 + push)
+  pacerVolume: number; // click gain (kept low — the pacer sits under attention)
+  pacerScored: boolean; // pace scored runs too? (off = practice only, the default)
 
   // ---- derived / fixed (no longer exposed; kept for the engine/strip/report) ----
   alphabet: string; // home rows, plus the top rows when topRow is on (see composeAlphabet)
@@ -54,8 +60,11 @@ export const DEFAULT_CONFIG: GameConfig = {
   leftTopRow: 'qwer',
   rightTopRow: 'uiop',
   chords: false,
-  targetBitRate: 8,
   label: '',
+  pacer: 'off',
+  pacerPush: 0.1,
+  pacerVolume: 0.03,
+  pacerScored: false,
   alphabet: 'asdfjkl;',
   durationMs: SCORED_DURATION_MS,
   lookahead: DEFAULT_LOOKAHEAD,
@@ -65,7 +74,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v11'; // target bit rate (metronome pace)
+const STORAGE_KEY = 'brm.config.v12'; // adaptive pacer replaces the fixed metronome
 
 export function loadConfig(): GameConfig {
   try {

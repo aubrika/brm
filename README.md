@@ -46,9 +46,12 @@ On the start screen you set:
 - **Chords** — off by default (experiment). When on, targets are 1–3 key chords you press
   together and release; all keys of a chord appear on one line, linked and boxed at once.
 
-- **Target rate (bits/s)** — the pace to chase (default 8). A metronome ticks at the keystroke
-  rate you'd need, at clean accuracy, to hit this bit rate: one tick every `log2(N-1) / target`
-  seconds.
+- **Pacer** — an optional click track to pace against (default Off; experiment). *Proportional*
+  ticks slightly above your measured keystroke rate (see **Push**); *Hill-climbing* searches for
+  the tempo that maximizes your bit rate. It is a suggestion only — it never gates a target or
+  affects scoring. On in practice by default; scored runs stay unpaced unless you tick **Pace
+  scored runs too**. **Push** sets how far above your rate the click runs; **Pacer volume** its
+  loudness. See `bitrate-pacer-spec.md`.
 
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
 

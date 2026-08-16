@@ -19,6 +19,7 @@ export interface BuildOpts {
   mode: 'scored' | 'practice';
   startedAt: string; // ISO
   droppedFrames: number;
+  pacer: RunLog['pacer'];
 }
 
 export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts): RunLog {
@@ -44,7 +45,7 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
   };
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     meta: {
       runId: crypto.randomUUID(),
       startedAt: opts.startedAt,
@@ -70,6 +71,7 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
       droppedFrames: opts.droppedFrames,
       outOfAlphabet: opts.recorder.outOfAlphabet,
     },
+    pacer: opts.pacer,
   };
 }
 

@@ -8,6 +8,7 @@
 import { Engine, type KeyInput } from './engine.js';
 import { StripRenderer } from './strip.js';
 import { AudioFeedback, fingerTone } from './audio.js';
+import { PacerController } from './pacer.js';
 import { LatencyOverlay } from './latency.js';
 import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
@@ -53,6 +54,8 @@ interface RunCtx {
   phase: 'countdown' | 'playing' | 'done';
   countdownStart: number;
   startedAt: string; // ISO, stamped when play begins
+  pacer: PacerController | null; // the tempo controller (null when the pacer is off for this run)
+  pacerStarted: boolean; // whether the click scheduler has been kicked off yet
   droppedFrames: number;
   lastFrameMs: number;
   pendingDownT: number; // run-relative t of a keydown awaiting its paint (latency sample)
@@ -194,6 +197,9 @@ export class App {
       rc.recorder.recordDown(produced, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
       rc.pendingDownT = tRun; // measure this keydown → next paint for the latency samples
       rc.pendingDown = true;
+      // feed the pacer's rate estimate (reads only; the pacer cannot affect this outcome)
+      if (outcome === 'correct') rc.pacer?.recordCorrect(tRun);
+      else rc.pacer?.recordError(tRun);
     } else if (!inAlpha && !modified && !e.repeat && e.key.length === 1) {
       rc.recorder.outOfAlphabet++; // a genuine out-of-alphabet character (not a modifier/nav key)
     }
@@ -207,7 +213,12 @@ export class App {
     if (this.mode !== 'run' || !rc || rc.phase !== 'playing') return;
     if (!rc.engine.alphaSet.has(e.key)) return;
     const now = performance.now();
-    if (this.config.chords) rc.engine.handleKeyUp(e.key, now); // completes a chord on last release
+    if (this.config.chords) {
+      const oc = rc.engine.handleKeyUp(e.key, now); // completes a chord on last release
+      const tRun = now - rc.engine.startMs;
+      if (oc === 'correct') rc.pacer?.recordCorrect(tRun);
+      else if (oc === 'incorrect') rc.pacer?.recordError(tRun);
+    }
     rc.recorder.recordUp(e.key, rc.engine.index, now - rc.engine.startMs);
   };
 
@@ -243,10 +254,17 @@ export class App {
     const rightTopRow = keyInput(this.config.rightTopRow);
     const topRow = el('input', { type: 'checkbox', ...(this.config.topRow ? { checked: true } : {}) }) as HTMLInputElement;
     const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
-    const targetRate = el('input', {
-      type: 'number', class: 'field-input mono', value: String(this.config.targetBitRate),
-      min: '1', max: '30', step: '0.5', spellcheck: false, autocomplete: 'off',
-    }) as HTMLInputElement;
+
+    const selectInput = (opts: Array<[string, string]>, current: string): HTMLSelectElement => {
+      const s = el('select', { class: 'field-input' }) as HTMLSelectElement;
+      for (const [val, label] of opts) s.append(el('option', { value: val, text: label }));
+      s.value = current;
+      return s;
+    };
+    const pacerMode = selectInput([['off', 'Off'], ['proportional', 'Proportional'], ['hillclimb', 'Hill-climbing']], this.config.pacer);
+    const pacerPush = selectInput([['0.05', '5%'], ['0.1', '10%'], ['0.15', '15%'], ['0.2', '20%']], String(this.config.pacerPush));
+    const pacerVolume = selectInput([['0.03', 'Low'], ['0.06', 'Medium'], ['0.1', 'High']], String(this.config.pacerVolume));
+    const pacerScored = el('input', { type: 'checkbox', ...(this.config.pacerScored ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
 
@@ -271,13 +289,15 @@ export class App {
         return null;
       }
       err.textContent = '';
-      const tr = Number(targetRate.value);
       return {
         ...parts,
         chords: chords.checked,
-        targetBitRate: Number.isFinite(tr) && tr > 0 ? tr : 8,
         alphabet: v.alphabet,
         label: machineLabel.value.trim().slice(0, 40),
+        pacer: pacerMode.value as GameConfig['pacer'],
+        pacerPush: Number(pacerPush.value) || 0.1,
+        pacerVolume: Number(pacerVolume.value) || 0.03,
+        pacerScored: pacerScored.checked,
         durationMs: SCORED_DURATION_MS,
         lookahead: DEFAULT_LOOKAHEAD,
         lanes: true,
@@ -310,10 +330,13 @@ export class App {
           field('Right hand home row', rightFingers, 'Keys the right hand types.'),
           field('Left hand top row', leftTopRow, 'Sits above the home row, same finger columns.'),
           field('Right hand top row', rightTopRow, 'Sits above the home row, same finger columns.'),
-          field('Target rate (bits/s)', targetRate, 'Metronome ticks at the pace needed to hit this.'),
+          field('Pacer', pacerMode, 'A click track to pace against — a target to push at.'),
+          field('Push', pacerPush, 'Click runs this far above your measured rate.'),
+          field('Pacer volume', pacerVolume, 'Kept low — sits under your attention.'),
           el('div', { class: 'field toggles' }, [
             el('label', { class: 'toggle' }, [topRow, el('span', { text: ' Top row (adds a second row per hand)' })]),
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
+            el('label', { class: 'toggle' }, [pacerScored, el('span', { text: ' Pace scored runs too (default: practice only)' })]),
           ]),
         ]),
         err,
@@ -348,6 +371,14 @@ export class App {
     engine.onCorrect = this.config.chords ? () => this.audio.correct() : null;
     engine.onError = () => this.audio.error();
 
+    // The pacer is a training device: on by default only in practice; scored runs measure the
+    // player unaided unless they explicitly opt in. It only reads rate/B and emits sound — it can
+    // never gate scoring or advancement (spec §1).
+    const pacerOn = this.config.pacer !== 'off' && (timed ? this.config.pacerScored : true);
+    const pacer = pacerOn
+      ? new PacerController({ mode: this.config.pacer, push: this.config.pacerPush, logBits: engine.logBits })
+      : null;
+
     const stripRoot = el('div', { class: 'strip-root' });
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
@@ -372,6 +403,8 @@ export class App {
       phase: immediate ? 'playing' : 'countdown',
       countdownStart: now0,
       startedAt: '',
+      pacer,
+      pacerStarted: false,
       droppedFrames: 0,
       lastFrameMs: -1,
       pendingDownT: 0,
@@ -383,7 +416,6 @@ export class App {
       engine.start(now0);
       this.run.startedAt = new Date().toISOString();
       countdown.classList.add('hidden');
-      this.audio.startMetronome(engine.logBits / this.config.targetBitRate);
     }
     this.run.rafId = requestAnimationFrame(this.loop);
   }
@@ -403,7 +435,6 @@ export class App {
         rc.engine.start(now);
         rc.startedAt = new Date().toISOString();
         rc.ui.countdown.classList.add('hidden');
-        this.audio.startMetronome(rc.engine.logBits / this.config.targetBitRate);
       } else {
         rc.ui.countdown.classList.remove('hidden');
         rc.ui.countdown.textContent = String(left);
@@ -428,7 +459,15 @@ export class App {
         // engine.index advances on each correct hit, so a repeated key re-plucks (audible bump)
         if (freq !== undefined) this.audio.holdTone(freq, rc.engine.index);
       }
-      this.audio.pumpMetronome(); // schedule any pacing ticks due in the next lookahead window
+      // Adaptive pacer: recompute the target tempo from the measured rate and retune the click
+      // track. This only reads state and emits sound — it never touches sc/si/index.
+      if (rc.pacer) {
+        const hz = rc.pacer.update(now - rc.engine.startMs);
+        if (hz !== null) {
+          if (!rc.pacerStarted) rc.pacerStarted = this.audio.startPacer(hz, this.config.pacerVolume);
+          else this.audio.setPacerTempo(hz);
+        }
+      }
     }
 
     rc.strip.render(now);
@@ -456,7 +495,7 @@ export class App {
   private abortRun(): void {
     if (this.run) cancelAnimationFrame(this.run.rafId);
     this.audio.stopHold();
-    this.audio.stopMetronome();
+    this.audio.stopPacer();
     this.run = null;
     this.showConfig();
   }
@@ -466,14 +505,32 @@ export class App {
     if (!rc) return;
     cancelAnimationFrame(rc.rafId);
     this.audio.stopHold();
-    this.audio.stopMetronome();
+    const clickAbs = this.audio.stopPacer(); // absolute performance.now() ms
+    const pacerLog = this.buildPacerLog(rc, clickAbs);
     const result = rc.engine.result();
-    void this.completeRun(rc, result);
+    void this.completeRun(rc, result, pacerLog);
+  }
+
+  // Assemble the pacer section of the log. clickTimes are shifted to the run-relative clock the
+  // event log uses, so phase analysis can line them up without guessing the offset.
+  private buildPacerLog(rc: RunCtx, clickAbs: number[]): RunLog['pacer'] {
+    const p = rc.pacer;
+    if (!p) return { enabled: false };
+    const r3 = (x: number): number | null => (Number.isFinite(x) ? Math.round(x * 1000) / 1000 : null);
+    return {
+      enabled: true,
+      mode: this.config.pacer,
+      push: this.config.pacerPush,
+      startTempoHz: r3(p.startTempoHz),
+      endTempoHz: r3(p.endTempoHz),
+      clickTimes: clickAbs.map((t) => Math.round((t - rc.engine.startMs) * 1000) / 1000),
+      tempoChanges: p.tempoChanges.map((c) => ({ t: Math.round(c.t * 1000) / 1000, hz: Math.round(c.hz * 1000) / 1000 })),
+    };
   }
 
   // Off the hot path (the run is over): assemble the log, write it if the endpoint is live,
   // then render the report. Falls back to the download button when logging is unavailable.
-  private async completeRun(rc: RunCtx, result: ReturnType<Engine['result']>): Promise<void> {
+  private async completeRun(rc: RunCtx, result: ReturnType<Engine['result']>, pacer: RunLog['pacer']): Promise<void> {
     const machine = this.machine ?? (await this.machinePromise);
     const log = buildReport(rc.engine, result, {
       recorder: rc.recorder,
@@ -481,6 +538,7 @@ export class App {
       mode: rc.timed ? 'scored' : 'practice',
       startedAt: rc.startedAt || new Date().toISOString(),
       droppedFrames: rc.droppedFrames,
+      pacer,
     });
     this.run = null;
 

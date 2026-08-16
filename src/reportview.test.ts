@@ -114,7 +114,7 @@ function synthLog(selections: number, errEvery: number): RunLog {
   }
   const bps = (Math.log2(7) * Math.max(sc - si, 0)) / 60;
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     meta: {
       runId: 'test-run-0001',
       startedAt: '2026-08-14T10:00:00.000Z',
@@ -131,6 +131,7 @@ function synthLog(selections: number, errEvery: number): RunLog {
       accuracy: sc / (sc + si), grossKeysPerSec: (sc + si) / 60, netSelectionsPerSec: Math.max(sc - si, 0) / 60,
       medianIkiMs: 260, rollovers: 0, droppedFrames: 0, outOfAlphabet: 0,
     },
+    pacer: { enabled: false },
   };
 }
 

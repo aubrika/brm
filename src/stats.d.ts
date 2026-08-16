@@ -2,6 +2,8 @@
 // './stats.js' and resolve to these declarations; Node imports the .js directly and needs
 // no types. The runtime file is stats.js — keep the two in sync by hand (the API is small).
 
+import type { PacerMode } from './pacer.js';
+
 export type Verdict = 'ok' | 'err';
 export type EventType = 'down' | 'up';
 export type Hand = 'L' | 'R' | 'C'; // C = centre (the spacebar thumb)
@@ -49,8 +51,20 @@ export interface RunSummary {
   outOfAlphabet: number;
 }
 
+/** The adaptive pacer's log. `enabled: false` runs carry only that flag; enabled runs carry the
+ *  tempo history and every click time (run-relative ms, the same clock as `events`). */
+export interface PacerLog {
+  enabled: boolean;
+  mode?: PacerMode;
+  push?: number;
+  startTempoHz?: number | null;
+  endTempoHz?: number | null;
+  clickTimes?: number[];
+  tempoChanges?: Array<{ t: number; hz: number }>;
+}
+
 export interface RunLog {
-  schemaVersion: 2;
+  schemaVersion: 3;
   meta: {
     runId: string;
     startedAt: string;
@@ -63,6 +77,7 @@ export interface RunLog {
   events: RawEvent[];
   latencySamples: Array<{ t: number; downToPaintMs: number }>;
   summary: RunSummary;
+  pacer: PacerLog;
 }
 
 export interface FingerInfo {
