@@ -49,6 +49,12 @@ On the start screen you set:
   game; you must hit each target while it's inside the highlighted band or it counts as a miss.
   The scroll rate follows the pacer beat (one target per beat — so as the pacer adapts to your
   rate, the roll speeds up or slows with it), seeded at a fixed rate until the pacer establishes.
+- **Target tones** — on by default. The per-lane pitches (see below). Turn off to play silent.
+- **A/B test** — off by default. When on, each run is randomly assigned one of three audio
+  conditions — **none** (silent), **pacer** (tick only), or **tones** (lane tones only) — drawn
+  from a balanced, reshuffled bag so the arms stay even and their order doesn't confound with the
+  practice curve. The condition is recorded in each run's log; compare them with
+  `node scripts/analyze.mjs --compare`.
 
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
 
@@ -86,6 +92,7 @@ node scripts/analyze.mjs
 ```
 
 It reads every log in `logs/` and prints a summary (see `logs/README.md` for the log format).
+Add `--compare` to focus on the A/B condition table (median IKI, accuracy, and bits/s per arm).
 
 ## Tests
 

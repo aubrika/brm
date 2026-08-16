@@ -20,6 +20,8 @@ export interface GameConfig {
   rightTopRow: string; // right hand top row
   chords: boolean; // targets are 1-3 key chords pressed together (experiment)
   challenge: boolean; // CHALLENGE MODE: rhythm scroll (rate = pacer beat), hit while in the target band
+  tones: boolean; // play the per-lane target tones
+  abTest: boolean; // A/B mode: each run is randomly assigned a condition (none / pacer / tones)
   label: string; // free-text machine name, stamped into each log's filename + meta
 
   // ---- adaptive auditory pacer (experiment; never gates scoring — see bitrate-pacer-spec.md) ----
@@ -72,6 +74,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   rightTopRow: 'uiop',
   chords: false,
   challenge: false,
+  tones: true,
+  abTest: false,
   label: '',
   pacer: 'proportional', // fixed: always-on proportional pacer (no longer user-configurable)
   pacerPush: 0.1, // fixed: tick runs 10% above the measured rate (a 10% bit-rate stretch goal)
@@ -86,7 +90,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v14'; // challenge mode toggle
+const STORAGE_KEY = 'brm.config.v15'; // tones toggle + A/B mode
 
 export function loadConfig(): GameConfig {
   try {

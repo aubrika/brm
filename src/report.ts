@@ -20,6 +20,7 @@ export interface BuildOpts {
   startedAt: string; // ISO
   droppedFrames: number;
   pacer: RunLog['pacer'];
+  tones: RunLog['tones'];
 }
 
 export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts): RunLog {
@@ -78,6 +79,7 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
       outOfAlphabet: opts.recorder.outOfAlphabet,
     },
     pacer: opts.pacer,
+    tones: opts.tones,
   };
 }
 

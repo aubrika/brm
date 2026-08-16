@@ -63,6 +63,15 @@ export interface PacerLog {
   tempoChanges?: Array<{ t: number; hz: number }>;
 }
 
+/** The target-tone layer's log — enough to group A/B runs by condition. */
+export interface TonesLog {
+  enabled: boolean;
+  scale: string;
+  baseHz: number;
+  handCoding: string;
+  voiceStealEvents: number;
+}
+
 export interface RunLog {
   schemaVersion: 3;
   meta: {
@@ -80,6 +89,7 @@ export interface RunLog {
   latencySamples: Array<{ t: number; downToPaintMs: number }>;
   summary: RunSummary;
   pacer: PacerLog;
+  tones: TonesLog;
 }
 
 export interface FingerInfo {

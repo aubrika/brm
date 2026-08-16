@@ -134,6 +134,7 @@ function synthLog(selections: number, errEvery: number): RunLog {
       medianIkiMs: 260, rollovers: 0, droppedFrames: 0, outOfAlphabet: 0,
     },
     pacer: { enabled: false },
+    tones: { enabled: false, scale: 'pentatonic', baseHz: 523.25, handCoding: 'timbre+pan', voiceStealEvents: 0 },
   };
 }
 

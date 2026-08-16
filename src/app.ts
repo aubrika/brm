@@ -259,6 +259,8 @@ export class App {
     const topRow = el('input', { type: 'checkbox', ...(this.config.topRow ? { checked: true } : {}) }) as HTMLInputElement;
     const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
     const challenge = el('input', { type: 'checkbox', ...(this.config.challenge ? { checked: true } : {}) }) as HTMLInputElement;
+    const tones = el('input', { type: 'checkbox', ...(this.config.tones ? { checked: true } : {}) }) as HTMLInputElement;
+    const abTest = el('input', { type: 'checkbox', ...(this.config.abTest ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
 
@@ -287,6 +289,8 @@ export class App {
         ...parts,
         chords: chords.checked,
         challenge: challenge.checked,
+        tones: tones.checked,
+        abTest: abTest.checked,
         alphabet: v.alphabet,
         label: machineLabel.value.trim().slice(0, 40),
         // pacer is fixed: always-on proportional, 10% above measured rate, metronome tick
@@ -330,6 +334,8 @@ export class App {
             el('label', { class: 'toggle' }, [topRow, el('span', { text: ' Top row (adds a second row per hand)' })]),
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
             el('label', { class: 'toggle' }, [challenge, el('span', { text: ' CHALLENGE MODE (fixed-rate scroll — hit before it leaves the band)' })]),
+            el('label', { class: 'toggle' }, [tones, el('span', { text: ' Target tones (per-lane pitch)' })]),
+            el('label', { class: 'toggle' }, [abTest, el('span', { text: ' A/B test (each run randomly: none / pacer / tones)' })]),
           ]),
         ]),
         err,
@@ -354,8 +360,15 @@ export class App {
   private startRun(timed: boolean, immediate = false): void {
     this.mode = 'run';
     this.spaceHeld = false;
+    // A/B mode: override this run's audio condition with a randomly drawn arm (not saved to config,
+    // so the assignment is per-run). Challenge mode is its own thing and opts out.
+    if (this.config.abTest && !this.config.challenge) {
+      const arm = this.drawArm();
+      this.config = { ...this.config, tones: arm === 'tones', pacer: arm === 'pacer' ? 'proportional' : 'off' };
+    }
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock(); // user gesture (button click) is active
+    this.audio.voiceStealEvents = 0; // reset the per-run tone stat
 
     const engine = new Engine(this.config, timed);
     // target tones: pitch ascends left→right (major pentatonic), hand carried by timbre + pan. The
@@ -488,9 +501,36 @@ export class App {
   // Fire-and-forget: sound the current target's tone (releasing the previous). Single-key only —
   // chords have no single lane. Called from the advance point, never before state advances.
   private triggerTargetTone(rc: RunCtx): void {
-    if (this.config.chords) return;
+    if (this.config.chords || !this.config.tones) return;
     const tone = this.toneTable.get(rc.engine.target());
     if (tone) this.audio.toneAdvance(tone.freq, tone.hand);
+  }
+
+  // A/B: draw the next condition from a shuffled bag of [none, pacer, tones], refilling when empty,
+  // so the three arms stay balanced and their order is randomized (not confounded with the practice
+  // curve). The bag persists in localStorage so it survives reloads mid-experiment.
+  private drawArm(): 'none' | 'pacer' | 'tones' {
+    const KEY = 'brm.ab.bag';
+    let bag: string[] = [];
+    try {
+      bag = JSON.parse(localStorage.getItem(KEY) ?? '[]') as string[];
+    } catch {
+      bag = [];
+    }
+    if (!Array.isArray(bag) || bag.length === 0) {
+      bag = ['none', 'pacer', 'tones'];
+      for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bag[i], bag[j]] = [bag[j], bag[i]];
+      }
+    }
+    const arm = (bag.pop() ?? 'none') as 'none' | 'pacer' | 'tones';
+    try {
+      localStorage.setItem(KEY, JSON.stringify(bag));
+    } catch {
+      /* ignore */
+    }
+    return arm;
   }
 
   private updateHud(now: number, rc: RunCtx): void {
@@ -522,8 +562,15 @@ export class App {
     this.audio.releaseAllTones();
     const clickAbs = this.audio.stopPacer(); // absolute performance.now() ms
     const pacerLog = this.buildPacerLog(rc, clickAbs);
+    const tonesLog: RunLog['tones'] = {
+      enabled: this.config.tones && !this.config.chords,
+      scale: 'pentatonic',
+      baseHz: 523.25,
+      handCoding: 'timbre+pan',
+      voiceStealEvents: this.audio.voiceStealEvents,
+    };
     const result = rc.engine.result();
-    void this.completeRun(rc, result, pacerLog);
+    void this.completeRun(rc, result, pacerLog, tonesLog);
   }
 
   // Assemble the pacer section of the log. clickTimes are shifted to the run-relative clock the
@@ -545,7 +592,12 @@ export class App {
 
   // Off the hot path (the run is over): assemble the log, write it if the endpoint is live,
   // then render the report. Falls back to the download button when logging is unavailable.
-  private async completeRun(rc: RunCtx, result: ReturnType<Engine['result']>, pacer: RunLog['pacer']): Promise<void> {
+  private async completeRun(
+    rc: RunCtx,
+    result: ReturnType<Engine['result']>,
+    pacer: RunLog['pacer'],
+    tones: RunLog['tones'],
+  ): Promise<void> {
     const machine = this.machine ?? (await this.machinePromise);
     const log = buildReport(rc.engine, result, {
       recorder: rc.recorder,
@@ -554,6 +606,7 @@ export class App {
       startedAt: rc.startedAt || new Date().toISOString(),
       droppedFrames: rc.droppedFrames,
       pacer,
+      tones,
     });
     this.run = null;
 

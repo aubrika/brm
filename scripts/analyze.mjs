@@ -28,10 +28,11 @@ const LOGS_DIR = path.resolve(HERE, '..', 'logs');
 
 // ---------------------------------------------------------------- loading ----
 function parseArgs(argv) {
-  const args = { machine: null, scoredOnly: false };
+  const args = { machine: null, scoredOnly: false, compare: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--machine') args.machine = argv[++i];
     else if (argv[i] === '--scored-only') args.scoredOnly = true;
+    else if (argv[i] === '--compare') args.compare = true;
   }
   return args;
 }
@@ -365,6 +366,53 @@ function analyzeByBuild(logs) {
     .sort((a, b) => String(a.first).localeCompare(String(b.first)));
 }
 
+// 11. A/B by condition: group runs by which audio layer was on, derived from the log's tones/pacer
+// flags — the whole point of the A/B harness. Median IKI, accuracy and bits/s per arm.
+function armOf(log) {
+  const tones = log.tones ? !!log.tones.enabled : true; // pre-A/B runs had tones always on
+  const pacer = !!(log.pacer && log.pacer.enabled);
+  if (tones && pacer) return 'both';
+  if (tones) return 'tones';
+  if (pacer) return 'pacer';
+  return 'none';
+}
+function analyzeConditions(logs) {
+  const byArm = new Map();
+  for (const log of logs) {
+    if (!log.tones) continue; // only A/B-era runs — older runs predate the tones/pacer log split
+    const arm = armOf(log);
+    if (!byArm.has(arm)) byArm.set(arm, { arm, iki: [], acc: [], bps: [] });
+    const g = byArm.get(arm);
+    const mi = medianIki(splitEvents(log).downs);
+    if (Number.isFinite(mi) && mi > 0) g.iki.push(mi);
+    g.acc.push(log.summary.accuracy);
+    g.bps.push(log.summary.bitsPerSecond);
+  }
+  const order = ['none', 'pacer', 'tones', 'both'];
+  return [...byArm.values()]
+    .map((g) => ({
+      arm: g.arm,
+      n: g.bps.length,
+      medianIkiMs: median(g.iki),
+      medianAccuracy: median(g.acc),
+      medianBps: median(g.bps),
+      meanBps: mean(g.bps),
+    }))
+    .sort((a, b) => order.indexOf(a.arm) - order.indexOf(b.arm));
+}
+
+function conditionLines(conditions) {
+  if (conditions.length === 0) return ['    no runs'];
+  const L = [];
+  for (const r of conditions) {
+    L.push(
+      `    ${r.arm.padEnd(6)} n=${String(r.n).padStart(3)}   IKI ${ms(r.medianIkiMs).padStart(6)}   acc ${(r.medianAccuracy * 100).toFixed(0).padStart(3)}%   bits/s ${r.medianBps.toFixed(2).padStart(5)} (mean ${r.meanBps.toFixed(2)})`,
+    );
+  }
+  L.push('    arms: none = no audio layer · pacer = tick only · tones = lane tones only · both = both on');
+  return L;
+}
+
 function printReport(logs, analysis) {
   const L = [];
   L.push('════════════════════════════════════════════════════════════');
@@ -485,6 +533,10 @@ function printReport(logs, analysis) {
   for (const r of analysis.byBuild) {
     L.push(`    ${r.commit.padEnd(12)} v${String(r.version).padEnd(6)} median ${r.medianBps.toFixed(2).padStart(6)}  mean ${r.meanBps.toFixed(2).padStart(6)}  n=${String(r.n).padStart(3)}  ${String(r.first).slice(0, 10)}`);
   }
+  L.push('');
+
+  L.push('  [10] A/B by condition (audio layer on), median per arm');
+  for (const line of conditionLines(analysis.conditions)) L.push(line);
   L.push('════════════════════════════════════════════════════════════');
   console.log(L.join('\n'));
 }
@@ -510,8 +562,18 @@ function main() {
     pacerPhase: analyzePacerPhase(logs),
     carryover: analyzeCarryover(logs),
     byBuild: analyzeByBuild(logs),
+    conditions: analyzeConditions(logs),
   };
-  printReport(logs, analysis);
+  if (args.compare) {
+    console.log('════════════════════════════════════════════════════════════');
+    console.log('  Bit-Rate Maximizer — A/B condition comparison');
+    console.log(`  runs: ${logs.length}`);
+    console.log('════════════════════════════════════════════════════════════');
+    console.log(conditionLines(analysis.conditions).join('\n'));
+    console.log('════════════════════════════════════════════════════════════');
+  } else {
+    printReport(logs, analysis);
+  }
   writeFileSync(path.join(LOGS_DIR, 'analysis.json'), JSON.stringify(analysis, null, 2));
   console.log(`\nWrote ${path.join('logs', 'analysis.json')}`);
 }
