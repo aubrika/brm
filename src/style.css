@@ -188,9 +188,11 @@ code { font-family: var(--mono); }
 }
 
 .countdown {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  font-family: var(--mono); font-size: 120px; font-weight: 700; color: var(--ink);
-  z-index: 4; pointer-events: none;
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-weight: 700; color: var(--ink);
+  font-size: min(48vmin, 88vh); line-height: 1;
+  opacity: 0.5; pointer-events: none; /* huge, translucent, over the whole interface */
 }
 .countdown.hidden { display: none; }
 

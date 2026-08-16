@@ -53,6 +53,7 @@ interface RunCtx {
   timed: boolean;
   phase: 'countdown' | 'playing' | 'done';
   countdownStart: number;
+  countdownNum: number; // last countdown number shown (drives one beep per number)
   startedAt: string; // ISO, stamped when play begins
   pacer: PacerController | null; // the tempo controller (null when the pacer is off for this run)
   pacerStarted: boolean; // whether the click scheduler has been kicked off yet
@@ -390,6 +391,7 @@ export class App {
       timed,
       phase: immediate ? 'playing' : 'countdown',
       countdownStart: now0,
+      countdownNum: 0,
       startedAt: '',
       pacer,
       pacerStarted: false,
@@ -424,11 +426,16 @@ export class App {
         rc.engine.start(now);
         rc.startedAt = new Date().toISOString();
         rc.ui.countdown.classList.add('hidden');
+        this.audio.countdownBeep(true); // "go!"
         this.triggerTargetTone(rc); // sound the first target's tone
       } else {
         rc.ui.countdown.classList.remove('hidden');
         rc.ui.countdown.textContent = String(left);
         rc.ui.time.textContent = rc.timed ? 'ready' : 'practice';
+        if (left !== rc.countdownNum) {
+          rc.countdownNum = left;
+          this.audio.countdownBeep(); // one beep per number (3, 2, 1)
+        }
       }
     }
 

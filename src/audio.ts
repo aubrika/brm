@@ -58,6 +58,11 @@ export class AudioFeedback {
     this.blip(170, 95, 0.16, 'sine'); // low tone
   }
 
+  // 3-2-1 countdown beeps: three equal tones, then a higher "go" on the final transition.
+  countdownBeep(go = false): void {
+    this.blip(go ? 880 : 587.33, go ? 150 : 110, 0.16, 'triangle');
+  }
+
   // ---- target tones: one pitch per lane, gated to the target's lifetime (see bitrate-tones-spec.md) ----
   // A tone starts when a target becomes current and releases when it resolves, so fast play runs
   // legato and slow play sustains — the tone length is an audible readout of the player's pacing.
