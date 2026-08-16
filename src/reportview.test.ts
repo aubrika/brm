@@ -116,6 +116,8 @@ function synthLog(selections: number, errEvery: number): RunLog {
   return {
     schemaVersion: 3,
     meta: {
+      appVersion: '1.0.0',
+      commit: 'testsha',
       runId: 'test-run-0001',
       startedAt: '2026-08-14T10:00:00.000Z',
       mode: 'scored',

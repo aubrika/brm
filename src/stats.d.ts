@@ -66,6 +66,8 @@ export interface PacerLog {
 export interface RunLog {
   schemaVersion: 3;
   meta: {
+    appVersion: string; // package.json version at build time
+    commit: string; // short git SHA of the build ('-dirty' if uncommitted; 'unknown'/'dev' if absent)
     runId: string;
     startedAt: string;
     mode: 'scored' | 'practice';

@@ -349,6 +349,22 @@ function analyzeCarryover(logs) {
   };
 }
 
+// 10. bits/s grouped by build (commit) — the payoff of the version stamp: see whether a change
+// moved the score. Ordered by first-seen so the chronology of builds reads top to bottom.
+function analyzeByBuild(logs) {
+  const byCommit = new Map();
+  for (const l of logs) {
+    const commit = l.meta.commit || 'unknown';
+    if (!byCommit.has(commit)) byCommit.set(commit, { commit, version: l.meta.appVersion || '?', bps: [], first: l.meta.startedAt });
+    const g = byCommit.get(commit);
+    g.bps.push(l.summary.bitsPerSecond);
+    if (String(l.meta.startedAt) < String(g.first)) g.first = l.meta.startedAt;
+  }
+  return [...byCommit.values()]
+    .map((g) => ({ commit: g.commit, version: g.version, n: g.bps.length, medianBps: median(g.bps), meanBps: mean(g.bps), first: g.first }))
+    .sort((a, b) => String(a.first).localeCompare(String(b.first)));
+}
+
 function printReport(logs, analysis) {
   const L = [];
   L.push('════════════════════════════════════════════════════════════');
@@ -362,7 +378,8 @@ function printReport(logs, analysis) {
   L.push('  bits/s by run (chronological):');
   for (const l of logs) {
     const tag = l.meta.mode === 'scored' ? '●' : '○';
-    L.push(`    ${tag} ${String(l.summary.bitsPerSecond.toFixed(2)).padStart(6)}   ${l.__file}`);
+    const commit = (l.meta.commit || '—').padEnd(12);
+    L.push(`    ${tag} ${String(l.summary.bitsPerSecond.toFixed(2)).padStart(6)}   ${commit} ${l.__file}`);
   }
   L.push('');
 
@@ -462,6 +479,12 @@ function printReport(logs, analysis) {
       L.push(`    difference ${d <= 0 ? '' : '+'}${Math.round(d)}ms  (negative = faster after pacing — the result that matters)`);
     }
   }
+  L.push('');
+
+  L.push('  [9] bits/s by build (commit), oldest first');
+  for (const r of analysis.byBuild) {
+    L.push(`    ${r.commit.padEnd(12)} v${String(r.version).padEnd(6)} median ${r.medianBps.toFixed(2).padStart(6)}  mean ${r.meanBps.toFixed(2).padStart(6)}  n=${String(r.n).padStart(3)}  ${String(r.first).slice(0, 10)}`);
+  }
   L.push('════════════════════════════════════════════════════════════');
   console.log(L.join('\n'));
 }
@@ -486,6 +509,7 @@ function main() {
     digraphs: analyzeDigraphs(logs),
     pacerPhase: analyzePacerPhase(logs),
     carryover: analyzeCarryover(logs),
+    byBuild: analyzeByBuild(logs),
   };
   printReport(logs, analysis);
   writeFileSync(path.join(LOGS_DIR, 'analysis.json'), JSON.stringify(analysis, null, 2));

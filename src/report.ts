@@ -44,9 +44,15 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
     durationMs: engine.config.durationMs,
   };
 
+  // build stamp (Vite `define`); `typeof` guard keeps it safe if ever run outside the bundle
+  const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+  const commit = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'dev';
+
   return {
     schemaVersion: 3,
     meta: {
+      appVersion,
+      commit,
       runId: crypto.randomUUID(),
       startedAt: opts.startedAt,
       mode: opts.mode,
