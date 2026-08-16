@@ -34,9 +34,19 @@ const PULSE_MS = 110; // correct-keystroke pulse
 const SHAKE_MS = 120;
 const SHAKE_PX = 10;
 
-// One colour per column, from the Wong colourblind-safe palette, applied left→right within each
-// hand in the same order (so the two hands' colours run in parallel, not mirrored).
-const FINGER = ['#0072B2', '#D55E00', '#56B4E9', '#E69F00']; // column 0..3, left→right
+// The Okabe-Ito colourblind-safe palette: one colour per lane, in order left→right across both
+// hands. Okabe-Ito's 8th colour is black — invisible on the dark UI — so the palette's neutral
+// grey stands in for it on the last lane.
+const OKABE_ITO = [
+  '#E69F00', // orange
+  '#56B4E9', // sky blue
+  '#009E73', // bluish green
+  '#F0E442', // yellow
+  '#0072B2', // blue
+  '#D55E00', // vermillion
+  '#CC79A7', // reddish purple
+  '#999999', // grey (stands in for Okabe-Ito black against the dark background)
+];
 
 // '#rrggbb' + alpha → 'rgba(r, g, b, a)'
 function rgbaOf(hex: string, a: number): string {
@@ -101,9 +111,9 @@ export class StripRenderer {
     this.root = root;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
-    // Two hand blocks (left fingers | neutral centre gap | right fingers), each column coloured
-    // left→right in the same palette order on both hands. Each hand has as many COLUMNS as its
-    // widest row; a top-row key shares the exact column of its home-row finger (q over a), so it
+    // Two hand blocks (left fingers | neutral centre gap | right fingers), each lane coloured from
+    // the Okabe-Ito palette in order left→right across both hands. Each hand has as many COLUMNS as
+    // its widest row; a top-row key shares the exact column of its home-row finger (q over a), so it
     // differs only in the glyph shown — same lane, same colour, just stacked a row higher.
     const cfg = engine.config;
     const leftHome = [...cfg.leftFingers], rightHome = [...cfg.rightFingers];
@@ -127,7 +137,8 @@ export class StripRenderer {
         const left = p.hand === 'L';
         this.laneUnitOf.push(left ? -half + p.col + 0.5 : -half + this.leftCount + this.centerWidth + p.col + 0.5);
         this.laneKind.push(p.hand); this.laneTop.push(p.top); this.blockIndex.push(p.col);
-        const c = FINGER[p.col % FINGER.length]; // same left→right colour order on both hands
+        const laneIdx = left ? p.col : this.leftCount + p.col; // global lane, left→right across both hands
+        const c = OKABE_ITO[laneIdx % OKABE_ITO.length];
         this.laneColor.push(c); this.laneGlow.push(rgbaOf(c, 0.16));
       } else {
         this.laneUnitOf.push(-half + this.leftCount + this.centerWidth / 2); // unclassified → centre, grey
