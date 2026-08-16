@@ -160,6 +160,18 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
   const med = log.summary.medianIkiMs || 250;
   const bars = buildBars(log, downs, med);
 
+  // How a selection reads in the tooltip: for a grid run the sequence entries are cell indices, so
+  // show them as (x, y) tuples (column, row from the top-left) — far more legible than a raw cell
+  // number; keyboard runs keep the glyph.
+  const gridN = log.grid?.enabled ? log.grid.gridSize : 0;
+  const fmtSel = (sVal: string): string => {
+    if (gridN) {
+      const i = Number(sVal);
+      return Number.isFinite(i) ? `(${i % gridN}, ${Math.floor(i / gridN)})` : sVal;
+    }
+    return fmtKey(sVal);
+  };
+
   // Even spacing: one column per selection (index-based x), so height alone carries the
   // interval and the comb is easy to scan for the tall red-topped error bars. The tape is
   // still left-to-right chronological, just not drawn to a linear time scale.
@@ -181,9 +193,9 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
     g.append(s('rect', { class: 'r-seg-base', x: (x - barW / 2).toFixed(2), y: (baseY - baseH).toFixed(2), width: barW.toFixed(2), height: baseH.toFixed(2) }));
     if (errH > 0.01) g.append(s('rect', { class: 'r-seg-err', x: (x - barW / 2).toFixed(2), y: (baseY - totalH).toFixed(2), width: barW.toFixed(2), height: errH.toFixed(2) }));
     const errPart = b.errCount
-      ? ` · ${Math.round(b.errorDelay)}ms lost to ${b.errCount} error${b.errCount > 1 ? 's' : ''} (pressed ${b.errKeys.map(fmtKey).join(', ')})`
+      ? ` · ${Math.round(b.errorDelay)}ms lost to ${b.errCount} error${b.errCount > 1 ? 's' : ''} (pressed ${b.errKeys.map(fmtSel).join(', ')})`
       : '';
-    const digraph = b.from ? `${fmtKey(b.from)} → ${fmtKey(b.label)}` : fmtKey(b.label);
+    const digraph = b.from ? `${fmtSel(b.from)} → ${fmtSel(b.label)}` : fmtSel(b.label);
     const label = `${(b.t / 1000).toFixed(2)}s · ${digraph} · ${Math.round(b.total)}ms${errPart}`;
     g.setAttribute('aria-label', label);
     g.append(s('title', {}, [document.createTextNode(label)]));
@@ -317,12 +329,11 @@ function transitionsColumn(log: RunLog): HTMLElement {
   return col;
 }
 
-// ------------------------------------------------- grid: movement / Fitts ----
-// The pointing analogue of the transitions panel: instead of finger digraphs, the movement
-// structure of the run — how hard each selection was (index of difficulty) and how fast it was
-// made — plus an effective Fitts throughput. The spec's ceiling for this geometry is ~2× the
-// device's raw pointing throughput (~9–10 bits/s for a mouse); the headline B and this TP are the
-// two numbers to watch. Full per-selection Fitts regression lives in the offline analyzer.
+// ------------------------------------------------------- grid: movement ----
+// The pointing analogue of the transitions panel: plain movement stats — how many moves, how far,
+// how long each took. Deliberately NO second bits/s figure: the headline B (the homework's
+// log2(N-1)·(Sc-Si)/t) is the only rate shown. (Fitts throughput and index-of-difficulty live in
+// the offline analyzer for anyone who wants them; they don't belong on the player's screen.)
 function gridSection(log: RunLog): HTMLElement {
   const g = log.grid;
   const f = gridFitts(log);
@@ -336,18 +347,11 @@ function gridSection(log: RunLog): HTMLElement {
   if (f && f.count > 0) {
     cells.push(
       stat('moves', String(f.count)),
-      stat('mean difficulty', `${f.meanId.toFixed(2)} bits`),
+      stat('mean distance', `${f.meanDistCells.toFixed(1)} cells`),
       stat('mean move time', `${Math.round(f.meanMt)} ms`),
-      stat('throughput', `${f.effectiveTp.toFixed(2)} bits/s`),
     );
   }
-  // Headline throughput is the stable mean-ID/mean-MT figure; the slope-based Fitts TP (1000/slope)
-  // is noisy at a single grid size, so it lives in the fit line with its R² as the reliability cue.
-  const note =
-    f && f.count >= 2
-      ? h('p', { class: 'r-read', text: `Fitts fit: MT ≈ ${Math.round(f.interceptMs)} + ${Math.round(f.slopeMsPerBit)}·ID ms (R² ${f.r2.toFixed(2)}; slope TP ${f.throughput.toFixed(1)} b/s — trust only at high R²). Bit rate ≈ 2× this throughput is the geometry's ceiling.` })
-      : h('p', { class: 'r-empty', text: 'Not enough movement yet for a Fitts fit.' });
-  return section('Movement', h('div', { class: 'r-trans' }, cells), note);
+  return section('Movement', h('div', { class: 'r-trans' }, cells));
 }
 
 // ------------------------------------------------------------------ misses ----
