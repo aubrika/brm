@@ -63,7 +63,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   label: '',
   pacer: 'proportional', // fixed: always-on proportional pacer (no longer user-configurable)
   pacerPush: 0.2, // fixed: click runs 20% above the measured rate
-  pacerVolume: 0.16, // fixed: kickdrum volume
+  pacerVolume: 0.26, // fixed: kickdrum volume
   pacerScored: true, // fixed: paces every run (practice and scored)
   alphabet: 'asdfjkl;',
   durationMs: SCORED_DURATION_MS,

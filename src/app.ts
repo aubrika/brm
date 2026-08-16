@@ -286,7 +286,7 @@ export class App {
         // pacer is fixed: always-on proportional, 20% above measured rate, kick at a fixed volume
         pacer: 'proportional',
         pacerPush: 0.2,
-        pacerVolume: 0.16,
+        pacerVolume: 0.26,
         pacerScored: true,
         durationMs: SCORED_DURATION_MS,
         lookahead: DEFAULT_LOOKAHEAD,
@@ -475,7 +475,9 @@ export class App {
     }
     rc.ui.rate.innerHTML = `${eng.liveBitRate(now).toFixed(2)}<span class="unit"> bits/s</span>`;
     const acc = Math.round(eng.liveAccuracy() * 100);
-    rc.ui.stats.textContent = `Sc ${eng.sc} · Si ${eng.si} · N ${eng.n} · acc ${acc}%`;
+    // ♪N = pacer beats scheduled so far — a visible check that the click track is running
+    const paced = rc.pacer ? ` · ♪${this.audio.pacerBeats()}` : '';
+    rc.ui.stats.textContent = `Sc ${eng.sc} · Si ${eng.si} · N ${eng.n} · acc ${acc}%${paced}`;
   }
 
   private abortRun(): void {

@@ -183,43 +183,53 @@ export class AudioFeedback {
     return p.clickTimes;
   }
 
+  // Beats actually scheduled so far — surfaced in the HUD so a silent pacer is visibly diagnosable.
+  pacerBeats(): number {
+    return this.pacer?.clickTimes.length ?? 0;
+  }
+
   private pumpPacer(): void {
     const ctx = this.ctx;
     const p = this.pacer;
     if (!ctx || !p) return;
-    const { clicks, nextClick } = scheduleClicks(ctx.currentTime, p.nextClick, p.tempo, AudioFeedback.PACER_LOOKAHEAD);
-    p.nextClick = nextClick;
-    for (const at of clicks) {
-      this.clickAt(ctx, at, p.master);
-      p.clickTimes.push(Math.round((at * 1000 + p.perfOffsetMs) * 1000) / 1000);
+    try {
+      const { clicks, nextClick } = scheduleClicks(ctx.currentTime, p.nextClick, p.tempo, AudioFeedback.PACER_LOOKAHEAD);
+      p.nextClick = nextClick;
+      for (const at of clicks) {
+        this.clickAt(ctx, at, p.master);
+        p.clickTimes.push(Math.round((at * 1000 + p.perfOffsetMs) * 1000) / 1000);
+      }
+    } catch (e) {
+      // a throw here would otherwise be swallowed by setInterval and silently kill the pacer
+      console.error('[pacer] scheduling error', e);
     }
   }
 
-  // A kickdrum beat, not a tick: a low sine that drops in pitch (the "thump") plus a short mid
-  // transient (the "beater") so it still reads on laptop speakers that roll off the sub-bass.
+  // A kickdrum beat: a pitch-dropping sine body (the boom) + a punchy mid "knock" transient so it
+  // reads clearly on laptop speakers that roll off sub-bass. Loud enough to sit over the lane tone.
   private clickAt(ctx: AudioContext, at: number, master: GainNode): void {
     const body = ctx.createOscillator();
     const bodyEnv = ctx.createGain();
     body.type = 'sine';
-    body.frequency.setValueAtTime(180, at); // punch...
-    body.frequency.exponentialRampToValueAtTime(52, at + 0.07); // ...dropping to a low thump
+    body.frequency.setValueAtTime(150, at); // starts audible...
+    body.frequency.exponentialRampToValueAtTime(55, at + 0.06); // ...drops to the thump
     bodyEnv.gain.setValueAtTime(0.0001, at);
-    bodyEnv.gain.linearRampToValueAtTime(1, at + 0.005); // fast attack
-    bodyEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.15); // punchy decay
+    bodyEnv.gain.linearRampToValueAtTime(1, at + 0.004); // fast attack
+    bodyEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.14); // punchy decay
     body.connect(bodyEnv).connect(master);
     body.start(at);
     body.stop(at + 0.2);
 
-    const beater = ctx.createOscillator();
-    const beaterEnv = ctx.createGain();
-    beater.type = 'triangle';
-    beater.frequency.value = 1100; // the attack click, carries the beat on small speakers
-    beaterEnv.gain.setValueAtTime(0.0001, at);
-    beaterEnv.gain.linearRampToValueAtTime(0.45, at + 0.001);
-    beaterEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.018);
-    beater.connect(beaterEnv).connect(master);
-    beater.start(at);
-    beater.stop(at + 0.04);
+    const knock = ctx.createOscillator();
+    const knockEnv = ctx.createGain();
+    knock.type = 'triangle';
+    knock.frequency.value = 950; // the attack transient — carries the beat where sub-bass can't
+    knockEnv.gain.setValueAtTime(0.0001, at);
+    knockEnv.gain.linearRampToValueAtTime(0.7, at + 0.001);
+    knockEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.02);
+    knock.connect(knockEnv).connect(master);
+    knock.start(at);
+    knock.stop(at + 0.05);
   }
 }
 
