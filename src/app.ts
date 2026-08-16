@@ -7,14 +7,14 @@
 
 import { Engine, type KeyInput } from './engine.js';
 import { StripRenderer } from './strip.js';
-import { AudioFeedback, fingerTone } from './audio.js';
+import { AudioFeedback, laneToneHz } from './audio.js';
 import { PacerController } from './pacer.js';
 import { LatencyOverlay } from './latency.js';
 import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, composeAlphabet, laneFinger, type GameConfig } from './config.js';
+import { loadConfig, saveConfig, composeAlphabet, laneAudio, type GameConfig } from './config.js';
 import { DEFAULT_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
 import type { MachineMeta, RunLog } from './stats.js';
 
@@ -77,7 +77,7 @@ export class App {
   private readonly latency: LatencyOverlay;
   private run: RunCtx | null = null;
   private spaceHeld = false; // chord modifier state (thumb on the spacebar)
-  private laneFreq = new Map<string, number>(); // base key → its lane's tone (Hz), rebuilt per run
+  private toneTable = new Map<string, { freq: number; hand: 0 | 1 }>(); // base key → tone, rebuilt per run
 
   // gathered once at startup; awaited (long-settled) when a run finishes
   private machine: MachineMeta | null = null;
@@ -198,8 +198,10 @@ export class App {
       rc.pendingDownT = tRun; // measure this keydown → next paint for the latency samples
       rc.pendingDown = true;
       // feed the pacer's rate estimate (reads only; the pacer cannot affect this outcome)
-      if (outcome === 'correct') rc.pacer?.recordCorrect(tRun);
-      else rc.pacer?.recordError(tRun);
+      if (outcome === 'correct') {
+        rc.pacer?.recordCorrect(tRun);
+        this.triggerTargetTone(rc); // the resolved target's tone releases, the next one's starts
+      } else rc.pacer?.recordError(tRun);
     } else if (!inAlpha && !modified && !e.repeat && e.key.length === 1) {
       rc.recorder.outOfAlphabet++; // a genuine out-of-alphabet character (not a modifier/nav key)
     }
@@ -351,9 +353,9 @@ export class App {
     if (this.config.sound) this.audio.unlock(); // user gesture (button click) is active
 
     const engine = new Engine(this.config, timed);
-    // each finger column gets one of four chord tones; the hand shifts it an octave. The current
-    // target's tone is held/re-plucked from the render loop; chords have no single lane, so silent.
-    this.laneFreq = new Map([...laneFinger(this.config)].map(([ch, { col, hand }]) => [ch, fingerTone(col, hand)]));
+    // target tones: pitch ascends left→right (major pentatonic), hand carried by timbre + pan. The
+    // tone is gated to each target's lifetime, triggered from the advance point (not the loop).
+    this.toneTable = new Map([...laneAudio(this.config)].map(([ch, { lane, hand }]) => [ch, { freq: laneToneHz(lane), hand }]));
     engine.onCorrect = this.config.chords ? () => this.audio.correct() : null;
     engine.onError = () => this.audio.error();
 
@@ -402,6 +404,7 @@ export class App {
       engine.start(now0);
       this.run.startedAt = new Date().toISOString();
       countdown.classList.add('hidden');
+      this.triggerTargetTone(this.run); // sound the first target's tone
     }
     this.run.rafId = requestAnimationFrame(this.loop);
   }
@@ -421,6 +424,7 @@ export class App {
         rc.engine.start(now);
         rc.startedAt = new Date().toISOString();
         rc.ui.countdown.classList.add('hidden');
+        this.triggerTargetTone(rc); // sound the first target's tone
       } else {
         rc.ui.countdown.classList.remove('hidden');
         rc.ui.countdown.textContent = String(left);
@@ -438,13 +442,6 @@ export class App {
         return;
       }
       this.updateHud(now, rc);
-      // hold the current target's lane note until it's pressed (single-key mode; chords have no
-      // single lane). Idempotent — only steps pitch when the target changes.
-      if (!this.config.chords) {
-        const freq = this.laneFreq.get(rc.engine.target());
-        // engine.index advances on each correct hit, so a repeated key re-plucks (audible bump)
-        if (freq !== undefined) this.audio.holdTone(freq, rc.engine.index);
-      }
       // Adaptive pacer: recompute the target tempo from the measured rate and retune the click
       // track. This only reads state and emits sound — it never touches sc/si/index.
       if (rc.pacer) {
@@ -466,6 +463,14 @@ export class App {
     rc.rafId = requestAnimationFrame(this.loop);
   };
 
+  // Fire-and-forget: sound the current target's tone (releasing the previous). Single-key only —
+  // chords have no single lane. Called from the advance point, never before state advances.
+  private triggerTargetTone(rc: RunCtx): void {
+    if (this.config.chords) return;
+    const tone = this.toneTable.get(rc.engine.target());
+    if (tone) this.audio.toneAdvance(tone.freq, tone.hand);
+  }
+
   private updateHud(now: number, rc: RunCtx): void {
     const eng = rc.engine;
     if (rc.timed) {
@@ -482,7 +487,7 @@ export class App {
 
   private abortRun(): void {
     if (this.run) cancelAnimationFrame(this.run.rafId);
-    this.audio.stopHold();
+    this.audio.releaseAllTones();
     this.audio.stopPacer();
     this.run = null;
     this.showConfig();
@@ -492,7 +497,7 @@ export class App {
     const rc = this.run;
     if (!rc) return;
     cancelAnimationFrame(rc.rafId);
-    this.audio.stopHold();
+    this.audio.releaseAllTones();
     const clickAbs = this.audio.stopPacer(); // absolute performance.now() ms
     const pacerLog = this.buildPacerLog(rc, clickAbs);
     const result = rc.engine.result();

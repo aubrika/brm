@@ -52,10 +52,17 @@ A **pacer** plays a kickdrum beat to pace against, running 20% above your measur
 (re-estimated every 2 s from a trailing 10 s window, eased ≤5% per step). It is a suggestion only
 — it never gates a target or affects scoring (see `bitrate-pacer-spec.md`).
 
-Each finger sounds one of four consonant tones (the degrees of a major-6th chord), the same four
-on both hands; the hand is carried by the octave (left hand low, right hand an octave up). Voiced
-as a soft kalimba, the current target's note is re-plucked and rings until you press it — so you
-hear both which finger to fire (the note) and which hand (the octave).
+Each lane also sounds a **target tone** (see `bitrate-tones-spec.md`), redundant with the visual.
+Pitch ascends left→right on the major pentatonic (`a`=C5 up to `;`=E6), so it maps to screen
+position, not hand; the hand is carried by timbre and pan instead (left = sine panned left, right =
+triangle panned right). Each tone is gated to its target's lifetime — it starts when the target
+becomes current and releases when you hit it — so fast play runs legato and slow play sustains, and
+the tone length is an audible readout of your own pacing.
+
+Because eight lanes span more than an octave, a few tones are octave-equivalent (`a`/`k`, `s`/`l`,
+`d`/`;`). That's deliberate: those pairs are no longer *homologous fingers* (`a` is left pinky,
+`k` is right middle), so the one confusable pitch relation no longer lines up with a confusable
+motor one.
 
 Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
 
