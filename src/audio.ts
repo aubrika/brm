@@ -63,6 +63,7 @@ export class AudioFeedback {
   // re-plucks when the pitch actually changes.
   private hold: { osc: OscillatorNode; gain: GainNode } | null = null;
   private holdFreq = 0;
+  private holdToken = -1; // advance token: changes whenever the target advances (see holdTone)
   private kalimbaWave: PeriodicWave | null = null;
 
   // The kalimba timbre: a strong fundamental with just a gentle 2nd/3rd harmonic and a steep
@@ -87,7 +88,10 @@ export class AudioFeedback {
     this.hold.gain.gain.setTargetAtTime(0.045, t + 0.03, 0.18); // decay to a soft sustain (ring)
   }
 
-  holdTone(freq: number): void {
+  // `token` advances (e.g. the target index) every time the player selects correctly. Re-pluck on
+  // a pitch change OR a token change, so pressing the same key twice in a row still strikes the
+  // tine a second time — an audible bump confirming the press landed, not just a note that lingers.
+  holdTone(freq: number, token: number): void {
     const ctx = this.ensure();
     if (!ctx) return;
     if (!this.hold) {
@@ -99,13 +103,15 @@ export class AudioFeedback {
       osc.start();
       this.hold = { osc, gain: g };
       this.pluck(ctx, freq);
-    } else if (freq !== this.holdFreq) {
+    } else if (freq !== this.holdFreq || token !== this.holdToken) {
       this.pluck(ctx, freq);
     }
     this.holdFreq = freq;
+    this.holdToken = token;
   }
 
   stopHold(): void {
+    this.holdToken = -1;
     if (!this.hold || !this.ctx) {
       this.hold = null;
       this.holdFreq = 0;

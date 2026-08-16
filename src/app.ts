@@ -425,7 +425,8 @@ export class App {
       // single lane). Idempotent — only steps pitch when the target changes.
       if (!this.config.chords) {
         const freq = this.laneFreq.get(rc.engine.target());
-        if (freq !== undefined) this.audio.holdTone(freq);
+        // engine.index advances on each correct hit, so a repeated key re-plucks (audible bump)
+        if (freq !== undefined) this.audio.holdTone(freq, rc.engine.index);
       }
       this.audio.pumpMetronome(); // schedule any pacing ticks due in the next lookahead window
     }
