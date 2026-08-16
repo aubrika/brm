@@ -56,12 +56,35 @@ export class AudioFeedback {
     this.blip(170, 95, 0.16, 'sine'); // low tone
   }
 
-  // A single sustained voice that holds the CURRENT target's lane pitch and steps to a new one
-  // when the target changes — so the note for the key you must press next rings continuously
-  // until you press it, and typing plays a little melody. Idempotent per frame: only the
-  // oscillator frequency moves, and only when it actually changes.
+  // A single kalimba-like voice that holds the CURRENT target's lane pitch. Each time the target
+  // changes it is re-plucked at the new pitch — a bright, quick attack that decays to a soft
+  // sustain and rings on, so the note for the key you must press next keeps sounding until you
+  // press it. Fast typing arpeggiates like a real thumb piano. Idempotent per frame: it only
+  // re-plucks when the pitch actually changes.
   private hold: { osc: OscillatorNode; gain: GainNode } | null = null;
   private holdFreq = 0;
+  private kalimbaWave: PeriodicWave | null = null;
+
+  // The kalimba timbre: a fundamental with overtones rolling off smoothly — bright and bell-like
+  // up top, warm below — voiced as harmonic amplitudes of a periodic wave (built once per ctx).
+  private kalimba(ctx: AudioContext): PeriodicWave {
+    if (!this.kalimbaWave) {
+      const imag = new Float32Array([0, 1.0, 0.55, 0.3, 0.16, 0.12, 0.08, 0.06, 0.04, 0.03]);
+      this.kalimbaWave = ctx.createPeriodicWave(new Float32Array(imag.length), imag);
+    }
+    return this.kalimbaWave;
+  }
+
+  // Re-strike the tine at freq: step the pitch (no portamento — kalimba notes are discrete) and
+  // fire a plucked amplitude envelope (fast attack → decay to a soft, ringing sustain).
+  private pluck(ctx: AudioContext, freq: number): void {
+    if (!this.hold) return;
+    const t = ctx.currentTime;
+    this.hold.osc.frequency.setValueAtTime(freq, t);
+    this.hold.gain.gain.cancelScheduledValues(t);
+    this.hold.gain.gain.setTargetAtTime(0.13, t, 0.004); // quick plucked attack
+    this.hold.gain.gain.setTargetAtTime(0.045, t + 0.03, 0.18); // decay to a soft sustain (ring)
+  }
 
   holdTone(freq: number): void {
     const ctx = this.ensure();
@@ -69,16 +92,14 @@ export class AudioFeedback {
     if (!this.hold) {
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      osc.setPeriodicWave(this.kalimba(ctx));
       g.gain.setValueAtTime(0.0001, ctx.currentTime);
-      g.gain.setTargetAtTime(0.075, ctx.currentTime, 0.02); // gentle fade-in, no click
       osc.connect(g).connect(ctx.destination);
       osc.start();
       this.hold = { osc, gain: g };
+      this.pluck(ctx, freq);
     } else if (freq !== this.holdFreq) {
-      // step to the next lane's pitch, with a tiny smoothing so the transition doesn't click
-      this.hold.osc.frequency.setTargetAtTime(freq, ctx.currentTime, 0.006);
+      this.pluck(ctx, freq);
     }
     this.holdFreq = freq;
   }
