@@ -65,11 +65,12 @@ export class AudioFeedback {
   private holdFreq = 0;
   private kalimbaWave: PeriodicWave | null = null;
 
-  // The kalimba timbre: a fundamental with overtones rolling off smoothly — bright and bell-like
-  // up top, warm below — voiced as harmonic amplitudes of a periodic wave (built once per ctx).
+  // The kalimba timbre: a strong fundamental with just a gentle 2nd/3rd harmonic and a steep
+  // roll-off above — warm and round rather than tinny — voiced as harmonic amplitudes of a
+  // periodic wave (built once per ctx).
   private kalimba(ctx: AudioContext): PeriodicWave {
     if (!this.kalimbaWave) {
-      const imag = new Float32Array([0, 1.0, 0.55, 0.3, 0.16, 0.12, 0.08, 0.06, 0.04, 0.03]);
+      const imag = new Float32Array([0, 1.0, 0.38, 0.12, 0.05, 0.02]);
       this.kalimbaWave = ctx.createPeriodicWave(new Float32Array(imag.length), imag);
     }
     return this.kalimbaWave;
@@ -157,19 +158,16 @@ export class AudioFeedback {
   }
 }
 
-// Lane index (0 = leftmost) → frequency, climbing left→right through the MAJOR PENTATONIC scale
-// (do-re-mi-so-la = C D E G A), wrapping up an octave every 5 lanes. Pentatonic is the key: it
-// omits the half-steps (fa, ti) and the tritone, so it has no dissonant intervals at all — every
-// pair of these tones is consonant. Since the target is a random walk between the 8 lanes, that
-// guarantees any two notes (in sequence or held together across a step) sound good together, while
-// the wider average spacing (no cramped semitones) keeps adjacent lanes easy to tell apart.
-// All offsets are whole semitones, so every note is in tune (equal temperament).
-const PENTA = [0, 2, 4, 7, 9]; // semitone offsets of the major-pentatonic degrees within an octave
+// Lane index (0 = leftmost) → frequency along the C-major scale, do-re-mi-fa-so-la-ti-do climbing
+// left→right, so a s d f j k l ; ring out as one octave (degrees past 7 keep climbing by octave).
+// All offsets are whole semitones, so every note is in tune (equal temperament) and stays within
+// one diatonic key, so a random walk between the lanes still sounds musical.
+const MAJOR = [0, 2, 4, 5, 7, 9, 11]; // semitone offsets of the major scale degrees
 const DO = 523.25; // C5 — an octave above middle C, so even the leftmost lane clears the range where small speakers roll off
 
 export function laneScale(index: number): number {
-  const octave = Math.floor(index / PENTA.length);
-  const degree = ((index % PENTA.length) + PENTA.length) % PENTA.length;
-  const semitone = octave * 12 + PENTA[degree];
+  const octave = Math.floor(index / MAJOR.length);
+  const degree = ((index % MAJOR.length) + MAJOR.length) % MAJOR.length;
+  const semitone = octave * 12 + MAJOR[degree];
   return DO * Math.pow(2, semitone / 12);
 }
