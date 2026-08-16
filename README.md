@@ -45,37 +45,40 @@ On the start screen you set:
   it to N = 16; each top-row glyph is marked with a caret.
 - **Chords** — off by default (experiment). When on, targets are 1–3 key chords you press
   together and release; all keys of a chord appear on one line, linked and boxed at once.
-- **Challenge mode** — off by default (experiment/demo). The piano roll scrolls like a rhythm
-  game; you must hit each target while it's inside the highlighted band or it counts as a miss.
-  The scroll rate follows the pacer beat (one target per beat — so as the pacer adapts to your
-  rate, the roll speeds up or slows with it), seeded at a fixed rate until the pacer establishes.
-- **Target tones** — on by default. The per-lane pitches (see below). Turn off to play silent.
-- **A/B test** — off by default. When on, each run is randomly assigned one of three audio
-  conditions — **none** (silent), **pacer** (tick only), or **tones** (lane tones only) — drawn
-  from a balanced, reshuffled bag so the arms stay even and their order doesn't confound with the
-  practice curve. The condition is recorded in each run's log; compare them with
-  `node scripts/analyze.mjs --compare`.
+- **Challenge mode** — off by default (experiment/demo). The piano roll scrolls at a fixed rate
+  like a rhythm game; you must hit each target while it's inside the highlighted band or it counts
+  as a miss. Advancement is on a clock, not your input, so throughput is capped at the scroll rate.
 
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
 
-A **pacer** ticks like a metronome to pace against, running 10% above your measured keystroke rate
-(a ~10% bit-rate stretch goal; re-estimated every 2 s from a trailing 10 s window, eased ≤5% per
-step). It is a suggestion only — it never gates a target or affects scoring (see
-`bitrate-pacer-spec.md`).
+Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds). There is no
+countdown — the clock starts on your first keystroke, when you type the highlighted target.
 
-Each lane also sounds a **target tone** (see `bitrate-tones-spec.md`), redundant with the visual.
-Pitch ascends left→right on the major pentatonic (`a`=C5 up to `;`=E6), so it maps to screen
-position, not hand; the hand is carried by timbre and pan instead (left = sine panned left, right =
-triangle panned right). Each tone is gated to its target's lifetime — it starts when the target
-becomes current and releases when you hit it — so fast play runs legato and slow play sustains, and
-the tone length is an audible readout of your own pacing.
+### Audio experiments (removed)
 
-Because eight lanes span more than an octave, a few tones are octave-equivalent (`a`/`k`, `s`/`l`,
-`d`/`;`). That's deliberate: those pairs are no longer *homologous fingers* (`a` is left pinky,
-`k` is right middle), so the one confusable pitch relation no longer lines up with a confusable
-motor one.
+Two auditory layers were built, A/B-tested, and then removed because the data didn't support them
+(the code and their specs, `bitrate-pacer-spec.md` / `bitrate-tones-spec.md`, remain for reference):
 
-Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
+- a **pacer** — a metronome tick running ~10% above your measured keystroke rate, as an external
+  pace to push against (no entrainment showed up: phase concentration *R* ≈ 0.01);
+- **target tones** — a per-lane pitch (ascending major pentatonic, hand coded by timbre + pan),
+  redundant with the visual lane.
+
+A 3-arm A/B (**none** / **pacer only** / **tones only**), with each run's condition drawn from a
+balanced reshuffled bag so order doesn't confound with the practice curve, gave (one player, n=7 per
+arm; `node scripts/analyze.mjs --compare`):
+
+| condition | bits/s      | median IKI  | accuracy      |
+|-----------|-------------|-------------|---------------|
+| none      | 6.24 ± 0.34 | 403 ± 26 ms | 97.6 ± 0.8 %  |
+| pacer     | 6.19 ± 0.27 | 391 ± 18 ms | 95.6 ± 1.4 %  |
+| tones     | 6.11 ± 0.32 | 379 ± 31 ms | 94.8 ± 1.5 %  |
+
+**No bit-rate gain from either layer** (differences well within noise, *t* < 1). Both audio layers
+made typing slightly *faster* (lower IKI) but *less accurate* — a speed–accuracy trade that cancels
+out, since errors subtract double. The accuracy drop was the one effect that cleared noise (none vs.
+tones *t* ≈ 4). Since `B` already rewards the operating point a self-paced player naturally picks,
+neither added redundancy nor external pacing helped — so both were retired.
 
 Type the highlighted key at the bottom. Left-hand keys are blue, right-hand keys are yellow.
 The bar above shows the keys coming next.

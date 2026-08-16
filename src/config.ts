@@ -74,13 +74,13 @@ export const DEFAULT_CONFIG: GameConfig = {
   rightTopRow: 'uiop',
   chords: false,
   challenge: false,
-  tones: true,
+  tones: false, // retired: the A/B found no bit-rate gain (and a small accuracy cost)
   abTest: false,
   label: '',
-  pacer: 'proportional', // fixed: always-on proportional pacer (no longer user-configurable)
-  pacerPush: 0.1, // fixed: tick runs 10% above the measured rate (a 10% bit-rate stretch goal)
-  pacerVolume: 0.22, // fixed: metronome-tick volume
-  pacerScored: true, // fixed: paces every run (practice and scored)
+  pacer: 'off', // retired alongside the tones (see the A/B results)
+  pacerPush: 0.1,
+  pacerVolume: 0.22,
+  pacerScored: false,
   alphabet: 'asdfjkl;',
   durationMs: SCORED_DURATION_MS,
   lookahead: DEFAULT_LOOKAHEAD,

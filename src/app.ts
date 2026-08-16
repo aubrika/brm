@@ -1,6 +1,7 @@
-// Screen router + run loop. Three screens (config, run, report) plus an in-run 3-2-1
-// countdown. A single window keydown listener (attached once, { passive:false }) drives
-// the whole app; during play it is the latency-critical path — classify, count, advance,
+// Screen router + run loop. Three screens (config, run, report); a run waits in a "ready" state
+// and its clock starts on the first keypress (no countdown). A single window keydown listener
+// (attached once, { passive:false }) drives the whole app; during play it is the latency-critical
+// path — classify, count, advance,
 // synchronously — while a separate rAF loop reads state and draws. Alongside the scoring
 // log, a RunRecorder buffers a richer event log (down+up, verdict, live idx) entirely from
 // primitives, written to logs/ once at run end — never during the 60 s.
@@ -51,9 +52,7 @@ interface RunCtx {
   strip: StripRenderer;
   recorder: RunRecorder;
   timed: boolean;
-  phase: 'countdown' | 'playing' | 'done';
-  countdownStart: number;
-  countdownNum: number; // last countdown number shown (drives one beep per number)
+  phase: 'ready' | 'playing' | 'done'; // ready = waiting for the first keypress to start the clock
   startedAt: string; // ISO, stamped when play begins
   pacer: PacerController | null; // the tempo controller (null when the pacer is off for this run)
   pacerStarted: boolean; // whether the click scheduler has been kicked off yet
@@ -109,7 +108,7 @@ export class App {
       if (Number.isFinite(secs) && secs >= 1 && secs <= 60) {
         this.config = { ...this.config, durationMs: Math.round(secs * 1000) };
       }
-      this.startRun(auto === 'scored', true); // skip the countdown for headless capture
+      this.startRun(auto === 'scored', true); // start immediately (skip the ready wait) for headless capture
       if (params.has('demo')) this.startDemoTyper();
     }
   }
@@ -160,14 +159,23 @@ export class App {
       this.abortRun();
       return;
     }
-    if (this.run.phase !== 'playing') return;
+    const rc = this.run;
+    if (rc.phase === 'done') return;
+    // No countdown: the run's clock starts when you first type an in-alphabet target. This same
+    // keydown then falls through and is scored as the first selection.
+    if (rc.phase === 'ready') {
+      if (!rc.engine.alphaSet.has(e.key) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      rc.phase = 'playing';
+      rc.engine.start(performance.now());
+      rc.startedAt = new Date().toISOString();
+      rc.ui.countdown.classList.add('hidden');
+    }
     // spacebar is the chord modifier, not a selection — track it and never let it score/scroll
     if (this.config.chord && e.key === ' ') {
       e.preventDefault();
       this.spaceHeld = true;
       return;
     }
-    const rc = this.run;
     const eng = rc.engine;
     const inAlpha = eng.alphaSet.has(e.key);
     const modified = e.ctrlKey || e.metaKey || e.altKey;
@@ -259,8 +267,6 @@ export class App {
     const topRow = el('input', { type: 'checkbox', ...(this.config.topRow ? { checked: true } : {}) }) as HTMLInputElement;
     const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
     const challenge = el('input', { type: 'checkbox', ...(this.config.challenge ? { checked: true } : {}) }) as HTMLInputElement;
-    const tones = el('input', { type: 'checkbox', ...(this.config.tones ? { checked: true } : {}) }) as HTMLInputElement;
-    const abTest = el('input', { type: 'checkbox', ...(this.config.abTest ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
 
@@ -289,15 +295,14 @@ export class App {
         ...parts,
         chords: chords.checked,
         challenge: challenge.checked,
-        tones: tones.checked,
-        abTest: abTest.checked,
+        tones: false, // pacer + tones retired (A/B showed no bit-rate gain, slight accuracy cost)
+        abTest: false,
         alphabet: v.alphabet,
         label: machineLabel.value.trim().slice(0, 40),
-        // pacer is fixed: always-on proportional, 10% above measured rate, metronome tick
-        pacer: 'proportional',
+        pacer: 'off',
         pacerPush: 0.1,
         pacerVolume: 0.22,
-        pacerScored: true,
+        pacerScored: false,
         durationMs: SCORED_DURATION_MS,
         lookahead: DEFAULT_LOOKAHEAD,
         lanes: true,
@@ -334,8 +339,6 @@ export class App {
             el('label', { class: 'toggle' }, [topRow, el('span', { text: ' Top row (adds a second row per hand)' })]),
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
             el('label', { class: 'toggle' }, [challenge, el('span', { text: ' CHALLENGE MODE (fixed-rate scroll — hit before it leaves the band)' })]),
-            el('label', { class: 'toggle' }, [tones, el('span', { text: ' Target tones (per-lane pitch)' })]),
-            el('label', { class: 'toggle' }, [abTest, el('span', { text: ' A/B test (each run randomly: none / pacer / tones)' })]),
           ]),
         ]),
         err,
@@ -391,7 +394,8 @@ export class App {
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
     const stats = el('div', { class: 'stats' });
-    const countdown = el('div', { class: 'countdown' });
+    // shown until the first keypress: the run's clock starts when you type, no 3-2-1 countdown
+    const countdown = el('div', { class: 'countdown hint', text: 'type the highlighted key to start' });
 
     const screen = el('div', { class: 'screen run' }, [
       time,
@@ -408,9 +412,7 @@ export class App {
       strip,
       recorder: new RunRecorder(),
       timed,
-      phase: immediate ? 'playing' : 'countdown',
-      countdownStart: now0,
-      countdownNum: 0,
+      phase: immediate ? 'playing' : 'ready',
       startedAt: '',
       pacer,
       pacerStarted: false,
@@ -426,7 +428,6 @@ export class App {
       engine.start(now0);
       this.run.startedAt = new Date().toISOString();
       countdown.classList.add('hidden');
-      if (!this.config.challenge) this.triggerTargetTone(this.run); // challenge sounds tones on hits
     }
     this.run.rafId = requestAnimationFrame(this.loop);
   }
@@ -439,24 +440,9 @@ export class App {
     if (!rc) return;
     const now = performance.now();
 
-    if (rc.phase === 'countdown') {
-      const left = 3 - Math.floor((now - rc.countdownStart) / 1000);
-      if (left <= 0) {
-        rc.phase = 'playing';
-        rc.engine.start(now);
-        rc.startedAt = new Date().toISOString();
-        rc.ui.countdown.classList.add('hidden');
-        this.audio.countdownBeep(true); // "go!"
-        if (!this.config.challenge) this.triggerTargetTone(rc); // challenge sounds tones on hits
-      } else {
-        rc.ui.countdown.classList.remove('hidden');
-        rc.ui.countdown.textContent = String(left);
-        rc.ui.time.textContent = rc.timed ? 'ready' : 'practice';
-        if (left !== rc.countdownNum) {
-          rc.countdownNum = left;
-          this.audio.countdownBeep(); // one beep per number (3, 2, 1)
-        }
-      }
+    if (rc.phase === 'ready') {
+      // waiting for the first keypress (handled in onKey); the clock shows its full value, frozen
+      rc.ui.time.textContent = rc.timed ? (this.config.durationMs / 1000).toFixed(1) : 'practice';
     }
 
     if (rc.phase === 'playing') {

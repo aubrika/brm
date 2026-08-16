@@ -203,6 +203,8 @@ code { font-family: var(--mono); }
   opacity: 0.5; pointer-events: none; /* huge, translucent, over the whole interface */
 }
 .countdown.hidden { display: none; }
+/* the pre-start prompt (no countdown): a small line, not the giant number */
+.countdown.hint { font-size: clamp(1rem, 3.4vmin, 1.6rem); font-weight: 500; opacity: 0.6; }
 
 .readout { display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 92px; }
 .rate {
