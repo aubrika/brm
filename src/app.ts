@@ -67,7 +67,7 @@ interface RunCtx {
   pendingDown: boolean;
   pendingPointer: { t: number; x: number; y: number } | null; // GRID: one path sample per frame
   pointerType: string; // GRID: modal pointer type across the run
-  ghostSuppressed: number[]; // GRID: per down-event, was the ghost adjacency-suppressed
+  ghostAdjacent: number[]; // GRID: per down-event, was the next target within a couple cells
   pointerTypes: string[]; // GRID: per down-event pointer type
   rafId: number;
   ui: {
@@ -302,13 +302,13 @@ export class App {
     const cell = rc.gridView.cellAt(e.clientX, e.clientY);
     const idxBefore = eng.index;
     const tRun = now - eng.startMs;
-    const ghostSuppressed = rc.gridView.ghostSuppressed();
+    const ghostAdjacent = rc.gridView.ghostAdjacent();
     const outcome = eng.handleClick(cell, now);
     const pType = e.pointerType || 'mouse';
     if (!rc.pointerType) rc.pointerType = pType; // first observed = modal (mixed input is rare)
     if (outcome === 'correct' || outcome === 'incorrect') {
       rc.recorder.recordDown(String(cell), idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
-      rc.ghostSuppressed.push(ghostSuppressed ? 1 : 0);
+      rc.ghostAdjacent.push(ghostAdjacent ? 1 : 0);
       rc.pointerTypes.push(pType);
       rc.pendingDownT = tRun; // pointerdown → next paint, for the latency samples
       rc.pendingDown = true;
@@ -547,7 +547,7 @@ export class App {
       pendingDown: false,
       pendingPointer: null,
       pointerType: '',
-      ghostSuppressed: [],
+      ghostAdjacent: [],
       pointerTypes: [],
       rafId: 0,
       ui: { time, rate, stats, countdown, stripRoot },
@@ -611,7 +611,7 @@ export class App {
       pendingDown: false,
       pendingPointer: null,
       pointerType: '',
-      ghostSuppressed: [],
+      ghostAdjacent: [],
       pointerTypes: [],
       rafId: 0,
       ui: { time, rate, stats, countdown, stripRoot },
@@ -773,7 +773,7 @@ export class App {
       crosshair: this.config.crosshair,
       hoverPulse: this.config.hoverPulse,
       pointerType: rc.pointerType || 'mouse',
-      ghostSuppressed: rc.ghostSuppressed,
+      ghostAdjacent: rc.ghostAdjacent,
       pointerTypes: rc.pointerTypes,
     };
   }

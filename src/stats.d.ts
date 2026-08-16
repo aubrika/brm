@@ -88,7 +88,7 @@ export interface GridLog {
   crosshair: boolean;
   hoverPulse: boolean;
   pointerType: string; // modal pointer type across the run ('mouse' | 'touch' | 'pen')
-  ghostSuppressed?: number[]; // per down-event: 1 if the ghost was adjacency-suppressed for that target
+  ghostAdjacent?: number[]; // per down-event: 1 if the next target was within a couple cells of this one
   pointerTypes?: string[]; // per down-event pointer type
 }
 
@@ -207,7 +207,8 @@ export interface GridFitts {
   slopeMsPerBit: number; // OLS slope of MT on ID
   interceptMs: number;
   r2: number;
-  throughput: number; // bits/s (1000 / slope, or meanId/meanMt fallback)
+  throughput: number; // slope-based Fitts TP, bits/s (1000 / slope) — noisy at one grid size
+  effectiveTp: number; // mean ID / mean MT, bits/s — stable; the on-screen headline
   rows: GridFittsRow[];
 }
 

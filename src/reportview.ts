@@ -338,12 +338,14 @@ function gridSection(log: RunLog): HTMLElement {
       stat('moves', String(f.count)),
       stat('mean difficulty', `${f.meanId.toFixed(2)} bits`),
       stat('mean move time', `${Math.round(f.meanMt)} ms`),
-      stat('throughput', `${f.throughput.toFixed(2)} bits/s`),
+      stat('throughput', `${f.effectiveTp.toFixed(2)} bits/s`),
     );
   }
+  // Headline throughput is the stable mean-ID/mean-MT figure; the slope-based Fitts TP (1000/slope)
+  // is noisy at a single grid size, so it lives in the fit line with its R² as the reliability cue.
   const note =
     f && f.count >= 2
-      ? h('p', { class: 'r-read', text: `Fitts fit: MT ≈ ${Math.round(f.interceptMs)} + ${Math.round(f.slopeMsPerBit)}·ID ms (R² ${f.r2.toFixed(2)}). This geometry's ceiling is ≈2× the device's pointing throughput.` })
+      ? h('p', { class: 'r-read', text: `Fitts fit: MT ≈ ${Math.round(f.interceptMs)} + ${Math.round(f.slopeMsPerBit)}·ID ms (R² ${f.r2.toFixed(2)}; slope TP ${f.throughput.toFixed(1)} b/s — trust only at high R²). Bit rate ≈ 2× this throughput is the geometry's ceiling.` })
       : h('p', { class: 'r-empty', text: 'Not enough movement yet for a Fitts fit.' });
   return section('Movement', h('div', { class: 'r-trans' }, cells), note);
 }

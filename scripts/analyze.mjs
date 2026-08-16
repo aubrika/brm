@@ -475,16 +475,17 @@ function dwellTimes(log) {
 }
 
 // Misclicks that landed on the ghost (T+1) cell specifically, and misclick rate split by whether
-// the ghost was adjacency-suppressed for that target (arrays aligned with grid down-events).
+// the next target was CLOSE (within a couple cells) vs far — does a nearby ghost/next target draw
+// the click? Arrays aligned with grid down-events.
 function ghostMisclickStats(log) {
   const { downs } = splitEvents(log);
   const seq = log.sequence;
-  const supp = log.grid?.ghostSuppressed ?? [];
+  const adj = log.grid?.ghostAdjacent ?? [];
   let ghostHits = 0;
   let errs = 0;
-  const bySupp = { sup: { err: 0, total: 0 }, vis: { err: 0, total: 0 } };
+  const byAdj = { near: { err: 0, total: 0 }, far: { err: 0, total: 0 } };
   downs.forEach((d, j) => {
-    const bucket = supp[j] ? bySupp.sup : bySupp.vis;
+    const bucket = adj[j] ? byAdj.near : byAdj.far;
     bucket.total++;
     if (d.verdict === 'err') {
       bucket.err++;
@@ -493,7 +494,7 @@ function ghostMisclickStats(log) {
       if (ghostCell !== undefined && String(d.key) === String(ghostCell)) ghostHits++;
     }
   });
-  return { ghostHits, errs, bySupp };
+  return { ghostHits, errs, byAdj };
 }
 
 function aggregateGrid(label, ls) {
@@ -534,15 +535,15 @@ function analyzeGrid(logs) {
   const dwellAll = grid.flatMap(dwellTimes);
   let ghostHits = 0;
   let errs = 0;
-  const bySupp = { sup: { err: 0, total: 0 }, vis: { err: 0, total: 0 } };
+  const byAdj = { near: { err: 0, total: 0 }, far: { err: 0, total: 0 } };
   for (const l of grid) {
     const s = ghostMisclickStats(l);
     ghostHits += s.ghostHits;
     errs += s.errs;
-    bySupp.sup.err += s.bySupp.sup.err;
-    bySupp.sup.total += s.bySupp.sup.total;
-    bySupp.vis.err += s.bySupp.vis.err;
-    bySupp.vis.total += s.bySupp.vis.total;
+    byAdj.near.err += s.byAdj.near.err;
+    byAdj.near.total += s.byAdj.near.total;
+    byAdj.far.err += s.byAdj.far.err;
+    byAdj.far.total += s.byAdj.far.total;
   }
   return {
     runs: grid.length,
@@ -552,10 +553,10 @@ function analyzeGrid(logs) {
     dwell: { count: dwellAll.length, medianMs: median(dwellAll), meanMs: mean(dwellAll) },
     ghostMisclicks: { ghostHits, errs, share: errs > 0 ? ghostHits / errs : 0 },
     adjacency: {
-      suppressedErrRate: bySupp.sup.total > 0 ? bySupp.sup.err / bySupp.sup.total : 0,
-      visibleErrRate: bySupp.vis.total > 0 ? bySupp.vis.err / bySupp.vis.total : 0,
-      suppressedN: bySupp.sup.total,
-      visibleN: bySupp.vis.total,
+      nearErrRate: byAdj.near.total > 0 ? byAdj.near.err / byAdj.near.total : 0,
+      farErrRate: byAdj.far.total > 0 ? byAdj.far.err / byAdj.far.total : 0,
+      nearN: byAdj.near.total,
+      farN: byAdj.far.total,
     },
   };
 }
@@ -709,7 +710,7 @@ function printReport(logs, analysis) {
     }
     L.push(`    misclicks landing on the ghost cell: ${gr.ghostMisclicks.ghostHits}/${gr.ghostMisclicks.errs} errors (${(gr.ghostMisclicks.share * 100).toFixed(1)}%)`);
     L.push(
-      `    adjacency: err rate  suppressed ${(gr.adjacency.suppressedErrRate * 100).toFixed(1)}% (n=${gr.adjacency.suppressedN})  vs  visible ${(gr.adjacency.visibleErrRate * 100).toFixed(1)}% (n=${gr.adjacency.visibleN})`,
+      `    err rate by next-target distance:  near ${(gr.adjacency.nearErrRate * 100).toFixed(1)}% (n=${gr.adjacency.nearN})  vs  far ${(gr.adjacency.farErrRate * 100).toFixed(1)}% (n=${gr.adjacency.farN})`,
     );
   }
   L.push('════════════════════════════════════════════════════════════');

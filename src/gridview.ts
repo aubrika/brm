@@ -17,7 +17,7 @@ const TARGET_ORANGE = '#E69F00';
 const GHOST_GRAY = '#6B7789';
 const FLASH_MS = 140; // wrong-cell flash duration
 const PULSE_HZ = 2;
-const GHOST_ADJACENT = 2; // Chebyshev distance within which the ghost border is suppressed (§2.3)
+const GHOST_ADJACENT = 2; // Chebyshev distance flagged as "next target is close" (logged, not suppressed)
 
 export class GridRenderer {
   private readonly canvas: HTMLCanvasElement;
@@ -94,11 +94,12 @@ export class GridRenderer {
     return (this.row(idx) + 0.5) * this.cellPx;
   }
 
-  // Is the current target's ghost suppressed? True when T+1 sits within GHOST_ADJACENT cells
-  // (Chebyshev) of T, so its border would crowd the precision-critical end of the movement. The
-  // app logs this per selection so misclick analysis can compare (§2.3).
-  ghostSuppressed(): boolean {
-    if (!this.engine.config.ghost) return false;
+  // Is the current target's next target "close" — T+1 within GHOST_ADJACENT cells (Chebyshev) of T?
+  // The ghost border is always drawn (a preference: its irregular appearance was distracting, and
+  // the grey outline is distinct enough from the orange fill even when adjacent). This is now a
+  // pure geometry flag the app logs per selection, so the analyzer can test whether a close next
+  // target correlates with more misclicks / a longer dwell.
+  ghostAdjacent(): boolean {
     const t = this.engine.target();
     const g = this.engine.nextTarget();
     if (t < 0 || g < 0) return false;
@@ -153,9 +154,9 @@ export class GridRenderer {
       ctx.stroke();
     }
 
-    // 4) ghost border — empty cell, gray outline; suppressed near the target during the precision
-    //    phase (connector still drawn above)
-    if (cfg.ghost && ghost >= 0 && !this.ghostSuppressed()) {
+    // 4) ghost border — empty cell, gray outline; always drawn (even adjacent to the target), so it
+    //    never flickers on/off between selections
+    if (cfg.ghost && ghost >= 0) {
       const gx = this.col(ghost) * cp;
       const gy = this.row(ghost) * cp;
       ctx.lineWidth = 1.5;
