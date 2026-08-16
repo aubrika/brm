@@ -16,8 +16,9 @@ const appVersion = (() => {
 const appCommit = (() => {
   try {
     const sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    // dirty = uncommitted SOURCE changes; exclude dist/ so a rebuilt bundle isn't self-flagging
-    const dirty = execSync("git status --porcelain -- ':!dist'", { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().length > 0;
+    // dirty = modified TRACKED source. --untracked-files=no ignores build artifacts and Vite's own
+    // temp config file (which exists while this runs); :!dist ignores a rebuilt bundle.
+    const dirty = execSync("git status --porcelain --untracked-files=no -- ':!dist'", { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().length > 0;
     return dirty ? `${sha}-dirty` : sha; // -dirty flags a build with uncommitted source changes
   } catch {
     return 'unknown';
