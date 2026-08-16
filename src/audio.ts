@@ -69,18 +69,37 @@ export class AudioFeedback {
   // Pitch ascends left→right (position, not hand); the hand is carried by timbre + pan. Voices
   // overlap on their release tails, capped at 3 (oldest stolen). Never blocks the input path.
   private toneMaster: GainNode | null = null;
-  private toneVolume = 0.14; // independent from the pacer; low
+  private toneVolume = 0.16; // independent from the pacer; low
   private toneVoices: Array<{ osc: OscillatorNode; gain: GainNode; startedAt: number; stopAt: number | null }> = [];
   private toneCurrent: { osc: OscillatorNode; gain: GainNode; startedAt: number; stopAt: number | null } | null = null;
+  private toneWaves: [PeriodicWave, PeriodicWave] | null = null; // [left, right], built once
   voiceStealEvents = 0; // logged: how often the 3-voice cap forced an early stop
 
   private static readonly TONE_ATTACK = 0.005;
+  private static readonly TONE_SUSTAIN = 0.5; // pluck decays to this fraction of the peak, then rings
+  private static readonly TONE_DECAY_TC = 0.13; // time constant of the plucked attack→sustain decay
   private static readonly TONE_MIN_S = 0.08; // min sustain before release, so fast play isn't clipped
-  private static readonly TONE_RELEASE = 0.12; // exponential release tail
+  private static readonly TONE_RELEASE_TC = 0.045; // release-tail time constant (~5·tc to silence)
   private static readonly TONE_MAX_VOICES = 3;
 
+  // Instrumental timbre per hand: harmonically rich periodic waves (not bare sine/triangle) give the
+  // tones body, like a plucked mallet instrument. Left is warm (fundamental-heavy, gentle harmonics);
+  // right is brighter/reedier (more upper harmonics) — so timbre still codes hand, and the lowpass
+  // (2 k / 4 k) reinforces it. Built once per context.
+  private toneWave(ctx: AudioContext, hand: 0 | 1): PeriodicWave {
+    if (!this.toneWaves) {
+      const wave = (imag: number[]): PeriodicWave =>
+        ctx.createPeriodicWave(new Float32Array(imag.length), new Float32Array(imag));
+      this.toneWaves = [
+        wave([0, 1.0, 0.42, 0.16, 0.07, 0.03]), // left — warm, rounded
+        wave([0, 1.0, 0.55, 0.34, 0.2, 0.11, 0.05]), // right — brighter, reedier
+      ];
+    }
+    return this.toneWaves[hand];
+  }
+
   // Advance to the next target's tone: release the one that just resolved and start the new one.
-  // `hand`: 0 = left (sine, lowpass 2 kHz, pan −0.7), 1 = right (triangle, lowpass 4 kHz, pan +0.7).
+  // `hand`: 0 = left (warm wave, lowpass 2 kHz, pan −0.7), 1 = right (bright wave, 4 kHz, pan +0.7).
   toneAdvance(freq: number, hand: 0 | 1): void {
     const ctx = this.ensure();
     if (!ctx) return;
@@ -95,7 +114,7 @@ export class AudioFeedback {
 
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
-    osc.type = hand === 0 ? 'sine' : 'triangle';
+    osc.setPeriodicWave(this.toneWave(ctx, hand));
     osc.frequency.value = freq;
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
@@ -103,8 +122,10 @@ export class AudioFeedback {
     const panner = ctx.createStereoPanner();
     panner.pan.value = hand === 0 ? -0.7 : 0.7;
     const gain = ctx.createGain();
+    // plucked attack that settles to a ringing sustain — instrumental body, not a flat held tone
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.linearRampToValueAtTime(1, t + AudioFeedback.TONE_ATTACK); // 5 ms attack, no click
+    gain.gain.setTargetAtTime(AudioFeedback.TONE_SUSTAIN, t + AudioFeedback.TONE_ATTACK, AudioFeedback.TONE_DECAY_TC);
     osc.connect(filter).connect(panner).connect(gain).connect(this.toneMaster);
     osc.start(t);
 
@@ -129,9 +150,9 @@ export class AudioFeedback {
   private releaseVoice(v: { gain: GainNode; osc: OscillatorNode; startedAt: number; stopAt: number | null } | null, ctx: AudioContext): void {
     if (!v || v.stopAt !== null) return;
     const relStart = Math.max(ctx.currentTime, v.startedAt + AudioFeedback.TONE_MIN_S); // enforce min sustain
-    v.gain.gain.setValueAtTime(1, relStart);
-    v.gain.gain.exponentialRampToValueAtTime(0.0001, relStart + AudioFeedback.TONE_RELEASE);
-    v.stopAt = relStart + AudioFeedback.TONE_RELEASE + 0.05;
+    // release from wherever the pluck decay currently sits (setTargetAtTime starts at the live value)
+    v.gain.gain.setTargetAtTime(0.0001, relStart, AudioFeedback.TONE_RELEASE_TC);
+    v.stopAt = relStart + AudioFeedback.TONE_RELEASE_TC * 6 + 0.05;
     v.osc.stop(v.stopAt);
   }
 

@@ -58,8 +58,9 @@ A **pacer** plays a kickdrum beat to pace against, running 20% above your measur
 
 Each lane also sounds a **target tone** (see `bitrate-tones-spec.md`), redundant with the visual.
 Pitch ascends left→right on the major pentatonic (`a`=C5 up to `;`=E6), so it maps to screen
-position, not hand; the hand is carried by timbre and pan instead (left = sine panned left, right =
-triangle panned right). Each tone is gated to its target's lifetime — it starts when the target
+position, not hand; the hand is carried by timbre and pan instead (left = a warm mallet-ish tone
+panned left, right = a brighter one panned right, each with a plucked attack that rings out). Each
+tone is gated to its target's lifetime — it starts when the target
 becomes current and releases when you hit it — so fast play runs legato and slow play sustains, and
 the tone length is an audible readout of your own pacing.
 
