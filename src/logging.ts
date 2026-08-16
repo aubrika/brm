@@ -8,6 +8,7 @@
 import type { RawEvent, RunLog, Verdict } from './stats.js';
 
 const CAP = 2048; // generous ceiling for a 60 s run (~120–250 keystrokes); no mid-run realloc
+const PCAP = 4608; // grid pointer-path ceiling: > 60 fps × 60 s samples, no mid-run realloc
 
 const VERDICT_OK = 0;
 const VERDICT_ERR = 1;
@@ -24,6 +25,14 @@ export class RunRecorder {
   private readonly lt = new Float64Array(CAP); // latency sample t
   private readonly lms = new Float64Array(CAP); // latency downToPaintMs
   private lc = 0;
+
+  // GRID MODE pointer path: field-local (t, x, y), at most one sample per frame. ~60/s × 60 s is
+  // ~3600 samples; PCAP gives headroom without a mid-run realloc. This is what makes Fitts
+  // analysis possible (movement time, path length vs straight-line, verify pauses near the target).
+  private readonly pt = new Float64Array(PCAP);
+  private readonly px = new Float32Array(PCAP);
+  private readonly py = new Float32Array(PCAP);
+  private pc = 0;
 
   outOfAlphabet = 0;
 
@@ -54,6 +63,16 @@ export class RunRecorder {
     this.lms[i] = downToPaintMs;
   }
 
+  // GRID MODE: one pointer sample (run-relative t, field-local x/y). Caller throttles to once per
+  // frame. Silently drops past the cap (a full 60 s at max frame rate stays under it).
+  recordPointer(t: number, x: number, y: number): void {
+    if (this.pc >= PCAP) return;
+    const i = this.pc++;
+    this.pt[i] = t;
+    this.px[i] = x;
+    this.py[i] = y;
+  }
+
   // Assemble the array-of-arrays event log. Called once, at run end.
   buildEvents(): RawEvent[] {
     const out: RawEvent[] = new Array(this.ec);
@@ -70,6 +89,16 @@ export class RunRecorder {
     const out = new Array(this.lc);
     for (let i = 0; i < this.lc; i++) {
       out[i] = { t: Math.round(this.lt[i] * 1000) / 1000, downToPaintMs: Math.round(this.lms[i] * 100) / 100 };
+    }
+    return out;
+  }
+
+  // GRID MODE pointer path as [t, x, y] triples (t to 0.1 ms, coords to 0.1 px). Empty for
+  // keyboard runs. Called once, at run end.
+  buildPointerPath(): Array<[number, number, number]> {
+    const out: Array<[number, number, number]> = new Array(this.pc);
+    for (let i = 0; i < this.pc; i++) {
+      out[i] = [Math.round(this.pt[i] * 10) / 10, Math.round(this.px[i] * 10) / 10, Math.round(this.py[i] * 10) / 10];
     }
     return out;
   }

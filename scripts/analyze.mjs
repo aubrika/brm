@@ -20,6 +20,7 @@ import {
   quantile,
   ikiList,
   medianIki,
+  gridFitts,
 } from '../src/stats.js';
 
 const SCHEMA = 3;
@@ -413,6 +414,156 @@ function conditionLines(conditions) {
   return L;
 }
 
+// ------------------------------------------------------- GRID MODE analyses ----
+// Only runs when grid logs are present. Four analyses from the spec (§5): a pooled Fitts
+// regression (throughput = 1000/slope), verify-dwell (hover→click), the ghost A/B, and a
+// pointer-type split. All movement geometry is reconstructed from the logged cell indices +
+// cellPx (target width W = 1 cell), so the numbers are self-contained.
+function olsFit(xs, ys) {
+  const n = xs.length;
+  if (n < 2) return { n, slope: 0, intercept: n ? mean(ys) : 0, r2: 0 };
+  const mx = mean(xs);
+  const my = mean(ys);
+  let sxx = 0;
+  let sxy = 0;
+  let syy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - mx;
+    const dy = ys[i] - my;
+    sxx += dx * dx;
+    sxy += dx * dy;
+    syy += dy * dy;
+  }
+  const slope = sxx > 0 ? sxy / sxx : 0;
+  return { n, slope, intercept: my - slope * mx, r2: sxx > 0 && syy > 0 ? (sxy * sxy) / (sxx * syy) : 0 };
+}
+
+function cellOfXY(x, y, cellPx, gridSize) {
+  const col = Math.floor(x / cellPx);
+  const row = Math.floor(y / cellPx);
+  if (col < 0 || col >= gridSize || row < 0 || row >= gridSize) return -1;
+  return row * gridSize + col;
+}
+
+// Verify/dwell time per correct selection: (down time) − (first pointer sample that entered the
+// target cell in this selection's window). This is where the hover pulse earns its place (shorter
+// dwell, same accuracy) or doesn't.
+function dwellTimes(log) {
+  const g = log.grid;
+  const path = log.pointerPath;
+  if (!g || !path || path.length === 0) return [];
+  const { downs } = splitEvents(log);
+  const corr = downs.filter((d) => d.verdict === 'ok');
+  const out = [];
+  let prevT = 0;
+  for (const d of corr) {
+    const downT = d.t;
+    const cell = Number(d.key);
+    let entryT = null;
+    for (const [pt, px, py] of path) {
+      if (pt <= prevT) continue;
+      if (pt > downT) break;
+      if (cellOfXY(px, py, g.cellPx, g.gridSize) === cell) {
+        entryT = pt;
+        break;
+      }
+    }
+    if (entryT !== null && downT >= entryT) out.push(downT - entryT);
+    prevT = downT;
+  }
+  return out;
+}
+
+// Misclicks that landed on the ghost (T+1) cell specifically, and misclick rate split by whether
+// the ghost was adjacency-suppressed for that target (arrays aligned with grid down-events).
+function ghostMisclickStats(log) {
+  const { downs } = splitEvents(log);
+  const seq = log.sequence;
+  const supp = log.grid?.ghostSuppressed ?? [];
+  let ghostHits = 0;
+  let errs = 0;
+  const bySupp = { sup: { err: 0, total: 0 }, vis: { err: 0, total: 0 } };
+  downs.forEach((d, j) => {
+    const bucket = supp[j] ? bySupp.sup : bySupp.vis;
+    bucket.total++;
+    if (d.verdict === 'err') {
+      bucket.err++;
+      errs++;
+      const ghostCell = seq[d.idx + 1];
+      if (ghostCell !== undefined && String(d.key) === String(ghostCell)) ghostHits++;
+    }
+  });
+  return { ghostHits, errs, bySupp };
+}
+
+function aggregateGrid(label, ls) {
+  const rows = [];
+  for (const l of ls) {
+    const f = gridFitts(l);
+    if (f) for (const r of f.rows) rows.push(r);
+  }
+  const fit = olsFit(rows.map((r) => r.id), rows.map((r) => r.mt));
+  const throughput = fit.slope > 0 ? 1000 / fit.slope : 0;
+  const bps = ls.map((l) => l.summary.bitsPerSecond);
+  const acc = ls.map((l) => l.summary.accuracy);
+  const cycle = ls.map((l) => gridFitts(l)?.meanMt ?? 0).filter((v) => v > 0);
+  return {
+    label,
+    runs: ls.length,
+    moves: rows.length,
+    throughput,
+    slopeMsPerBit: fit.slope,
+    interceptMs: fit.intercept,
+    r2: fit.r2,
+    meanBps: mean(bps),
+    meanAccuracy: mean(acc),
+    meanCycleMs: mean(cycle),
+  };
+}
+
+function analyzeGrid(logs) {
+  const grid = logs.filter((l) => l.grid && l.grid.enabled);
+  if (grid.length === 0) return null;
+  const byType = {};
+  for (const l of grid) {
+    const t = l.grid.pointerType || 'mouse';
+    (byType[t] ??= []).push(l);
+  }
+  const ghostOn = grid.filter((l) => l.grid.ghost);
+  const ghostOff = grid.filter((l) => !l.grid.ghost);
+  const dwellAll = grid.flatMap(dwellTimes);
+  let ghostHits = 0;
+  let errs = 0;
+  const bySupp = { sup: { err: 0, total: 0 }, vis: { err: 0, total: 0 } };
+  for (const l of grid) {
+    const s = ghostMisclickStats(l);
+    ghostHits += s.ghostHits;
+    errs += s.errs;
+    bySupp.sup.err += s.bySupp.sup.err;
+    bySupp.sup.total += s.bySupp.sup.total;
+    bySupp.vis.err += s.bySupp.vis.err;
+    bySupp.vis.total += s.bySupp.vis.total;
+  }
+  return {
+    runs: grid.length,
+    overall: aggregateGrid('all', grid),
+    byPointer: Object.entries(byType).map(([t, ls]) => aggregateGrid(t, ls)),
+    ghost: { on: aggregateGrid('ghost on', ghostOn), off: aggregateGrid('ghost off', ghostOff) },
+    dwell: { count: dwellAll.length, medianMs: median(dwellAll), meanMs: mean(dwellAll) },
+    ghostMisclicks: { ghostHits, errs, share: errs > 0 ? ghostHits / errs : 0 },
+    adjacency: {
+      suppressedErrRate: bySupp.sup.total > 0 ? bySupp.sup.err / bySupp.sup.total : 0,
+      visibleErrRate: bySupp.vis.total > 0 ? bySupp.vis.err / bySupp.vis.total : 0,
+      suppressedN: bySupp.sup.total,
+      visibleN: bySupp.vis.total,
+    },
+  };
+}
+
+function gridArmLine(a) {
+  return `    ${a.label.padEnd(10)}  TP ${a.throughput.toFixed(2)} b/s · MT=${Math.round(a.interceptMs)}+${Math.round(a.slopeMsPerBit)}·ID (R²${a.r2.toFixed(2)}) · B ${a.meanBps.toFixed(2)} · acc ${(a.meanAccuracy * 100).toFixed(1)}% · ${a.runs} run(s)`;
+}
+
 function printReport(logs, analysis) {
   const L = [];
   L.push('════════════════════════════════════════════════════════════');
@@ -537,6 +688,30 @@ function printReport(logs, analysis) {
 
   L.push('  [10] A/B by condition (audio layer on), median per arm');
   for (const line of conditionLines(analysis.conditions)) L.push(line);
+  L.push('');
+
+  const gr = analysis.grid;
+  L.push('  [11] GRID MODE (pointing) — Fitts throughput, dwell, ghost A/B');
+  if (!gr) {
+    L.push('    no grid runs yet');
+  } else {
+    L.push(`    grid runs ${gr.runs}   moves ${gr.overall.moves}`);
+    L.push(`    overall  ${gridArmLine(gr.overall).trim()}`);
+    L.push('    by pointer type:');
+    for (const a of gr.byPointer) L.push(gridArmLine(a));
+    L.push('    ghost A/B (cycle time + accuracy, ghost on vs off):');
+    L.push(gridArmLine(gr.ghost.on));
+    L.push(gridArmLine(gr.ghost.off));
+    if (gr.dwell.count > 0) {
+      L.push(`    verify dwell (hover→click): median ${Math.round(gr.dwell.medianMs)}ms · mean ${Math.round(gr.dwell.meanMs)}ms · n=${gr.dwell.count}`);
+    } else {
+      L.push('    verify dwell: no pointer-path samples (older logs, or logging was off)');
+    }
+    L.push(`    misclicks landing on the ghost cell: ${gr.ghostMisclicks.ghostHits}/${gr.ghostMisclicks.errs} errors (${(gr.ghostMisclicks.share * 100).toFixed(1)}%)`);
+    L.push(
+      `    adjacency: err rate  suppressed ${(gr.adjacency.suppressedErrRate * 100).toFixed(1)}% (n=${gr.adjacency.suppressedN})  vs  visible ${(gr.adjacency.visibleErrRate * 100).toFixed(1)}% (n=${gr.adjacency.visibleN})`,
+    );
+  }
   L.push('════════════════════════════════════════════════════════════');
   console.log(L.join('\n'));
 }
@@ -563,6 +738,7 @@ function main() {
     carryover: analyzeCarryover(logs),
     byBuild: analyzeByBuild(logs),
     conditions: analyzeConditions(logs),
+    grid: analyzeGrid(logs),
   };
   if (args.compare) {
     console.log('════════════════════════════════════════════════════════════');

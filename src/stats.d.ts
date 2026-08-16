@@ -17,6 +17,9 @@ export interface RunConfig {
   n: number;
   leftFingers: string;
   rightFingers: string;
+  topRow?: boolean; // optional: absent on logs written before this was recorded
+  leftTopRow?: string;
+  rightTopRow?: string;
   chords: boolean;
   lookahead: number;
   lanes: boolean;
@@ -72,6 +75,23 @@ export interface TonesLog {
   voiceStealEvents: number;
 }
 
+/** GRID MODE's log section. Present (with `enabled: true`) only on pointing runs; the Fitts
+ *  difficulty of every selection depends on cellPx/fieldPx/dpr, so they are recorded. The two
+ *  per-selection arrays are aligned with the grid `down` events in order. */
+export interface GridLog {
+  enabled: boolean;
+  gridSize: number; // cells per side
+  fieldPx: number; // play-field side in CSS px
+  cellPx: number; // target width W (px) — the Fitts term
+  devicePixelRatio: number;
+  ghost: boolean;
+  crosshair: boolean;
+  hoverPulse: boolean;
+  pointerType: string; // modal pointer type across the run ('mouse' | 'touch' | 'pen')
+  ghostSuppressed?: number[]; // per down-event: 1 if the ghost was adjacency-suppressed for that target
+  pointerTypes?: string[]; // per down-event pointer type
+}
+
 export interface RunLog {
   schemaVersion: 3;
   meta: {
@@ -90,6 +110,8 @@ export interface RunLog {
   summary: RunSummary;
   pacer: PacerLog;
   tones: TonesLog;
+  grid?: GridLog; // present only on GRID MODE runs
+  pointerPath?: Array<[number, number, number]>; // GRID MODE: [t, x, y] field-local samples
 }
 
 export interface FingerInfo {
@@ -135,6 +157,16 @@ export interface TransitionStats {
   crossHand: IkiStats;
 }
 
+export interface TransitionMean {
+  mean: number;
+  count: number;
+}
+export interface TransitionMeans {
+  sameKey: TransitionMean;
+  sameHand: TransitionMean;
+  crossHand: TransitionMean;
+}
+
 export interface ConfusionPair {
   target: string;
   pressed: string;
@@ -161,6 +193,24 @@ export interface DigraphStat {
   count: number;
 }
 
+export interface GridFittsRow {
+  mt: number; // movement time (ms)
+  id: number; // index of difficulty (bits)
+  distCells: number; // straight-line distance in cell widths
+  distPx: number;
+}
+export interface GridFitts {
+  count: number;
+  meanId: number;
+  meanMt: number;
+  meanDistCells: number;
+  slopeMsPerBit: number; // OLS slope of MT on ID
+  interceptMs: number;
+  r2: number;
+  throughput: number; // bits/s (1000 / slope, or meanId/meanMt fallback)
+  rows: GridFittsRow[];
+}
+
 export interface ReportStats {
   downs: DownEvent[];
   iki: IkiStats;
@@ -181,7 +231,9 @@ export function ikiStats(values: number[]): IkiStats;
 export function ikiList(downs: DownEvent[]): number[];
 export function medianIki(downs: DownEvent[]): number;
 export function transitionStats(downs: DownEvent[], alphabet: string): TransitionStats;
+export function transitionMeans(downs: DownEvent[], alphabet: string): TransitionMeans;
 export function digraphStats(downs: DownEvent[], minCount?: number): DigraphStat[];
+export function gridFitts(log: RunLog): GridFitts | null;
 export function histogram(values: number[], binMs?: number, maxMs?: number): Histogram;
 export function confusion(
   downs: DownEvent[],

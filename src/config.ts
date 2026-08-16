@@ -24,6 +24,16 @@ export interface GameConfig {
   abTest: boolean; // A/B mode: each run is randomly assigned a condition (none / pacer / tones)
   label: string; // free-text machine name, stamped into each log's filename + meta
 
+  // ---- GRID MODE (pointing; mouse/trackpad — see bitrate-grid-mode-spec.md) ----
+  // A separate targeting modality: click the highlighted cell of a large grid, N = cell count, so a
+  // 32×32 grid scores log2(1023) ≈ 10 bits/selection. Its own engine + canvas renderer; when on it
+  // replaces the keyboard game entirely (the alphabet/finger machinery is unused).
+  grid: boolean; // GRID MODE on
+  gridSize: number; // cells per side (16 | 24 | 32); N = gridSize²
+  ghost: boolean; // show the next target (T+1) as a ghost cell + connector
+  crosshair: boolean; // full-field locator hairlines through the target cell
+  hoverPulse: boolean; // pulse a white border while the pointer is inside the target cell
+
   // ---- adaptive auditory pacer (experiment; never gates scoring — see bitrate-pacer-spec.md) ----
   pacer: PacerMode; // 'off' | 'proportional' | 'hillclimb'
   pacerPush: number; // proportional: click tempo = measured rate × (1 + push)
@@ -43,9 +53,9 @@ export interface GameConfig {
 // The scored alphabet: home rows, plus the top rows when that toggle is on, so the strip can
 // group by position (home + top rows of a hand interleave into the same columns).
 export function composeAlphabet(
-  c: Pick<GameConfig, 'leftFingers' | 'rightFingers' | 'topRow' | 'leftTopRow' | 'rightTopRow'>,
+  c: { leftFingers: string; rightFingers: string; topRow?: boolean; leftTopRow?: string; rightTopRow?: string },
 ): string {
-  const top = c.topRow ? c.leftTopRow + c.rightTopRow : '';
+  const top = c.topRow ? (c.leftTopRow ?? '') + (c.rightTopRow ?? '') : '';
   return c.leftFingers + c.rightFingers + top;
 }
 
@@ -53,16 +63,43 @@ export function composeAlphabet(
 // (0 = left, 1 = right). Home and top rows of a hand share columns, so q and a both map to the left
 // hand's first lane. Used by the target tones: the lane index picks the pitch (ascending), the hand
 // picks timbre + pan.
-export function laneAudio(c: GameConfig): Map<string, { lane: number; hand: 0 | 1 }> {
+export function laneAudio(
+  c: { leftFingers: string; rightFingers: string; topRow?: boolean; leftTopRow?: string; rightTopRow?: string },
+): Map<string, { lane: number; hand: 0 | 1 }> {
   const m = new Map<string, { lane: number; hand: 0 | 1 }>();
   const leftHome = [...c.leftFingers], rightHome = [...c.rightFingers];
-  const leftTop = c.topRow ? [...c.leftTopRow] : [];
-  const rightTop = c.topRow ? [...c.rightTopRow] : [];
+  const leftTop = c.topRow ? [...(c.leftTopRow ?? '')] : [];
+  const rightTop = c.topRow ? [...(c.rightTopRow ?? '')] : [];
   const leftCols = Math.max(leftHome.length, leftTop.length);
   leftHome.forEach((ch, j) => m.set(ch, { lane: j, hand: 0 }));
   leftTop.forEach((ch, j) => m.set(ch, { lane: j, hand: 0 }));
   rightHome.forEach((ch, j) => m.set(ch, { lane: leftCols + j, hand: 1 }));
   rightTop.forEach((ch, j) => m.set(ch, { lane: leftCols + j, hand: 1 }));
+  return m;
+}
+
+// The Okabe-Ito colourblind-safe palette: one hue per lane, in order left→right across both
+// hands. This is the falling strip's palette (strip.ts imports it), so a key keeps the exact
+// colour it wore while falling on into the report. Okabe-Ito's 8th colour is black — invisible
+// on the dark UI — so a neutral grey stands in for it on the last lane.
+export const OKABE_ITO = [
+  '#E69F00', // orange
+  '#56B4E9', // sky blue
+  '#009E73', // bluish green
+  '#F0E442', // yellow
+  '#0072B2', // blue
+  '#D55E00', // vermillion
+  '#CC79A7', // reddish purple
+  '#999999', // grey (stands in for Okabe-Ito black against the dark background)
+];
+
+// char → its lane hue, matching the strip. Keyed on the base key; the spacebar and any key not
+// in the alphabet are simply absent (callers fall back to the neutral ink colour).
+export function laneColors(
+  c: { leftFingers: string; rightFingers: string; topRow?: boolean; leftTopRow?: string; rightTopRow?: string },
+): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const [ch, info] of laneAudio(c)) m.set(ch, OKABE_ITO[info.lane % OKABE_ITO.length]);
   return m;
 }
 
@@ -77,6 +114,11 @@ export const DEFAULT_CONFIG: GameConfig = {
   tones: false, // retired: the A/B found no bit-rate gain (and a small accuracy cost)
   abTest: false,
   label: '',
+  grid: false,
+  gridSize: 32, // 32×32 = 1024 cells; the geometry whose Fitts ceiling is ~2× device throughput
+  ghost: true,
+  crosshair: true,
+  hoverPulse: true,
   pacer: 'off', // retired alongside the tones (see the A/B results)
   pacerPush: 0.1,
   pacerVolume: 0.22,
@@ -90,7 +132,9 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v15'; // tones toggle + A/B mode
+const STORAGE_KEY = 'brm.config.v16'; // + grid mode (pointing)
+
+export const GRID_SIZES = [16, 24, 32] as const; // cells per side offered on the config screen
 
 export function loadConfig(): GameConfig {
   try {

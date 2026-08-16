@@ -7,22 +7,17 @@
 // never draws a trend line through a handful of points. Overclaiming from small n is the
 // thing this screen is built to avoid.
 
-import type { RunLog, DownEvent, FingerInfo } from './stats.js';
-import { reportStats, digraphStats, confusion, deriveFingerMap, ikiList, quantile } from './stats.js';
+import type { RunLog, DownEvent } from './stats.js';
+import { reportStats, digraphStats, transitionMeans, confusion, ikiList, quantile, gridFitts } from './stats.js';
+import { laneColors } from './config.js';
 import type { IndexRow } from './logging.js';
 
-// Hand colours mirror the game strip (left = blue, right = yellow), so a letter's identity
-// carries over from play to report.
-const HAND_BLUE = 'hsl(214, 82%, 67%)';
-const HAND_YELLOW = 'hsl(48, 85%, 60%)';
-const HAND_GRAY = 'hsl(220, 9%, 62%)'; // the spacebar thumb
-function handColor(info: FingerInfo | undefined): string {
-  if (!info) return 'var(--rink)';
-  return info.hand === 'L' ? HAND_BLUE : info.hand === 'R' ? HAND_YELLOW : HAND_GRAY;
-}
-function coloredKey(map: Map<string, FingerInfo>, ch: string): HTMLElement {
-  const e = h('code', { class: 'r-di-key', text: fmtKey(ch) });
-  e.style.color = handColor(map.get(ch));
+// Each key wears its exact per-lane colour from the falling strip (the Okabe-Ito palette, one hue
+// per finger left→right), so a letter's identity carries over from play into the report.
+function coloredKey(colors: Map<string, string>, ch: string): HTMLElement {
+  const base = ch.endsWith('*') ? ch.slice(0, -1) : ch; // a chord glyph 'a*' shares 'a's lane
+  const e = h('code', { class: 'r-di-key', text: fmtKey(base) });
+  e.style.color = colors.get(base) ?? 'var(--rink)';
   return e;
 }
 
@@ -212,7 +207,7 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
     h('span', { text: '0s' }),
     h('span', { text: `${Math.round(dur / 1000)}s` }),
   ]);
-  const tip = h('div', { class: 'r-tape-tip', text: 'One bar per selection · height = time since the last correct key · red = time lost to errors, red dot marks a miss. Hover for detail.' });
+  const tip = h('div', { class: 'r-tape-tip', text: 'One bar per selection · height = time since the last correct selection · red = time lost to errors, red dot marks a miss. Hover for detail.' });
   const node = section('The run', h('div', { class: 'r-tape' }, [plot, axis]), tip);
 
   const animate = (): void => {
@@ -231,10 +226,10 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
 }
 
 // ------------------------------------------------------------- pace: IKI ----
-function histogramSection(log: RunLog): HTMLElement {
+function histogramSection(log: RunLog, gridMode = false): HTMLElement {
   const stats = reportStats(log);
   const hist = stats.histogram;
-  if (hist.total < 3) return section('Pace', h('p', { class: 'r-empty', text: 'Too few keystrokes to chart.' }));
+  if (hist.total < 3) return section('Pace', h('p', { class: 'r-empty', text: 'Too few selections to chart.' }));
 
   const W = 460;
   const H = 150;
@@ -264,9 +259,27 @@ function histogramSection(log: RunLog): HTMLElement {
     h('span', { class: 'r-hist-med', text: `median ${Math.round(hist.median)} ms` }),
     h('span', { class: 'r-hist-avg', text: `avg ${Math.round(mean)} ms` }),
   ]);
-  const bimodal = hist.median > 0 && hist.p90 / hist.median > 2.5;
-  const read = h('p', { class: 'r-read', text: bimodal ? 'Mostly fast, with occasional stalls.' : 'Steady pace throughout.' });
-  return section('Pace', h('div', { class: 'r-hist' }, [svg, axis]), statline, read);
+  // Grid runs have no finger/hand structure — the transition-class split is meaningless, so the
+  // pace panel is just the interval distribution (the grid stat line below carries the movement
+  // analysis instead).
+  if (gridMode) return section('Pace', h('div', { class: 'r-hist' }, [svg, axis]), statline);
+
+  // Mean interval split by transition class — the concrete cost structure of the run, in place of
+  // a one-line pace summary. Cross-hand transitions dominate and run slowest; a same-key repeat is
+  // the cheapest. A class with no samples shows a dash rather than a fake 0 ms.
+  const tm = transitionMeans(stats.downs, log.meta.config.alphabet);
+  const cell = (label: string, m: { mean: number; count: number }): HTMLElement =>
+    h('div', { class: 'r-trans-cell' }, [
+      h('span', { class: 'r-trans-label', text: label }),
+      h('span', { class: 'r-trans-ms', text: m.count ? `${Math.round(m.mean)} ms` : '—' }),
+      h('span', { class: 'r-trans-n', text: m.count ? `n=${m.count}` : '' }),
+    ]);
+  const trans = h('div', { class: 'r-trans' }, [
+    cell('same key', tm.sameKey),
+    cell('same hand', tm.sameHand),
+    cell('cross-hand', tm.crossHand),
+  ]);
+  return section('Pace', h('div', { class: 'r-hist' }, [svg, axis]), statline, trans);
 }
 
 // ------------------------------------------ specific digraphs (slow + fast) ----
@@ -274,14 +287,14 @@ function histogramSection(log: RunLog): HTMLElement {
 // transitions are cross-hand. Instead, name the specific digraphs (a→b) by median interval,
 // each letter in its hand colour. Show the five slowest AND the five fastest (they answer
 // different questions), needing ≥2 samples so a lone pair can't top either list.
-function digraphList(map: Map<string, FingerInfo>, items: ReturnType<typeof digraphStats>): HTMLElement {
+function digraphList(colors: Map<string, string>, items: ReturnType<typeof digraphStats>): HTMLElement {
   const list = h('div', { class: 'r-di-list' });
   for (const d of items) {
     list.append(
       h('div', { class: 'r-di-row' }, [
-        coloredKey(map, d.a),
+        coloredKey(colors, d.a),
         h('span', { class: 'r-di-arrow', text: '→' }),
-        coloredKey(map, d.b),
+        coloredKey(colors, d.b),
         h('span', { class: 'r-di-ms', text: `${Math.round(d.median)} ms` }),
         h('span', { class: 'r-di-n', text: `n=${d.count}` }),
       ]),
@@ -291,7 +304,7 @@ function digraphList(map: Map<string, FingerInfo>, items: ReturnType<typeof digr
 }
 function transitionsColumn(log: RunLog): HTMLElement {
   const downs = reportStats(log).downs;
-  const map = deriveFingerMap(log.meta.config.alphabet);
+  const colors = laneColors(log.meta.config);
   const di = digraphStats(downs, 2);
   if (di.length === 0) {
     return section('Transitions', h('p', { class: 'r-empty', text: 'Not enough repeated transitions yet.' }));
@@ -299,9 +312,40 @@ function transitionsColumn(log: RunLog): HTMLElement {
   const slowest = di.slice(0, 5);
   // take the fastest from the tail, never overlapping the slowest five
   const fastest = di.length > 5 ? di.slice(Math.max(5, di.length - 5)).reverse() : [];
-  const col = h('div', { class: 'r-tcol' }, [section('Slowest transitions', digraphList(map, slowest))]);
-  if (fastest.length) col.append(section('Fastest transitions', digraphList(map, fastest)));
+  const col = h('div', { class: 'r-tcol' }, [section('Slowest transitions', digraphList(colors, slowest))]);
+  if (fastest.length) col.append(section('Fastest transitions', digraphList(colors, fastest)));
   return col;
+}
+
+// ------------------------------------------------- grid: movement / Fitts ----
+// The pointing analogue of the transitions panel: instead of finger digraphs, the movement
+// structure of the run — how hard each selection was (index of difficulty) and how fast it was
+// made — plus an effective Fitts throughput. The spec's ceiling for this geometry is ~2× the
+// device's raw pointing throughput (~9–10 bits/s for a mouse); the headline B and this TP are the
+// two numbers to watch. Full per-selection Fitts regression lives in the offline analyzer.
+function gridSection(log: RunLog): HTMLElement {
+  const g = log.grid;
+  const f = gridFitts(log);
+  const stat = (label: string, value: string): HTMLElement =>
+    h('div', { class: 'r-trans-cell' }, [
+      h('span', { class: 'r-trans-label', text: label }),
+      h('span', { class: 'r-trans-ms', text: value }),
+    ]);
+  const cells: HTMLElement[] = [];
+  if (g) cells.push(stat('grid', `${g.gridSize}×${g.gridSize}`), stat('input', g.pointerType));
+  if (f && f.count > 0) {
+    cells.push(
+      stat('moves', String(f.count)),
+      stat('mean difficulty', `${f.meanId.toFixed(2)} bits`),
+      stat('mean move time', `${Math.round(f.meanMt)} ms`),
+      stat('throughput', `${f.throughput.toFixed(2)} bits/s`),
+    );
+  }
+  const note =
+    f && f.count >= 2
+      ? h('p', { class: 'r-read', text: `Fitts fit: MT ≈ ${Math.round(f.interceptMs)} + ${Math.round(f.slopeMsPerBit)}·ID ms (R² ${f.r2.toFixed(2)}). This geometry's ceiling is ≈2× the device's pointing throughput.` })
+      : h('p', { class: 'r-empty', text: 'Not enough movement yet for a Fitts fit.' });
+  return section('Movement', h('div', { class: 'r-trans' }, cells), note);
 }
 
 // ------------------------------------------------------------------ misses ----
@@ -407,11 +451,16 @@ export function renderReport(
   const stats = reportStats(log);
   const downs = stats.downs;
 
+  const grid = !!log.grid?.enabled;
   const hero = heroSection(log);
   const tape = runTapeSection(log, downs);
 
-  const twoCol = h('div', { class: 'r-cols' }, [histogramSection(log), transitionsColumn(log)]);
-  const misses = missesSection(log);
+  // Grid runs get pointing-appropriate panels: the interval distribution + a movement/Fitts
+  // section, in place of the keyboard finger/lane transitions and miss-confusion (meaningless here).
+  const twoCol = grid
+    ? h('div', { class: 'r-cols' }, [histogramSection(log, true), gridSection(log)])
+    : h('div', { class: 'r-cols' }, [histogramSection(log), transitionsColumn(log)]);
+  const misses = grid ? null : missesSection(log);
   const machine = machineSection(log, indexRows);
 
   const runAgain = h('button', { class: 'btn primary', text: 'Run again' });

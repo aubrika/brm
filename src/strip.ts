@@ -13,7 +13,7 @@
 // Hand colour (teal = left, amber = right) applies to both.
 
 import type { Engine } from './engine.js';
-import { CHALLENGE_ABOVE, CHALLENGE_BELOW } from './config.js';
+import { CHALLENGE_ABOVE, CHALLENGE_BELOW, OKABE_ITO } from './config.js';
 
 const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
@@ -35,19 +35,8 @@ const PULSE_MS = 110; // correct-keystroke pulse
 const SHAKE_MS = 120;
 const SHAKE_PX = 10;
 
-// The Okabe-Ito colourblind-safe palette: one colour per lane, in order left→right across both
-// hands. Okabe-Ito's 8th colour is black — invisible on the dark UI — so the palette's neutral
-// grey stands in for it on the last lane.
-const OKABE_ITO = [
-  '#E69F00', // orange
-  '#56B4E9', // sky blue
-  '#009E73', // bluish green
-  '#F0E442', // yellow
-  '#0072B2', // blue
-  '#D55E00', // vermillion
-  '#CC79A7', // reddish purple
-  '#999999', // grey (stands in for Okabe-Ito black against the dark background)
-];
+// The lane palette (OKABE_ITO, one colour per lane left→right) lives in config.ts so the report
+// screen can reuse it — a key keeps the exact colour it wore falling.
 
 // '#rrggbb' + alpha → 'rgba(r, g, b, a)'
 function rgbaOf(hex: string, a: number): string {

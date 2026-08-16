@@ -105,6 +105,15 @@ export function symbolFor(key: string, spaceHeld: boolean, chord: boolean): stri
   return chord && spaceHeld ? key + '*' : key;
 }
 
+// GRID MODE: an i.i.d. uniform sequence of cell indices in [0, cellCount). Same RNG contract as
+// sampleSequence (uniform, with replacement, injectable source) — a repeated cell can occur with
+// probability 1/cellCount, exactly as the keyboard sequence allows adjacent repeats.
+export function sampleCells(cellCount: number, count: number, randInt: (n: number) => number): number[] {
+  const out: number[] = new Array(count);
+  for (let i = 0; i < count; i++) out[i] = randInt(cellCount);
+  return out;
+}
+
 // ---------------------------------------------------------------- bit rate ----
 // B = log2(N - 1) * max(Sc - Si, 0) / t   (bits per second). Errors subtract, hence the
 // max(., 0) clamp; at accuracy p the net throughput scales as (2p - 1).

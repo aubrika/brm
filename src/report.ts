@@ -6,6 +6,7 @@
 // independently recomputable and the sequence independently checkable for uniformity.
 
 import type { Engine } from './engine.js';
+import type { GridEngine } from './gridengine.js';
 import type { RunResult } from './scoring.js';
 import type { RunLog, MachineMeta, RunConfig } from './stats.js';
 import { splitEvents, medianIki, countRollovers } from './stats.js';
@@ -21,9 +22,15 @@ export interface BuildOpts {
   droppedFrames: number;
   pacer: RunLog['pacer'];
   tones: RunLog['tones'];
+  grid?: RunLog['grid']; // GRID MODE only
+  pointerPath?: RunLog['pointerPath']; // GRID MODE only
 }
 
-export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts): RunLog {
+// A grid run has no keyboard alphabet/finger structure, so buildReport accepts either engine and
+// takes only the loop-facing surface both share (config, n, sequence, index).
+type ReportEngine = Engine | GridEngine;
+
+export function buildReport(engine: ReportEngine, result: RunResult, opts: BuildOpts): RunLog {
   const events = opts.recorder.buildEvents();
   const shell = { eventColumns: EVENT_COLUMNS, events } as unknown as RunLog;
   const { downs } = splitEvents(shell);
@@ -36,6 +43,9 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
     n: engine.n,
     leftFingers: engine.config.leftFingers,
     rightFingers: engine.config.rightFingers,
+    topRow: engine.config.topRow, // recorded so the report can colour top-row keys by their lane
+    leftTopRow: engine.config.leftTopRow,
+    rightTopRow: engine.config.rightTopRow,
     chords: engine.config.chords,
     lookahead: engine.config.lookahead,
     lanes: engine.config.lanes,
@@ -60,7 +70,9 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
       machine: { ...opts.machine, label: engine.config.label },
       config,
     },
-    sequence: engine.sequence.slice(0, engine.index + 1), // targets shown, incl. the unfinished one
+    // targets shown, incl. the unfinished one. Grid targets are cell indices — stringified to match
+    // the event `key` column and the string[] schema.
+    sequence: (engine.sequence as Array<string | number>).slice(0, engine.index + 1).map(String),
     eventColumns: EVENT_COLUMNS,
     events,
     latencySamples: opts.recorder.buildLatency(),
@@ -80,6 +92,8 @@ export function buildReport(engine: Engine, result: RunResult, opts: BuildOpts):
     },
     pacer: opts.pacer,
     tones: opts.tones,
+    ...(opts.grid ? { grid: opts.grid } : {}),
+    ...(opts.pointerPath ? { pointerPath: opts.pointerPath } : {}),
   };
 }
 

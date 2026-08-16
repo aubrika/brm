@@ -48,6 +48,8 @@ On the start screen you set:
 - **Challenge mode** — off by default (experiment/demo). The piano roll scrolls at a fixed rate
   like a rhythm game; you must hit each target while it's inside the highlighted band or it counts
   as a miss. Advancement is on a clock, not your input, so throughput is capped at the scroll rate.
+- **Grid mode** — off by default. A *pointing* modality (mouse/trackpad) instead of the keyboard —
+  see [Grid mode](#grid-mode-mousetrackpad) below.
 
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
 
@@ -82,6 +84,46 @@ neither added redundancy nor external pacing helped — so both were retired.
 
 Type the highlighted key at the bottom. Left-hand keys are blue, right-hand keys are yellow.
 The bar above shows the keys coming next.
+
+## Grid mode (mouse/trackpad)
+
+A pointing-based mode: one cell of a large grid is highlighted, you click it, the next cell
+highlights immediately. `N` = the number of cells, so a 32×32 grid scores `log2(1023) ≈ 10` bits
+per selection. Turn it on with the **Grid mode** toggle; grid size (16×16 / 24×24 / 32×32) and the
+visual aids are under *Grid options*.
+
+**Why this geometry.** In a 2-D grid the target width shrinks as `1/√N`, so the Fitts index of
+difficulty grows as only `½·log2(N)` while the bits earned grow as `log2(N)`. The asymptotic ceiling
+is therefore about **2× the pointing device's Fitts throughput** — roughly 9–10 bits/s for a mouse,
+where a center-out ring caps at 1×. A trackpad is lower, ~5–6 bits/s; the mode favours skilled
+mouse users.
+
+What you see:
+
+- **Target** — the active cell, filled orange. Score is on **pointer-down** (the earliest committed
+  moment), not click, and the target advances synchronously — same semantics as the keyboard mode's
+  keydown. Retry-until-correct: a wrong cell counts as an error and the target stays.
+- **Crosshair** (toggle) — hairlines through the target's row and column spanning the whole field,
+  so you locate it by scanning an edge instead of searching the grid — 2-D visual search becomes two
+  1-D reads.
+- **Ghost** (toggle) — the next target (T+1) as an empty gray cell, with a connector line from the
+  current target, so a movement can end already oriented toward the next. When the next target is
+  within two cells the ghost border is suppressed (it would crowd the precision phase); the connector
+  still shows. Ghost on/off is an A/B — the analyzer compares them.
+- **Hover pulse** (toggle) — a white border pulses while the pointer is inside the target cell: a
+  pre-click "you're on it" confirmation.
+
+Every run logs the full pointer path (field-local `[t, x, y]`, once per frame) and each selection's
+cell, so the offline analyzer can recover per-selection movement time, index of difficulty, Fitts
+throughput (`node scripts/analyze.mjs`, section `[11]`), verify-dwell (hover→click), the ghost A/B,
+and a mouse-vs-trackpad split. The report screen after a grid run shows the headline bits/s, the run
+tape, the selection-interval distribution, and a **Movement** panel (mean difficulty, mean move
+time, and effective Fitts throughput).
+
+_Expected numbers (replace with measured):_ at 32×32 in a ~900 px field, mean inter-target distance
+≈ 0.52 × field, ID ≈ 4.15 bits; at mouse throughput ~5 bits/s plus a ~0.1 s intercept that's ~1.0–1.15 s
+per selection → **~7–9 bits/s** at realistic accuracy, against ~9–10 theoretical. Trackpad roughly
+two-thirds of that.
 
 ## Runs and analysis
 

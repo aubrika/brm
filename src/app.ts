@@ -7,7 +7,9 @@
 // primitives, written to logs/ once at run end — never during the 60 s.
 
 import { Engine, type KeyInput } from './engine.js';
+import { GridEngine } from './gridengine.js';
 import { StripRenderer } from './strip.js';
+import { GridRenderer } from './gridview.js';
 import { AudioFeedback, laneToneHz } from './audio.js';
 import { PacerController } from './pacer.js';
 import { LatencyOverlay } from './latency.js';
@@ -15,7 +17,7 @@ import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, composeAlphabet, laneAudio, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
+import { loadConfig, saveConfig, composeAlphabet, laneAudio, GRID_SIZES, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
 import { DEFAULT_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
 import type { MachineMeta, RunLog } from './stats.js';
 
@@ -48,11 +50,13 @@ function el<K extends keyof HTMLElementTagNameMap>(
 const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps frame was skipped
 
 interface RunCtx {
-  engine: Engine;
-  strip: StripRenderer;
+  engine: Engine | GridEngine; // GridEngine in GRID MODE; both expose the loop-facing surface
+  strip: StripRenderer | GridRenderer; // both expose render(now) + resize()
+  gridView: GridRenderer | null; // non-null in GRID MODE (also held as `strip`), for pointer wiring
+  grid: boolean; // this run is a pointing (grid) run
   recorder: RunRecorder;
   timed: boolean;
-  phase: 'ready' | 'playing' | 'done'; // ready = waiting for the first keypress to start the clock
+  phase: 'ready' | 'playing' | 'done'; // ready = waiting for the first selection to start the clock
   startedAt: string; // ISO, stamped when play begins
   pacer: PacerController | null; // the tempo controller (null when the pacer is off for this run)
   pacerStarted: boolean; // whether the click scheduler has been kicked off yet
@@ -61,6 +65,10 @@ interface RunCtx {
   lastFrameMs: number;
   pendingDownT: number; // run-relative t of a keydown awaiting its paint (latency sample)
   pendingDown: boolean;
+  pendingPointer: { t: number; x: number; y: number } | null; // GRID: one path sample per frame
+  pointerType: string; // GRID: modal pointer type across the run
+  ghostSuppressed: number[]; // GRID: per down-event, was the ghost adjacency-suppressed
+  pointerTypes: string[]; // GRID: per down-event pointer type
   rafId: number;
   ui: {
     time: HTMLElement;
@@ -100,6 +108,11 @@ export class App {
 
     // Dev aid: ?auto=practice|scored skips the config screen; add &demo to auto-type
     // (dispatches real keydowns, so it drives the same input path a human would).
+    // Dev aid: ?grid[=SIZE] forces GRID MODE on for this session (headless captures / quick trials).
+    if (params.has('grid')) {
+      const sz = Number(params.get('grid'));
+      this.config = { ...this.config, grid: true, ...(sz === 16 || sz === 24 || sz === 32 ? { gridSize: sz } : {}) };
+    }
     const auto = params.get('auto');
     if (auto === 'practice' || auto === 'scored') {
       // Dev-only: ?secs=N shortens JUST this capture run so a full run→report can be driven
@@ -109,8 +122,38 @@ export class App {
         this.config = { ...this.config, durationMs: Math.round(secs * 1000) };
       }
       this.startRun(auto === 'scored', true); // start immediately (skip the ready wait) for headless capture
-      if (params.has('demo')) this.startDemoTyper();
+      if (params.has('demo')) {
+        if (this.config.grid) this.startGridDemo();
+        else this.startDemoTyper();
+      }
     }
+  }
+
+  // Dev-only demo driver for GRID MODE: dispatches a real pointerdown at the current target's
+  // centre (plus a pointermove, so hover/pulse and path sampling exercise the same path a hand
+  // would). Drives the identical input code as a human click.
+  private startGridDemo(): void {
+    const errorRate = 0.05;
+    const tick = (): void => {
+      const rc = this.run;
+      if (!rc || rc.phase === 'done') return;
+      if (rc.phase === 'playing' && rc.gridView) {
+        const eng = rc.engine as GridEngine;
+        const gv = rc.gridView;
+        let cell = eng.target();
+        if (Math.random() < errorRate) cell = (cell + 1) % eng.n; // an adjacent miss now and then
+        const r = gv.element.getBoundingClientRect();
+        const col = cell % eng.gridSize;
+        const row = Math.floor(cell / eng.gridSize);
+        const cx = r.left + (col + 0.5) * gv.cellPx;
+        const cy = r.top + (row + 0.5) * gv.cellPx;
+        const opts = { clientX: cx, clientY: cy, bubbles: true, pointerType: 'mouse' } as PointerEventInit;
+        gv.element.dispatchEvent(new PointerEvent('pointermove', opts));
+        gv.element.dispatchEvent(new PointerEvent('pointerdown', opts));
+      }
+      window.setTimeout(tick, 90 + Math.random() * 60);
+    };
+    window.setTimeout(tick, 200);
   }
 
   private startDemoTyper(): void {
@@ -119,7 +162,7 @@ export class App {
       const rc = this.run;
       if (!rc || rc.phase === 'done') return;
       if (rc.phase === 'playing') {
-        const eng = rc.engine;
+        const eng = rc.engine as Engine;
         if (this.config.chords) {
           const keys = [...eng.target()];
           if (Math.random() < errorRate && keys.length) {
@@ -161,12 +204,14 @@ export class App {
     }
     const rc = this.run;
     if (rc.phase === 'done') return;
+    if (rc.grid) return; // GRID MODE scores on pointerdown, not keys (Escape above still aborts)
+    const eng0 = rc.engine as Engine;
     // No countdown: the run's clock starts when you first type an in-alphabet target. This same
     // keydown then falls through and is scored as the first selection.
     if (rc.phase === 'ready') {
-      if (!rc.engine.alphaSet.has(e.key) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if (!eng0.alphaSet.has(e.key) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
       rc.phase = 'playing';
-      rc.engine.start(performance.now());
+      eng0.start(performance.now());
       rc.startedAt = new Date().toISOString();
       rc.ui.countdown.classList.add('hidden');
     }
@@ -176,7 +221,7 @@ export class App {
       this.spaceHeld = true;
       return;
     }
-    const eng = rc.engine;
+    const eng = eng0;
     const inAlpha = eng.alphaSet.has(e.key);
     const modified = e.ctrlKey || e.metaKey || e.altKey;
     if (inAlpha && !modified) e.preventDefault();
@@ -222,16 +267,65 @@ export class App {
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === ' ') this.spaceHeld = false;
     const rc = this.run;
-    if (this.mode !== 'run' || !rc || rc.phase !== 'playing') return;
-    if (!rc.engine.alphaSet.has(e.key)) return;
+    if (this.mode !== 'run' || !rc || rc.phase !== 'playing' || rc.grid) return;
+    const eng0 = rc.engine as Engine;
+    if (!eng0.alphaSet.has(e.key)) return;
     const now = performance.now();
     if (this.config.chords) {
-      const oc = rc.engine.handleKeyUp(e.key, now); // completes a chord on last release
-      const tRun = now - rc.engine.startMs;
+      const oc = eng0.handleKeyUp(e.key, now); // completes a chord on last release
+      const tRun = now - eng0.startMs;
       if (oc === 'correct') rc.pacer?.recordCorrect(tRun);
       else if (oc === 'incorrect') rc.pacer?.recordError(tRun);
     }
-    rc.recorder.recordUp(e.key, rc.engine.index, now - rc.engine.startMs);
+    rc.recorder.recordUp(e.key, eng0.index, now - eng0.startMs);
+  };
+
+  // ------------------------------------------------------- GRID MODE input ----
+  // Pointing selections: score on pointerdown (the earliest committed moment — the click event
+  // fires on pointer-up and would waste the press→release interval). Hit-test is pure arithmetic
+  // against the canvas, never per-cell DOM. Runs the same ready→playing start-on-first-selection
+  // as the keyboard path, then falls through to score that first pointerdown.
+  private onGridPointerDown = (e: PointerEvent): void => {
+    const rc = this.run;
+    if (this.mode !== 'run' || !rc || !rc.grid || rc.phase === 'done' || !rc.gridView) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return; // ignore modified clicks (spec §1)
+    e.preventDefault();
+    const eng = rc.engine as GridEngine;
+    if (rc.phase === 'ready') {
+      rc.phase = 'playing';
+      eng.start(performance.now());
+      rc.startedAt = new Date().toISOString();
+      rc.ui.countdown.classList.add('hidden');
+    }
+    const now = performance.now();
+    this.latency.markKey(now);
+    const cell = rc.gridView.cellAt(e.clientX, e.clientY);
+    const idxBefore = eng.index;
+    const tRun = now - eng.startMs;
+    const ghostSuppressed = rc.gridView.ghostSuppressed();
+    const outcome = eng.handleClick(cell, now);
+    const pType = e.pointerType || 'mouse';
+    if (!rc.pointerType) rc.pointerType = pType; // first observed = modal (mixed input is rare)
+    if (outcome === 'correct' || outcome === 'incorrect') {
+      rc.recorder.recordDown(String(cell), idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
+      rc.ghostSuppressed.push(ghostSuppressed ? 1 : 0);
+      rc.pointerTypes.push(pType);
+      rc.pendingDownT = tRun; // pointerdown → next paint, for the latency samples
+      rc.pendingDown = true;
+    }
+    // an out-of-field press is counted in the engine (outOfField); no event is recorded
+  };
+
+  // Hover for the pulse + one path sample per frame (flushed in the loop). Coordinates are
+  // field-local so the log is self-contained for Fitts analysis.
+  private onGridPointerMove = (e: PointerEvent): void => {
+    const rc = this.run;
+    if (this.mode !== 'run' || !rc || !rc.grid || !rc.gridView) return;
+    rc.gridView.hoverCell = rc.gridView.cellAt(e.clientX, e.clientY);
+    if (rc.phase === 'playing') {
+      const p = rc.gridView.localPoint(e.clientX, e.clientY);
+      rc.pendingPointer = { t: performance.now() - rc.engine.startMs, x: p.x, y: p.y };
+    }
   };
 
   // --------------------------------------------------------------- config ----
@@ -268,6 +362,17 @@ export class App {
     const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
     const challenge = el('input', { type: 'checkbox', ...(this.config.challenge ? { checked: true } : {}) }) as HTMLInputElement;
 
+    // GRID MODE controls (pointing)
+    const grid = el('input', { type: 'checkbox', ...(this.config.grid ? { checked: true } : {}) }) as HTMLInputElement;
+    const ghost = el('input', { type: 'checkbox', ...(this.config.ghost ? { checked: true } : {}) }) as HTMLInputElement;
+    const crosshair = el('input', { type: 'checkbox', ...(this.config.crosshair ? { checked: true } : {}) }) as HTMLInputElement;
+    const hoverPulse = el('input', { type: 'checkbox', ...(this.config.hoverPulse ? { checked: true } : {}) }) as HTMLInputElement;
+    const gridSize = el('select', { class: 'field-input mono' },
+      GRID_SIZES.map((sz) =>
+        el('option', { value: String(sz), ...(this.config.gridSize === sz ? { selected: true } : {}), text: `${sz} × ${sz}  ·  N = ${sz * sz}` }),
+      ),
+    ) as HTMLSelectElement;
+
     const err = el('div', { class: 'field-error' });
 
     const field = (label: string, control: Node, hint?: string): HTMLElement =>
@@ -295,6 +400,11 @@ export class App {
         ...parts,
         chords: chords.checked,
         challenge: challenge.checked,
+        grid: grid.checked,
+        gridSize: Number(gridSize.value) || 32,
+        ghost: ghost.checked,
+        crosshair: crosshair.checked,
+        hoverPulse: hoverPulse.checked,
         tones: false, // pacer + tones retired (A/B showed no bit-rate gain, slight accuracy cost)
         abTest: false,
         alphabet: v.alphabet,
@@ -339,6 +449,14 @@ export class App {
             el('label', { class: 'toggle' }, [topRow, el('span', { text: ' Top row (adds a second row per hand)' })]),
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
             el('label', { class: 'toggle' }, [challenge, el('span', { text: ' CHALLENGE MODE (fixed-rate scroll — hit before it leaves the band)' })]),
+            el('label', { class: 'toggle' }, [grid, el('span', { text: ' GRID MODE (mouse/trackpad — click the highlighted cell)' })]),
+          ]),
+          el('div', { class: 'field toggles grid-options' }, [
+            el('span', { class: 'field-label', text: 'Grid options (mouse/trackpad)' }),
+            el('label', { class: 'toggle inline' }, [el('span', { text: 'Grid size ' }), gridSize]),
+            el('label', { class: 'toggle' }, [crosshair, el('span', { text: ' Crosshair locator (hairlines through the target)' })]),
+            el('label', { class: 'toggle' }, [ghost, el('span', { text: ' Ghost (preview the next target + connector)' })]),
+            el('label', { class: 'toggle' }, [hoverPulse, el('span', { text: ' Hover pulse (confirm you are on the target)' })]),
           ]),
         ]),
         err,
@@ -361,6 +479,10 @@ export class App {
 
   // ------------------------------------------------------------------ run ----
   private startRun(timed: boolean, immediate = false): void {
+    if (this.config.grid) {
+      this.startGridRun(timed, immediate);
+      return;
+    }
     this.mode = 'run';
     this.spaceHeld = false;
     // A/B mode: override this run's audio condition with a randomly drawn arm (not saved to config,
@@ -410,6 +532,8 @@ export class App {
     this.run = {
       engine,
       strip,
+      gridView: null,
+      grid: false,
       recorder: new RunRecorder(),
       timed,
       phase: immediate ? 'playing' : 'ready',
@@ -421,6 +545,74 @@ export class App {
       lastFrameMs: -1,
       pendingDownT: 0,
       pendingDown: false,
+      pendingPointer: null,
+      pointerType: '',
+      ghostSuppressed: [],
+      pointerTypes: [],
+      rafId: 0,
+      ui: { time, rate, stats, countdown, stripRoot },
+    };
+    if (immediate) {
+      engine.start(now0);
+      this.run.startedAt = new Date().toISOString();
+      countdown.classList.add('hidden');
+    }
+    this.run.rafId = requestAnimationFrame(this.loop);
+  }
+
+  // GRID MODE run: a pointing game on a canvas grid. Shares the run loop, HUD, latency proxy, and
+  // logging with the keyboard path, but builds a GridEngine + canvas renderer and wires pointer
+  // handlers instead of the keyboard strip. No pacer/tones/chords/challenge here.
+  private startGridRun(timed: boolean, immediate = false): void {
+    this.mode = 'run';
+    this.root.replaceChildren();
+
+    const engine = new GridEngine(this.config, timed);
+    const stripRoot = el('div', { class: 'strip-root grid-root' });
+    const time = el('div', { class: 'time' });
+    const rate = el('div', { class: 'rate' });
+    const stats = el('div', { class: 'stats' });
+    const countdown = el('div', { class: 'countdown hint', text: 'click the highlighted cell to start' });
+
+    const screen = el('div', { class: 'screen run' }, [
+      time,
+      el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
+      el('div', { class: 'readout' }, [rate, stats]),
+      ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+    ]);
+    this.root.append(screen);
+
+    const gridView = new GridRenderer(engine, stripRoot);
+    const canvas = gridView.element;
+    canvas.style.cursor = 'crosshair';
+    // pointer input lives on the canvas element, so it is torn down automatically when the screen
+    // is replaced. pointerdown scores; pointermove drives the pulse + path sampling.
+    canvas.addEventListener('pointerdown', this.onGridPointerDown);
+    canvas.addEventListener('pointermove', this.onGridPointerMove);
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.style.touchAction = 'none'; // no scroll/zoom gestures stealing the pointerdown
+
+    const now0 = performance.now();
+    this.run = {
+      engine,
+      strip: gridView,
+      gridView,
+      grid: true,
+      recorder: new RunRecorder(),
+      timed,
+      phase: immediate ? 'playing' : 'ready',
+      startedAt: '',
+      pacer: null,
+      pacerStarted: false,
+      challengeBeat: 0,
+      droppedFrames: 0,
+      lastFrameMs: -1,
+      pendingDownT: 0,
+      pendingDown: false,
+      pendingPointer: null,
+      pointerType: '',
+      ghostSuppressed: [],
+      pointerTypes: [],
       rafId: 0,
       ui: { time, rate, stats, countdown, stripRoot },
     };
@@ -454,7 +646,7 @@ export class App {
       if (this.config.challenge) {
         const tempo = rc.pacer && rc.pacer.started ? rc.pacer.currentTempo : CHALLENGE_SEED_HZ;
         rc.challengeBeat += tempo * (dtMs / 1000);
-        rc.engine.challengeProgress = rc.challengeBeat - CHALLENGE_LEAD_BEATS;
+        (rc.engine as Engine).challengeProgress = rc.challengeBeat - CHALLENGE_LEAD_BEATS; // keyboard-only
       }
       rc.engine.tick(now);
       if (rc.engine.state === 'ended') {
@@ -475,7 +667,12 @@ export class App {
     }
 
     rc.strip.render(now);
-    // this frame is the paint that follows any pending keydown → close keydown→paint proxy
+    // GRID: flush the at-most-one pointer sample gathered since the last frame (spec §5)
+    if (rc.grid && rc.pendingPointer) {
+      rc.recorder.recordPointer(rc.pendingPointer.t, rc.pendingPointer.x, rc.pendingPointer.y);
+      rc.pendingPointer = null;
+    }
+    // this frame is the paint that follows any pending selection → close down→paint proxy
     if (rc.pendingDown) {
       rc.recorder.recordLatency(rc.pendingDownT, now - rc.engine.startMs - rc.pendingDownT);
       rc.pendingDown = false;
@@ -488,7 +685,7 @@ export class App {
   // chords have no single lane. Called from the advance point, never before state advances.
   private triggerTargetTone(rc: RunCtx): void {
     if (this.config.chords || !this.config.tones) return;
-    const tone = this.toneTable.get(rc.engine.target());
+    const tone = this.toneTable.get((rc.engine as Engine).target());
     if (tone) this.audio.toneAdvance(tone.freq, tone.hand);
   }
 
@@ -556,7 +753,29 @@ export class App {
       voiceStealEvents: this.audio.voiceStealEvents,
     };
     const result = rc.engine.result();
-    void this.completeRun(rc, result, pacerLog, tonesLog);
+    const gridLog = rc.grid ? this.buildGridLog(rc) : undefined;
+    const pointerPath = rc.grid ? rc.recorder.buildPointerPath() : undefined;
+    void this.completeRun(rc, result, pacerLog, tonesLog, gridLog, pointerPath);
+  }
+
+  // Assemble the GRID MODE section of the log. The Fitts difficulty of every selection depends on
+  // cellPx/fieldPx/dpr, so they are recorded from the live renderer; the two per-selection arrays
+  // line up with the grid `down` events in order.
+  private buildGridLog(rc: RunCtx): RunLog['grid'] {
+    const v = rc.gridView;
+    return {
+      enabled: true,
+      gridSize: this.config.gridSize,
+      fieldPx: v ? v.fieldPx : 0,
+      cellPx: v ? v.cellPx : 0,
+      devicePixelRatio: v ? v.dpr : 1,
+      ghost: this.config.ghost,
+      crosshair: this.config.crosshair,
+      hoverPulse: this.config.hoverPulse,
+      pointerType: rc.pointerType || 'mouse',
+      ghostSuppressed: rc.ghostSuppressed,
+      pointerTypes: rc.pointerTypes,
+    };
   }
 
   // Assemble the pacer section of the log. clickTimes are shifted to the run-relative clock the
@@ -583,6 +802,8 @@ export class App {
     result: ReturnType<Engine['result']>,
     pacer: RunLog['pacer'],
     tones: RunLog['tones'],
+    grid?: RunLog['grid'],
+    pointerPath?: RunLog['pointerPath'],
   ): Promise<void> {
     const machine = this.machine ?? (await this.machinePromise);
     const log = buildReport(rc.engine, result, {
@@ -593,6 +814,8 @@ export class App {
       droppedFrames: rc.droppedFrames,
       pacer,
       tones,
+      grid,
+      pointerPath,
     });
     this.run = null;
 

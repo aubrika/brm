@@ -49,6 +49,11 @@ code { font-family: var(--mono); }
 .toggles { gap: 10px; padding-top: 22px; }
 .toggle { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 15px; cursor: pointer; }
 .toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
+.toggle.inline select { margin-left: 6px; }
+/* GRID MODE options: a slightly recessed sub-group under the main toggles */
+.grid-options { padding-top: 12px; margin-top: 6px; border-top: 1px solid var(--line, rgba(255,255,255,0.08)); }
+.grid-options .field-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; margin-bottom: 4px; }
+.grid-options select.field-input { width: auto; padding: 4px 8px; }
 .field-error { color: var(--error); min-height: 20px; font-size: 14px; }
 .field-note { color: var(--muted); font-size: 13px; }
 .buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
@@ -74,6 +79,10 @@ code { font-family: var(--mono); }
 }
 .strip-root { position: absolute; inset: 0; }
 .strip-layer { position: absolute; inset: 0; z-index: 2; }
+
+/* GRID MODE: centre the canvas in the play area; it is a fixed square sized in JS. */
+.strip-root.grid-root { display: flex; align-items: center; justify-content: center; }
+.grid-canvas { display: block; touch-action: none; }
 
 /* DDR lanes: fixed VERTICAL column dividers (one lane per finger) + HORIZONTAL chunk
    dividers every four rows that scroll down with the flow (via --vy). */
@@ -278,6 +287,11 @@ code { font-family: var(--mono); }
 .r-hist-med { font-size: 13px; color: var(--amber); }
 .r-hist-avg { font-size: 13px; color: var(--accent); }
 .r-read { font-size: 14px; color: var(--slate); margin: 10px 0 0; line-height: 1.5; }
+.r-trans { display: flex; gap: 22px; margin-top: 12px; flex-wrap: wrap; }
+.r-trans-cell { display: flex; flex-direction: column; gap: 1px; }
+.r-trans-label { font-size: 11px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.05em; }
+.r-trans-ms { font-size: 16px; font-family: var(--mono); color: var(--rink); font-variant-numeric: tabular-nums; }
+.r-trans-n { font-size: 11px; font-family: var(--mono); color: var(--slate); min-height: 1em; }
 .r-empty { color: var(--slate); font-size: 14px; }
 
 /* slowest digraphs */
