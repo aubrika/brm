@@ -140,8 +140,16 @@ export class AudioFeedback {
 // left→right, so a s d f j k l ; ring out as one octave. Degrees past 7 keep climbing by octave.
 const MAJOR = [0, 2, 4, 5, 7, 9, 11]; // semitone offsets of the major scale degrees
 const DO = 523.25; // C5 — an octave above middle C, so even the leftmost lane clears the range where small speakers roll off
+
+// Inter-tone spacing. Pitch is logarithmic, so "spacing" is a musical INTERVAL (a ratio), not a
+// fixed Hz gap. This multiplies every interval in log-space, anchored at DO, so the leftmost lane
+// stays put and the rest spread upward. 1.0 = the original C-major scale (rollback); larger values
+// make adjacent lanes more distinct at the cost of a brighter top note.
+const LANE_TONE_STRETCH = 1.5;
+
 export function laneScale(index: number): number {
   const octave = Math.floor(index / MAJOR.length);
-  const semitone = octave * 12 + MAJOR[((index % MAJOR.length) + MAJOR.length) % MAJOR.length];
+  const degree = ((index % MAJOR.length) + MAJOR.length) % MAJOR.length;
+  const semitone = (octave * 12 + MAJOR[degree]) * LANE_TONE_STRETCH;
   return DO * Math.pow(2, semitone / 12);
 }
