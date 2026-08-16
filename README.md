@@ -52,9 +52,10 @@ On the start screen you set:
 
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
 
-Each lane sounds a distinct note — a C-major scale climbing left to right, `a`=do (C5) up to
-`;`=do an octave higher (C6), voiced as a soft kalimba. The current target's note is re-plucked
-and rings until you press it, so typing plays a melody and you hear which finger to fire next.
+Each finger sounds one of four consonant tones (the degrees of a major-6th chord), the same four
+on both hands; the hand is carried by the octave (left hand low, right hand an octave up). Voiced
+as a soft kalimba, the current target's note is re-plucked and rings until you press it — so you
+hear both which finger to fire (the note) and which hand (the octave).
 
 Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
 

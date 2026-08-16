@@ -32,18 +32,18 @@ export function composeAlphabet(
   return c.leftFingers + c.rightFingers + top;
 }
 
-// Base key → its column order left→right (0 = leftmost lane). Home and top rows of a hand share
-// columns, so q and a both map to the left hand's first column. Used to pitch the lane tones.
-export function laneOrder(c: GameConfig): Map<string, number> {
-  const m = new Map<string, number>();
+// Base key → its finger column (0 = leftmost within the hand) and hand (0 = left, 1 = right). Home
+// and top rows of a hand share columns, so q and a both map to the left hand's first column. Used
+// to pitch the lane tones: column picks the note, hand picks the octave.
+export function laneFinger(c: GameConfig): Map<string, { col: number; hand: 0 | 1 }> {
+  const m = new Map<string, { col: number; hand: 0 | 1 }>();
   const leftHome = [...c.leftFingers], rightHome = [...c.rightFingers];
   const leftTop = c.topRow ? [...c.leftTopRow] : [];
   const rightTop = c.topRow ? [...c.rightTopRow] : [];
-  const leftCols = Math.max(leftHome.length, leftTop.length);
-  leftHome.forEach((ch, j) => m.set(ch, j));
-  leftTop.forEach((ch, j) => m.set(ch, j));
-  rightHome.forEach((ch, j) => m.set(ch, leftCols + j));
-  rightTop.forEach((ch, j) => m.set(ch, leftCols + j));
+  leftHome.forEach((ch, j) => m.set(ch, { col: j, hand: 0 }));
+  leftTop.forEach((ch, j) => m.set(ch, { col: j, hand: 0 }));
+  rightHome.forEach((ch, j) => m.set(ch, { col: j, hand: 1 }));
+  rightTop.forEach((ch, j) => m.set(ch, { col: j, hand: 1 }));
   return m;
 }
 

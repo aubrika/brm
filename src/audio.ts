@@ -164,16 +164,16 @@ export class AudioFeedback {
   }
 }
 
-// Lane index (0 = leftmost) → frequency along the C-major scale, do-re-mi-fa-so-la-ti-do climbing
-// left→right, so a s d f j k l ; ring out as one octave (degrees past 7 keep climbing by octave).
-// All offsets are whole semitones, so every note is in tune (equal temperament) and stays within
-// one diatonic key, so a random walk between the lanes still sounds musical.
-const MAJOR = [0, 2, 4, 5, 7, 9, 11]; // semitone offsets of the major scale degrees
-const DO = 523.25; // C5 — an octave above middle C, so even the leftmost lane clears the range where small speakers roll off
+// Four maximally-distinct yet consonant tones — the degrees of a major-6th chord (root, 3rd, 5th,
+// 6th) — one per finger column (0..3, left→right, matching the lane colours). Handedness is the
+// octave: the left hand sounds the chord in the base octave, the right hand an octave up. The
+// chord spans under an octave, so the two hands' eight notes never collide and, being all chord
+// tones, every pair stays consonant no matter the random order they're played in.
+const CHORD = [0, 4, 7, 9]; // major-6th chord: root, major third, fifth, sixth (semitone offsets)
+const BASE = 392.0; // G4 — the left hand's octave; the right hand is +12 semitones (an octave up)
 
-export function laneScale(index: number): number {
-  const octave = Math.floor(index / MAJOR.length);
-  const degree = ((index % MAJOR.length) + MAJOR.length) % MAJOR.length;
-  const semitone = octave * 12 + MAJOR[degree];
-  return DO * Math.pow(2, semitone / 12);
+export function fingerTone(col: number, hand: 0 | 1): number {
+  const degree = ((col % CHORD.length) + CHORD.length) % CHORD.length;
+  const semitone = CHORD[degree] + 12 * hand;
+  return BASE * Math.pow(2, semitone / 12);
 }

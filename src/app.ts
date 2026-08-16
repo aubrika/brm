@@ -7,13 +7,13 @@
 
 import { Engine, type KeyInput } from './engine.js';
 import { StripRenderer } from './strip.js';
-import { AudioFeedback, laneScale } from './audio.js';
+import { AudioFeedback, fingerTone } from './audio.js';
 import { LatencyOverlay } from './latency.js';
 import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, composeAlphabet, laneOrder, type GameConfig } from './config.js';
+import { loadConfig, saveConfig, composeAlphabet, laneFinger, type GameConfig } from './config.js';
 import { DEFAULT_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
 import type { MachineMeta, RunLog } from './stats.js';
 
@@ -342,9 +342,9 @@ export class App {
     if (this.config.sound) this.audio.unlock(); // user gesture (button click) is active
 
     const engine = new Engine(this.config, timed);
-    // each lane gets a distinct scale tone (do-re-mi… left→right); single-key correct hits play
-    // that tone from onKey. Chords have no single lane, so they keep the generic click.
-    this.laneFreq = new Map([...laneOrder(this.config)].map(([ch, i]) => [ch, laneScale(i)]));
+    // each finger column gets one of four chord tones; the hand shifts it an octave. The current
+    // target's tone is held/re-plucked from the render loop; chords have no single lane, so silent.
+    this.laneFreq = new Map([...laneFinger(this.config)].map(([ch, { col, hand }]) => [ch, fingerTone(col, hand)]));
     engine.onCorrect = this.config.chords ? () => this.audio.correct() : null;
     engine.onError = () => this.audio.error();
 
