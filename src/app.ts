@@ -286,7 +286,7 @@ export class App {
         // pacer is fixed: always-on proportional, 20% above measured rate, kick at a fixed volume
         pacer: 'proportional',
         pacerPush: 0.2,
-        pacerVolume: 0.26,
+        pacerVolume: 0.4,
         pacerScored: true,
         durationMs: SCORED_DURATION_MS,
         lookahead: DEFAULT_LOOKAHEAD,

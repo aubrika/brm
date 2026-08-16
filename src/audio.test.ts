@@ -13,6 +13,8 @@ class MockNode {
   gain = new MockParam();
   frequency = new MockParam();
   type = '';
+  curve: Float32Array | null = null;
+  oversample = 'none';
   startedAt: number | null = null;
   stoppedAt: number | null = null;
   setPeriodicWave(): void {}
@@ -41,6 +43,9 @@ class MockCtx {
     const n = new MockNode();
     MockCtx.created.push(n);
     return n;
+  }
+  createWaveShaper(): MockNode {
+    return new MockNode();
   }
   createPeriodicWave(): object {
     return {};
