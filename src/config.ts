@@ -63,7 +63,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   label: '',
   pacer: 'off',
   pacerPush: 0.1,
-  pacerVolume: 0.03,
+  pacerVolume: 0.09,
   pacerScored: false,
   alphabet: 'asdfjkl;',
   durationMs: SCORED_DURATION_MS,

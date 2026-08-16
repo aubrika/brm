@@ -199,10 +199,10 @@ export class AudioFeedback {
     const osc = ctx.createOscillator();
     const env = ctx.createGain(); // per-click envelope; master holds the volume
     osc.type = 'triangle';
-    osc.frequency.value = 1000; // ~1 kHz, short — sits under the player's attention
+    osc.frequency.value = 1600; // above the lane tones (which top out ~1.3 kHz) so it cuts through
     env.gain.setValueAtTime(0.0001, at);
     env.gain.linearRampToValueAtTime(1, at + 0.002); // 2 ms attack
-    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.01); // ~8 ms decay, no click-on-the-click
+    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.012); // ~10 ms decay, no click-on-the-click
     osc.connect(env).connect(master);
     osc.start(at);
     osc.stop(at + 0.03);

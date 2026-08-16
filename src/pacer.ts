@@ -137,14 +137,16 @@ export class PacerController {
   }
 
   private updateProportional(nowMs: number): number | null {
+    if (!this.started) {
+      // establish as soon as there's a little data — don't wait out the 2 s recompute cadence, or
+      // the click wouldn't start until the first cadence boundary even after enough keystrokes
+      if (this.countInWindow(this.correctT, nowMs, RATE_WINDOW_MS) < MIN_CORRECT_TO_START) return null;
+      this.lastRecomputeMs = nowMs;
+      return this.emit(nowMs, this.clampHz(this.measuredRate(nowMs) * (1 + this.push)));
+    }
     if (nowMs - this.lastRecomputeMs < RECOMPUTE_MS) return null;
     this.lastRecomputeMs = nowMs;
-    const nCorrect = this.countInWindow(this.correctT, nowMs, RATE_WINDOW_MS);
     const target = this.clampHz(this.measuredRate(nowMs) * (1 + this.push));
-    if (!this.started) {
-      if (nCorrect < MIN_CORRECT_TO_START) return null; // hold silent until there's enough data
-      return this.emit(nowMs, target); // first establishment may jump straight to the target
-    }
     // glide toward the target by at most 5% of the current tempo per update
     const next = this.clampHz(
       Math.min(this.tempo * (1 + MAX_MOVE_PER_UPDATE), Math.max(this.tempo * (1 - MAX_MOVE_PER_UPDATE), target)),
@@ -161,10 +163,9 @@ export class PacerController {
 
   private updateHillclimb(nowMs: number): number | null {
     if (!this.started) {
-      // seed at the measured rate (like proportional) once there's data, then climb from there
-      if (nowMs - this.lastRecomputeMs < RECOMPUTE_MS) return null;
-      this.lastRecomputeMs = nowMs;
+      // seed at the measured rate (like proportional) as soon as there's data, then climb
       if (this.countInWindow(this.correctT, nowMs, RATE_WINDOW_MS) < MIN_CORRECT_TO_START) return null;
+      this.lastRecomputeMs = nowMs;
       this.lastClimbMs = nowMs;
       this.prevB = this.bOverWindow(nowMs, CLIMB_WINDOW_MS);
       this.minuteAnchorT = nowMs;

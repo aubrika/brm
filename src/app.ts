@@ -263,7 +263,7 @@ export class App {
     };
     const pacerMode = selectInput([['off', 'Off'], ['proportional', 'Proportional'], ['hillclimb', 'Hill-climbing']], this.config.pacer);
     const pacerPush = selectInput([['0.05', '5%'], ['0.1', '10%'], ['0.15', '15%'], ['0.2', '20%']], String(this.config.pacerPush));
-    const pacerVolume = selectInput([['0.03', 'Low'], ['0.06', 'Medium'], ['0.1', 'High']], String(this.config.pacerVolume));
+    const pacerVolume = selectInput([['0.05', 'Low'], ['0.09', 'Medium'], ['0.16', 'High']], String(this.config.pacerVolume));
     const pacerScored = el('input', { type: 'checkbox', ...(this.config.pacerScored ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
@@ -296,7 +296,7 @@ export class App {
         label: machineLabel.value.trim().slice(0, 40),
         pacer: pacerMode.value as GameConfig['pacer'],
         pacerPush: Number(pacerPush.value) || 0.1,
-        pacerVolume: Number(pacerVolume.value) || 0.03,
+        pacerVolume: Number(pacerVolume.value) || 0.09,
         pacerScored: pacerScored.checked,
         durationMs: SCORED_DURATION_MS,
         lookahead: DEFAULT_LOOKAHEAD,
