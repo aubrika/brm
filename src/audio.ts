@@ -100,7 +100,7 @@ export class AudioFeedback {
 // Lane index (0 = leftmost) → frequency along a C-major scale: do-re-mi-fa-so-la-ti-do climbing
 // left→right, so a s d f j k l ; ring out as one octave. Degrees past 7 keep climbing by octave.
 const MAJOR = [0, 2, 4, 5, 7, 9, 11]; // semitone offsets of the major scale degrees
-const DO = 261.63; // C4
+const DO = 523.25; // C5 — an octave above middle C, so even the leftmost lane clears the range where small speakers roll off
 export function laneScale(index: number): number {
   const octave = Math.floor(index / MAJOR.length);
   const semitone = octave * 12 + MAJOR[((index % MAJOR.length) + MAJOR.length) % MAJOR.length];
