@@ -52,9 +52,10 @@ On the start screen you set:
 
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
 
-Each lane sounds a distinct note — a C-major scale climbing left to right (`a`=do … `;`=do an
-octave up). The current target's note holds until you press it, so typing plays a melody and you
-hear which finger to fire next.
+Each lane sounds a distinct note — the C major pentatonic scale (C D E G A) climbing left to
+right, `a`=C5 up to `;`=E6. Pentatonic has no dissonant intervals, so a random walk between the
+lanes always sounds consonant. The current target's note holds until you press it, so typing
+plays a melody and you hear which finger to fire next.
 
 Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
 
