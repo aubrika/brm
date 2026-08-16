@@ -95,6 +95,45 @@ export class AudioFeedback {
     this.hold = null;
     this.holdFreq = 0;
   }
+
+  // ---- metronome: a steady pacing tick, scheduled on the audio clock ----
+  // Ticks are placed at exact audio-clock times (not rAF times), so spacing is sample-accurate
+  // despite frame jitter. startMetronome sets the period; pumpMetronome (called each frame)
+  // schedules any ticks falling inside a short lookahead window.
+  private metro: { period: number; next: number } | null = null;
+
+  startMetronome(periodSec: number): void {
+    const ctx = this.ensure();
+    if (!ctx || !(periodSec > 0)) return;
+    this.metro = { period: periodSec, next: ctx.currentTime + 0.12 };
+  }
+
+  stopMetronome(): void {
+    this.metro = null;
+  }
+
+  pumpMetronome(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.metro) return;
+    const lookahead = 0.12; // schedule ticks up to 120 ms ahead
+    while (this.metro.next < ctx.currentTime + lookahead) {
+      this.tickAt(ctx, this.metro.next);
+      this.metro.next += this.metro.period;
+    }
+  }
+
+  private tickAt(ctx: AudioContext, t: number): void {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 2000; // a short, dry click that sits above the sustained lane tone
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.06, t + 0.001);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.028);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.05);
+  }
 }
 
 // Lane index (0 = leftmost) → frequency along a C-major scale: do-re-mi-fa-so-la-ti-do climbing

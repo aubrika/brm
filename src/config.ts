@@ -10,6 +10,7 @@ export interface GameConfig {
   leftTopRow: string; // left hand top row; each key sits in the same column as its home-row finger
   rightTopRow: string; // right hand top row
   chords: boolean; // targets are 1-3 key chords pressed together (experiment)
+  targetBitRate: number; // metronome ticks at the clean-accuracy pace needed to hit this bit rate
   label: string; // free-text machine name, stamped into each log's filename + meta
 
   // ---- derived / fixed (no longer exposed; kept for the engine/strip/report) ----
@@ -53,6 +54,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   leftTopRow: 'qwer',
   rightTopRow: 'uiop',
   chords: false,
+  targetBitRate: 8,
   label: '',
   alphabet: 'asdfjkl;',
   durationMs: SCORED_DURATION_MS,
@@ -63,7 +65,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v10'; // top row behind a toggle; per-lane tones
+const STORAGE_KEY = 'brm.config.v11'; // target bit rate (metronome pace)
 
 export function loadConfig(): GameConfig {
   try {

@@ -243,6 +243,10 @@ export class App {
     const rightTopRow = keyInput(this.config.rightTopRow);
     const topRow = el('input', { type: 'checkbox', ...(this.config.topRow ? { checked: true } : {}) }) as HTMLInputElement;
     const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
+    const targetRate = el('input', {
+      type: 'number', class: 'field-input mono', value: String(this.config.targetBitRate),
+      min: '1', max: '30', step: '0.5', spellcheck: false, autocomplete: 'off',
+    }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
 
@@ -267,9 +271,11 @@ export class App {
         return null;
       }
       err.textContent = '';
+      const tr = Number(targetRate.value);
       return {
         ...parts,
         chords: chords.checked,
+        targetBitRate: Number.isFinite(tr) && tr > 0 ? tr : 8,
         alphabet: v.alphabet,
         label: machineLabel.value.trim().slice(0, 40),
         durationMs: SCORED_DURATION_MS,
@@ -304,6 +310,7 @@ export class App {
           field('Right hand home row', rightFingers, 'Keys the right hand types.'),
           field('Left hand top row', leftTopRow, 'Sits above the home row, same finger columns.'),
           field('Right hand top row', rightTopRow, 'Sits above the home row, same finger columns.'),
+          field('Target rate (bits/s)', targetRate, 'Metronome ticks at the pace needed to hit this.'),
           el('div', { class: 'field toggles' }, [
             el('label', { class: 'toggle' }, [topRow, el('span', { text: ' Top row (adds a second row per hand)' })]),
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
@@ -376,6 +383,7 @@ export class App {
       engine.start(now0);
       this.run.startedAt = new Date().toISOString();
       countdown.classList.add('hidden');
+      this.audio.startMetronome(engine.logBits / this.config.targetBitRate);
     }
     this.run.rafId = requestAnimationFrame(this.loop);
   }
@@ -395,6 +403,7 @@ export class App {
         rc.engine.start(now);
         rc.startedAt = new Date().toISOString();
         rc.ui.countdown.classList.add('hidden');
+        this.audio.startMetronome(rc.engine.logBits / this.config.targetBitRate);
       } else {
         rc.ui.countdown.classList.remove('hidden');
         rc.ui.countdown.textContent = String(left);
@@ -418,6 +427,7 @@ export class App {
         const freq = this.laneFreq.get(rc.engine.target());
         if (freq !== undefined) this.audio.holdTone(freq);
       }
+      this.audio.pumpMetronome(); // schedule any pacing ticks due in the next lookahead window
     }
 
     rc.strip.render(now);
@@ -445,6 +455,7 @@ export class App {
   private abortRun(): void {
     if (this.run) cancelAnimationFrame(this.run.rafId);
     this.audio.stopHold();
+    this.audio.stopMetronome();
     this.run = null;
     this.showConfig();
   }
@@ -454,6 +465,7 @@ export class App {
     if (!rc) return;
     cancelAnimationFrame(rc.rafId);
     this.audio.stopHold();
+    this.audio.stopMetronome();
     const result = rc.engine.result();
     void this.completeRun(rc, result);
   }

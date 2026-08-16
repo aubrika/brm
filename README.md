@@ -46,10 +46,15 @@ On the start screen you set:
 - **Chords** — off by default (experiment). When on, targets are 1–3 key chords you press
   together and release; all keys of a chord appear on one line, linked and boxed at once.
 
+- **Target rate (bits/s)** — the pace to chase (default 8). A metronome ticks at the keystroke
+  rate you'd need, at clean accuracy, to hit this bit rate: one tick every `log2(N-1) / target`
+  seconds.
+
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
 
-Each lane also sounds a distinct note on a correct hit — a C-major scale climbing left to right
-(`a`=do … `;`=do an octave up) — an auditory cue for which finger just fired.
+Each lane sounds a distinct note — a C-major scale climbing left to right (`a`=do … `;`=do an
+octave up). The current target's note holds until you press it, so typing plays a melody and you
+hear which finger to fire next.
 
 Then pick **Practice** (untimed, `Esc` to quit) or **Start scored run** (60 seconds).
 
