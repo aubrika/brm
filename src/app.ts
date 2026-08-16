@@ -289,10 +289,10 @@ export class App {
         challenge: challenge.checked,
         alphabet: v.alphabet,
         label: machineLabel.value.trim().slice(0, 40),
-        // pacer is fixed: always-on proportional, 20% above measured rate, kick at a fixed volume
+        // pacer is fixed: always-on proportional, 10% above measured rate, metronome tick
         pacer: 'proportional',
-        pacerPush: 0.2,
-        pacerVolume: 0.4,
+        pacerPush: 0.1,
+        pacerVolume: 0.22,
         pacerScored: true,
         durationMs: SCORED_DURATION_MS,
         lookahead: DEFAULT_LOOKAHEAD,

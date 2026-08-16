@@ -95,8 +95,8 @@ describe('pacer audio scheduling', () => {
     }
 
     const started = MockCtx.created.filter((n) => n.startedAt !== null);
-    // ~4 Hz over ~0.8 s ≈ 3 kicks, each a body + beater oscillator → several started nodes
-    expect(started.length).toBeGreaterThanOrEqual(4);
+    // ~4 Hz over ~0.8 s ≈ 3 ticks, one oscillator each → several started nodes
+    expect(started.length).toBeGreaterThanOrEqual(2);
   });
 
   it('records a click time on the performance.now() clock for each scheduled click', async () => {

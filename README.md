@@ -52,9 +52,10 @@ On the start screen you set:
 
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
 
-A **pacer** plays a kickdrum beat to pace against, running 20% above your measured keystroke rate
-(re-estimated every 2 s from a trailing 10 s window, eased ≤5% per step). It is a suggestion only
-— it never gates a target or affects scoring (see `bitrate-pacer-spec.md`).
+A **pacer** ticks like a metronome to pace against, running 10% above your measured keystroke rate
+(a ~10% bit-rate stretch goal; re-estimated every 2 s from a trailing 10 s window, eased ≤5% per
+step). It is a suggestion only — it never gates a target or affects scoring (see
+`bitrate-pacer-spec.md`).
 
 Each lane also sounds a **target tone** (see `bitrate-tones-spec.md`), redundant with the visual.
 Pitch ascends left→right on the major pentatonic (`a`=C5 up to `;`=E6), so it maps to screen

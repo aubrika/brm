@@ -163,7 +163,6 @@ export class AudioFeedback {
     perfOffsetMs: number; // performance.now() − currentTime·1000, captured once at start
     clickTimes: number[]; // absolute performance.now() ms, one per emitted click
   } | null = null;
-  private kickShaperCurve: Float32Array<ArrayBuffer> | null = null; // cached soft-clip curve for the kick
 
   private static readonly PACER_LOOKAHEAD = 0.1; // schedule clicks up to 100 ms ahead
 
@@ -228,48 +227,18 @@ export class AudioFeedback {
     }
   }
 
-  // Soft-clip curve (tanh) for the kick body: driving the sine into it adds harmonics, so the bass
-  // "reads" on small speakers that can't reproduce the fundamental, and it gets that gritty club
-  // character. Built once.
-  private kickCurve(): Float32Array<ArrayBuffer> {
-    if (!this.kickShaperCurve) {
-      const n = 1024;
-      const c = new Float32Array(new ArrayBuffer(n * 4));
-      const k = 2.2; // drive/warmth
-      for (let i = 0; i < n; i++) c[i] = Math.tanh(k * ((i / (n - 1)) * 2 - 1));
-      this.kickShaperCurve = c;
-    }
-    return this.kickShaperCurve;
-  }
-
-  // A saturated club kick ("unz"): a pitch-dropping sine body driven through a soft-clipper for a
-  // fat, bassy boom, plus a short knock transient for attack. Loud — it sits above the lane tones.
+  // A dry metronome tick: a short high triangle click that sits above the lane tones.
   private clickAt(ctx: AudioContext, at: number, master: GainNode): void {
-    const body = ctx.createOscillator();
-    const bodyEnv = ctx.createGain();
-    const shaper = ctx.createWaveShaper();
-    shaper.curve = this.kickCurve();
-    shaper.oversample = '2x';
-    body.type = 'sine';
-    body.frequency.setValueAtTime(210, at); // the "woomp"...
-    body.frequency.exponentialRampToValueAtTime(48, at + 0.055); // ...dropping to a fat low boom
-    bodyEnv.gain.setValueAtTime(0.0001, at);
-    bodyEnv.gain.linearRampToValueAtTime(1.8, at + 0.004); // fast attack, driven hard into the clipper
-    bodyEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.2); // longer boom for the "unz" body
-    body.connect(bodyEnv).connect(shaper).connect(master);
-    body.start(at);
-    body.stop(at + 0.28);
-
-    const knock = ctx.createOscillator();
-    const knockEnv = ctx.createGain();
-    knock.type = 'triangle';
-    knock.frequency.value = 900; // attack transient — presence on small speakers
-    knockEnv.gain.setValueAtTime(0.0001, at);
-    knockEnv.gain.linearRampToValueAtTime(0.5, at + 0.001);
-    knockEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.02);
-    knock.connect(knockEnv).connect(master);
-    knock.start(at);
-    knock.stop(at + 0.05);
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = 1600; // above the lane tones (which top out ~1.3 kHz) so it cuts through
+    env.gain.setValueAtTime(0.0001, at);
+    env.gain.linearRampToValueAtTime(1, at + 0.001); // sharp attack
+    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.03); // short decay — a click, not a tone
+    osc.connect(env).connect(master);
+    osc.start(at);
+    osc.stop(at + 0.05);
   }
 }
 
