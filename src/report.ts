@@ -22,8 +22,9 @@ export interface BuildOpts {
   droppedFrames: number;
   pacer: RunLog['pacer'];
   tones: RunLog['tones'];
-  grid?: RunLog['grid']; // GRID MODE only
-  pointerPath?: RunLog['pointerPath']; // GRID MODE only
+  grid?: RunLog['grid']; // GRID / SCOPE MODE
+  pointerPath?: RunLog['pointerPath']; // GRID / SCOPE MODE
+  scope?: RunLog['scope']; // SCOPE MODE only
 }
 
 // A grid run has no keyboard alphabet/finger structure, so buildReport accepts either engine and
@@ -94,6 +95,7 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
     pacer: opts.pacer,
     tones: opts.tones,
     ...(opts.grid ? { grid: opts.grid } : {}),
+    ...(opts.scope ? { scope: opts.scope } : {}),
     ...(opts.pointerPath ? { pointerPath: opts.pointerPath } : {}),
   };
 }

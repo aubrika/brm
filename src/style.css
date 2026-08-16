@@ -84,6 +84,14 @@ code { font-family: var(--mono); }
 .strip-root.grid-root { display: flex; align-items: center; justify-content: center; }
 .grid-canvas { display: block; touch-action: none; }
 
+/* SCOPE MODE: click-to-(re)lock overlay covering the play area */
+.scope-overlay {
+  position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 8, 12, 0.72); color: var(--ink); font-size: clamp(1rem, 3vmin, 1.5rem); font-weight: 600;
+  letter-spacing: 0.01em; cursor: pointer; text-align: center; padding: 0 24px;
+}
+.scope-overlay.hidden { display: none; }
+
 /* DDR lanes: fixed VERTICAL column dividers (one lane per finger) + HORIZONTAL chunk
    dividers every four rows that scroll down with the flow (via --vy). */
 /* One lane block per hand (left/width set from JS); the empty gap between the two blocks

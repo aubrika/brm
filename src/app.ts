@@ -10,6 +10,7 @@ import { Engine, type KeyInput } from './engine.js';
 import { GridEngine } from './gridengine.js';
 import { StripRenderer } from './strip.js';
 import { GridRenderer } from './gridview.js';
+import { ScopeRenderer } from './gridscope.js';
 import { AudioFeedback, laneToneHz } from './audio.js';
 import { PacerController } from './pacer.js';
 import { LatencyOverlay } from './latency.js';
@@ -17,9 +18,9 @@ import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, composeAlphabet, laneAudio, GRID_SIZES, GRID_DEPTHS, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
+import { loadConfig, saveConfig, composeAlphabet, laneAudio, GRID_SIZES, GRID_DEPTHS, SCOPE_GRID_SIZES, MAGNIFICATIONS, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
 import { DEFAULT_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
-import type { MachineMeta, RunLog } from './stats.js';
+import type { MachineMeta, RunLog, ScopeActivation } from './stats.js';
 
 type Props = Record<string, string | number | boolean | EventListener>;
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -50,10 +51,21 @@ function el<K extends keyof HTMLElementTagNameMap>(
 const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps frame was skipped
 
 interface RunCtx {
-  engine: Engine | GridEngine; // GridEngine in GRID MODE; both expose the loop-facing surface
-  strip: StripRenderer | GridRenderer; // both expose render(now) + resize()
+  engine: Engine | GridEngine; // GridEngine in GRID/SCOPE MODE; all expose the loop-facing surface
+  strip: StripRenderer | GridRenderer | ScopeRenderer; // all expose render(now) + resize()
   gridView: GridRenderer | null; // non-null in GRID MODE (also held as `strip`), for pointer wiring
-  grid: boolean; // this run is a pointing (grid) run
+  scopeView: ScopeRenderer | null; // non-null in SCOPE MODE
+  grid: boolean; // this run is a plain pointing (grid) run
+  scope: boolean; // this run is a SCOPE MODE run (pointer lock + magnify lens)
+  // SCOPE MODE lock/scope state
+  scopeBindings: Set<'rmb' | 'ctrl'>; // which scope bindings are currently held
+  scoped: boolean; // is the lens active (any binding held)
+  activations: ScopeActivation[]; // scope hold intervals
+  activeActivation: ScopeActivation | null;
+  paused: boolean; // pointer lock lost / not yet acquired — clock frozen, overlay shown
+  pausedAt: number; // performance.now() when the pause began
+  unadjustedMovement: boolean; // raw movement requested
+  cleanup: AbortController; // tears down document-level scope listeners
   recorder: RunRecorder;
   timed: boolean;
   phase: 'ready' | 'playing' | 'done'; // ready = waiting for the first selection to start the clock
@@ -76,6 +88,7 @@ interface RunCtx {
     stats: HTMLElement;
     countdown: HTMLElement;
     stripRoot: HTMLElement;
+    scopeOverlay?: HTMLElement; // SCOPE MODE: "click to enable/resume pointer lock"
   };
 }
 
@@ -119,6 +132,19 @@ export class App {
         ...(dp === 1 || dp === 2 ? { gridDepth: dp } : {}),
       };
     }
+    // Dev aid: ?scope[=128|256]&mag=8 forces SCOPE MODE; &scoped engages the lens after start (for
+    // headless capture, where there is no pointer lock to drive it).
+    if (params.has('scope')) {
+      const fine = Number(params.get('scope'));
+      const mag = Number(params.get('mag'));
+      this.config = {
+        ...this.config,
+        scope: true,
+        grid: false,
+        ...(fine === 128 || fine === 256 ? { scopeGridSize: fine } : {}),
+        ...(mag === 4 || mag === 8 || mag === 12 ? { magnification: mag } : {}),
+      };
+    }
     const auto = params.get('auto');
     if (auto === 'practice' || auto === 'scored') {
       // Dev-only: ?secs=N shortens JUST this capture run so a full run→report can be driven
@@ -128,9 +154,10 @@ export class App {
         this.config = { ...this.config, durationMs: Math.round(secs * 1000) };
       }
       this.startRun(auto === 'scored', true); // start immediately (skip the ready wait) for headless capture
+      if (this.config.scope && params.has('scoped')) this.engageScope('ctrl'); // dev: show the lens
       if (params.has('demo')) {
         if (this.config.grid) this.startGridDemo();
-        else this.startDemoTyper();
+        else if (!this.config.scope) this.startDemoTyper();
       }
     }
   }
@@ -205,12 +232,15 @@ export class App {
     if (this.mode !== 'run' || !this.run) return; // config/report use normal DOM controls
     if (e.key === 'Escape') {
       e.preventDefault();
+      // SCOPE MODE: the first Esc exits pointer lock (→ pointerlockchange pauses + overlay); a
+      // second Esc while already paused aborts the run.
+      if (this.run.scope && !this.run.paused) return;
       this.abortRun();
       return;
     }
     const rc = this.run;
     if (rc.phase === 'done') return;
-    if (rc.grid) return; // GRID MODE scores on pointerdown, not keys (Escape above still aborts)
+    if (rc.grid || rc.scope) return; // pointing modes score on pointerdown, not keys
     const eng0 = rc.engine as Engine;
     // No countdown: the run's clock starts when you first type an in-alphabet target. This same
     // keydown then falls through and is scored as the first selection.
@@ -273,7 +303,7 @@ export class App {
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === ' ') this.spaceHeld = false;
     const rc = this.run;
-    if (this.mode !== 'run' || !rc || rc.phase !== 'playing' || rc.grid) return;
+    if (this.mode !== 'run' || !rc || rc.phase !== 'playing' || rc.grid || rc.scope) return;
     const eng0 = rc.engine as Engine;
     if (!eng0.alphaSet.has(e.key)) return;
     const now = performance.now();
@@ -398,6 +428,19 @@ export class App {
       ),
     ) as HTMLSelectElement;
 
+    // SCOPE MODE controls
+    const scope = el('input', { type: 'checkbox', ...(this.config.scope ? { checked: true } : {}) }) as HTMLInputElement;
+    const scopeGridSize = el('select', { class: 'field-input mono' },
+      SCOPE_GRID_SIZES.map((sz) =>
+        el('option', { value: String(sz), ...(this.config.scopeGridSize === sz ? { selected: true } : {}), text: `${sz} × ${sz}  ·  N = ${sz * sz}` }),
+      ),
+    ) as HTMLSelectElement;
+    const magnification = el('select', { class: 'field-input mono' },
+      MAGNIFICATIONS.map((m) =>
+        el('option', { value: String(m), ...(this.config.magnification === m ? { selected: true } : {}), text: `${m}×` }),
+      ),
+    ) as HTMLSelectElement;
+
     const err = el('div', { class: 'field-error' });
 
     const field = (label: string, control: Node, hint?: string): HTMLElement =>
@@ -428,6 +471,10 @@ export class App {
         grid: grid.checked,
         gridSize: Number(gridSize.value) || 32,
         gridDepth: Number(gridDepth.value) || 1,
+        scope: scope.checked,
+        scopeGridSize: Number(scopeGridSize.value) || 256,
+        magnification: Number(magnification.value) || 8,
+        lensDiameter: this.config.lensDiameter || 0.4,
         ghost: ghost.checked,
         crosshair: crosshair.checked,
         hoverPulse: hoverPulse.checked,
@@ -476,6 +523,7 @@ export class App {
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
             el('label', { class: 'toggle' }, [challenge, el('span', { text: ' CHALLENGE MODE (fixed-rate scroll — hit before it leaves the band)' })]),
             el('label', { class: 'toggle' }, [grid, el('span', { text: ' GRID MODE (mouse/trackpad — click the highlighted cell)' })]),
+            el('label', { class: 'toggle' }, [scope, el('span', { text: ' SCOPE MODE (256² grid + hold-to-magnify — needs pointer lock)' })]),
           ]),
           el('div', { class: 'field toggles grid-options' }, [
             el('span', { class: 'field-label', text: 'Grid options (mouse/trackpad)' }),
@@ -484,6 +532,12 @@ export class App {
             el('label', { class: 'toggle' }, [crosshair, el('span', { text: ' Crosshair locator (hairlines through the target)' })]),
             el('label', { class: 'toggle' }, [ghost, el('span', { text: ' Ghost (preview the next target + connector)' })]),
             el('label', { class: 'toggle' }, [hoverPulse, el('span', { text: ' Hover pulse (confirm you are on the target)' })]),
+          ]),
+          el('div', { class: 'field toggles grid-options' }, [
+            el('span', { class: 'field-label', text: 'Scope options (experiment · mouse only)' }),
+            el('label', { class: 'toggle inline' }, [el('span', { text: 'Fine grid ' }), scopeGridSize]),
+            el('label', { class: 'toggle inline' }, [el('span', { text: 'Magnification ' }), magnification]),
+            el('span', { class: 'field-hint', text: 'Hold right-mouse or Ctrl to scope. Esc releases the mouse.' }),
           ]),
         ]),
         err,
@@ -506,6 +560,10 @@ export class App {
 
   // ------------------------------------------------------------------ run ----
   private startRun(timed: boolean, immediate = false): void {
+    if (this.config.scope) {
+      this.startScopeRun(timed, immediate);
+      return;
+    }
     if (this.config.grid) {
       this.startGridRun(timed, immediate);
       return;
@@ -560,7 +618,17 @@ export class App {
       engine,
       strip,
       gridView: null,
+      scopeView: null,
       grid: false,
+      scope: false,
+      scopeBindings: new Set(),
+      scoped: false,
+      activations: [],
+      activeActivation: null,
+      paused: false,
+      pausedAt: 0,
+      unadjustedMovement: false,
+      cleanup: new AbortController(),
       recorder: new RunRecorder(),
       timed,
       phase: immediate ? 'playing' : 'ready',
@@ -624,7 +692,17 @@ export class App {
       engine,
       strip: gridView,
       gridView,
+      scopeView: null,
       grid: true,
+      scope: false,
+      scopeBindings: new Set(),
+      scoped: false,
+      activations: [],
+      activeActivation: null,
+      paused: false,
+      pausedAt: 0,
+      unadjustedMovement: false,
+      cleanup: new AbortController(),
       recorder: new RunRecorder(),
       timed,
       phase: immediate ? 'playing' : 'ready',
@@ -651,6 +729,214 @@ export class App {
     this.run.rafId = requestAnimationFrame(this.loop);
   }
 
+  // SCOPE MODE run: a very fine grid (256²) played under Pointer Lock. A software virtual cursor
+  // (movement × gain, gain = 1 unscoped and 1/magnification while the lens is held) drives
+  // arithmetic hit-testing, exactly like grid scoring. Losing lock pauses the clock behind a
+  // "click to resume" overlay. All document-level listeners hang off one AbortController.
+  private startScopeRun(timed: boolean, immediate = false): void {
+    this.mode = 'run';
+    this.root.replaceChildren();
+
+    // GridEngine with the fine grid; depth 1. (SCOPE is a grid variant — scoring is identical.)
+    const engine = new GridEngine({ ...this.config, gridSize: this.config.scopeGridSize, gridDepth: 1 }, timed);
+    const stripRoot = el('div', { class: 'strip-root grid-root' });
+    const time = el('div', { class: 'time' });
+    const rate = el('div', { class: 'rate' });
+    const stats = el('div', { class: 'stats' });
+    const countdown = el('div', { class: 'countdown hint', text: 'left-click the highlighted target to start · hold right-mouse or Ctrl to scope' });
+    const scopeOverlay = el('div', { class: 'scope-overlay hidden', text: 'Click to enable pointer lock' });
+
+    const screen = el('div', { class: 'screen run' }, [
+      time,
+      el('div', { class: 'strip-wrap' }, [stripRoot, countdown, scopeOverlay]),
+      el('div', { class: 'readout' }, [rate, stats]),
+      ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+    ]);
+    this.root.append(screen);
+
+    const scopeView = new ScopeRenderer(engine, stripRoot);
+    const canvas = scopeView.element;
+    canvas.style.cursor = 'none'; // the virtual reticle is the cursor
+    const now0 = performance.now();
+    const rc: RunCtx = {
+      engine,
+      strip: scopeView,
+      gridView: null,
+      scopeView,
+      grid: false,
+      scope: true,
+      scopeBindings: new Set(),
+      scoped: false,
+      activations: [],
+      activeActivation: null,
+      paused: false,
+      pausedAt: 0,
+      unadjustedMovement: true,
+      cleanup: new AbortController(),
+      recorder: new RunRecorder(),
+      timed,
+      phase: immediate ? 'playing' : 'ready',
+      startedAt: '',
+      pacer: null,
+      pacerStarted: false,
+      challengeBeat: 0,
+      droppedFrames: 0,
+      lastFrameMs: -1,
+      pendingDownT: 0,
+      pendingDown: false,
+      pendingPointer: null,
+      pointerType: 'mouse',
+      ghostAdjacent: [],
+      pointerTypes: [],
+      rafId: 0,
+      ui: { time, rate, stats, countdown, stripRoot, scopeOverlay },
+    };
+    this.run = rc;
+
+    const sig = rc.cleanup.signal;
+    scopeOverlay.addEventListener('click', () => this.requestScopeLock(canvas), { signal: sig });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault(), { signal: sig });
+    document.addEventListener('mousemove', this.onScopeMove, { signal: sig });
+    document.addEventListener('mousedown', this.onScopeDown, { signal: sig });
+    document.addEventListener('mouseup', this.onScopeUp, { signal: sig });
+    document.addEventListener('keydown', this.onScopeKey, { signal: sig });
+    document.addEventListener('keyup', this.onScopeKey, { signal: sig });
+    document.addEventListener('pointerlockchange', this.onLockChange, { signal: sig });
+    document.addEventListener('pointerlockerror', () => this.setScopePaused(true, 'Pointer lock failed — click to retry'), { signal: sig });
+
+    if (immediate) {
+      engine.start(now0);
+      rc.startedAt = new Date().toISOString();
+      countdown.classList.add('hidden');
+    } else {
+      this.requestScopeLock(canvas); // gesture: this runs inside the Start-button click handler
+    }
+    rc.rafId = requestAnimationFrame(this.loop);
+  }
+
+  private requestScopeLock(canvas: HTMLElement): void {
+    const el2 = canvas as HTMLElement & { requestPointerLock: (opts?: { unadjustedMovement?: boolean }) => Promise<void> | void };
+    try {
+      const p = el2.requestPointerLock({ unadjustedMovement: true });
+      if (p && typeof (p as Promise<void>).catch === 'function') {
+        (p as Promise<void>).catch(() => {
+          try {
+            (el2.requestPointerLock as () => void)();
+          } catch {
+            /* unsupported — the overlay stays up */
+          }
+        });
+      }
+    } catch {
+      /* older signature or blocked — leave the overlay up for a click retry */
+    }
+  }
+
+  private setScopePaused(paused: boolean, overlayText?: string): void {
+    const rc = this.run;
+    if (!rc || !rc.scope) return;
+    if (paused && !rc.paused) {
+      rc.paused = true;
+      rc.pausedAt = performance.now();
+    } else if (!paused && rc.paused) {
+      // resume: shift startMs forward by the paused duration so elapsed excludes it
+      rc.engine.startMs += performance.now() - rc.pausedAt;
+      rc.paused = false;
+    }
+    const ov = rc.ui.scopeOverlay;
+    if (ov) {
+      ov.classList.toggle('hidden', !paused);
+      if (paused && overlayText) ov.textContent = overlayText;
+    }
+  }
+
+  private onLockChange = (): void => {
+    const rc = this.run;
+    if (!rc || !rc.scope || !rc.scopeView) return;
+    const locked = document.pointerLockElement === rc.scopeView.element;
+    if (locked) {
+      this.setScopePaused(false);
+    } else if (rc.phase !== 'done') {
+      this.setScopePaused(true, 'Paused — click to resume');
+    }
+  };
+
+  private onScopeMove = (e: MouseEvent): void => {
+    const rc = this.run;
+    if (!rc || !rc.scope || !rc.scopeView || rc.paused) return;
+    if (document.pointerLockElement !== rc.scopeView.element) return; // only under lock
+    const v = rc.scopeView;
+    const gain = rc.scoped ? 1 / Math.max(2, this.config.magnification) : 1;
+    v.virtualCursor = {
+      x: Math.max(0, Math.min(v.fieldPx, v.virtualCursor.x + e.movementX * gain)),
+      y: Math.max(0, Math.min(v.fieldPx, v.virtualCursor.y + e.movementY * gain)),
+    };
+    if (rc.phase === 'playing') rc.pendingPointer = { t: performance.now() - rc.engine.startMs, x: v.virtualCursor.x, y: v.virtualCursor.y };
+  };
+
+  private onScopeDown = (e: MouseEvent): void => {
+    const rc = this.run;
+    if (!rc || !rc.scope || !rc.scopeView || rc.phase === 'done') return;
+    if (e.button === 2) {
+      this.engageScope('rmb');
+      return;
+    }
+    if (e.button !== 0) return;
+    if (document.pointerLockElement !== rc.scopeView.element || rc.paused) return; // must be locked & running
+    const eng = rc.engine as GridEngine;
+    if (rc.phase === 'ready') {
+      rc.phase = 'playing';
+      eng.start(performance.now());
+      rc.startedAt = new Date().toISOString();
+      rc.ui.countdown.classList.add('hidden');
+    }
+    const now = performance.now();
+    this.latency.markKey(now);
+    const cell = rc.scopeView.cellAt(rc.scopeView.virtualCursor.x, rc.scopeView.virtualCursor.y);
+    const idxBefore = eng.index;
+    const tRun = now - eng.startMs;
+    const outcome = eng.handleClick(cell, now);
+    if (outcome === 'correct') rc.recorder.recordDown(String(cell), idxBefore, 'ok', tRun);
+    else if (outcome === 'incorrect') rc.recorder.recordDown(String(cell), idxBefore, 'err', tRun);
+    if (outcome !== 'ignored') {
+      rc.pendingDownT = tRun;
+      rc.pendingDown = true;
+    }
+  };
+
+  private onScopeUp = (e: MouseEvent): void => {
+    if (e.button === 2) this.releaseScope('rmb');
+  };
+
+  private onScopeKey = (e: KeyboardEvent): void => {
+    if (e.key !== 'Control') return;
+    if (e.type === 'keydown') this.engageScope('ctrl');
+    else this.releaseScope('ctrl');
+  };
+
+  private engageScope(binding: 'rmb' | 'ctrl'): void {
+    const rc = this.run;
+    if (!rc || !rc.scope || !rc.scopeView || rc.scopeBindings.has(binding)) return;
+    rc.scopeBindings.add(binding);
+    if (!rc.scoped) {
+      rc.scoped = true;
+      rc.scopeView.scoped = true;
+      rc.activeActivation = { tDown: Math.round((performance.now() - rc.engine.startMs) * 10) / 10, tUp: null, binding };
+      rc.activations.push(rc.activeActivation);
+    }
+  }
+
+  private releaseScope(binding: 'rmb' | 'ctrl'): void {
+    const rc = this.run;
+    if (!rc || !rc.scope || !rc.scopeView || !rc.scopeBindings.delete(binding)) return;
+    if (rc.scopeBindings.size === 0 && rc.scoped) {
+      rc.scoped = false;
+      rc.scopeView.scoped = false;
+      if (rc.activeActivation) rc.activeActivation.tUp = Math.round((performance.now() - rc.engine.startMs) * 10) / 10;
+      rc.activeActivation = null;
+    }
+  }
+
   // rAF passes a timestamp, but we read performance.now() directly so the render loop and
   // the keydown handler share exactly one clock domain (they're equal in a real browser;
   // this also keeps headless virtual-time captures self-consistent).
@@ -664,7 +950,7 @@ export class App {
       rc.ui.time.textContent = rc.timed ? (this.config.durationMs / 1000).toFixed(1) : 'practice';
     }
 
-    if (rc.phase === 'playing') {
+    if (rc.phase === 'playing' && !rc.paused) {
       const dtMs = rc.lastFrameMs >= 0 ? Math.min(64, now - rc.lastFrameMs) : 16;
       if (rc.lastFrameMs >= 0 && now - rc.lastFrameMs > DROPPED_FRAME_MS) rc.droppedFrames++;
       rc.lastFrameMs = now;
@@ -694,8 +980,8 @@ export class App {
     }
 
     rc.strip.render(now);
-    // GRID: flush the at-most-one pointer sample gathered since the last frame (spec §5)
-    if (rc.grid && rc.pendingPointer) {
+    // GRID/SCOPE: flush the at-most-one pointer (or virtual-cursor) sample since the last frame
+    if ((rc.grid || rc.scope) && rc.pendingPointer) {
       rc.recorder.recordPointer(rc.pendingPointer.t, rc.pendingPointer.x, rc.pendingPointer.y);
       rc.pendingPointer = null;
     }
@@ -758,7 +1044,12 @@ export class App {
   }
 
   private abortRun(): void {
-    if (this.run) cancelAnimationFrame(this.run.rafId);
+    const rc = this.run;
+    if (rc) {
+      cancelAnimationFrame(rc.rafId);
+      rc.cleanup.abort(); // tear down any scope listeners
+      if (rc.scope && document.pointerLockElement) document.exitPointerLock();
+    }
     this.audio.releaseAllTones();
     this.audio.stopPacer();
     this.run = null;
@@ -769,6 +1060,11 @@ export class App {
     const rc = this.run;
     if (!rc) return;
     cancelAnimationFrame(rc.rafId);
+    rc.cleanup.abort();
+    if (rc.scope) {
+      if (rc.activeActivation) rc.activeActivation.tUp = Math.round((performance.now() - rc.engine.startMs) * 10) / 10;
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
     this.audio.releaseAllTones();
     const clickAbs = this.audio.stopPacer(); // absolute performance.now() ms
     const pacerLog = this.buildPacerLog(rc, clickAbs);
@@ -780,20 +1076,22 @@ export class App {
       voiceStealEvents: this.audio.voiceStealEvents,
     };
     const result = rc.engine.result();
-    const gridLog = rc.grid ? this.buildGridLog(rc) : undefined;
-    const pointerPath = rc.grid ? rc.recorder.buildPointerPath() : undefined;
-    void this.completeRun(rc, result, pacerLog, tonesLog, gridLog, pointerPath);
+    const pointing = rc.grid || rc.scope;
+    const gridLog = pointing ? this.buildGridLog(rc) : undefined;
+    const scopeLog = rc.scope ? this.buildScopeLog(rc) : undefined;
+    const pointerPath = pointing ? rc.recorder.buildPointerPath() : undefined;
+    void this.completeRun(rc, result, pacerLog, tonesLog, gridLog, pointerPath, scopeLog);
   }
 
   // Assemble the GRID MODE section of the log. The Fitts difficulty of every selection depends on
   // cellPx/fieldPx/dpr, so they are recorded from the live renderer; the two per-selection arrays
   // line up with the grid `down` events in order.
   private buildGridLog(rc: RunCtx): RunLog['grid'] {
-    const v = rc.gridView;
+    const v = rc.gridView ?? rc.scopeView; // scope reuses the grid section (it is a grid variant)
     return {
       enabled: true,
-      gridSize: this.config.gridSize,
-      depth: this.config.gridDepth,
+      gridSize: v ? v.gridSize : this.config.gridSize,
+      depth: rc.scope ? 1 : this.config.gridDepth,
       fieldPx: v ? v.fieldPx : 0,
       cellPx: v ? v.cellPx : 0,
       devicePixelRatio: v ? v.dpr : 1,
@@ -803,6 +1101,20 @@ export class App {
       pointerType: rc.pointerType || 'mouse',
       ghostAdjacent: rc.ghostAdjacent,
       pointerTypes: rc.pointerTypes,
+    };
+  }
+
+  // Assemble the SCOPE MODE section: the lens/gain parameters and the scope hold intervals.
+  private buildScopeLog(rc: RunCtx): RunLog['scope'] {
+    const mag = Math.max(2, this.config.magnification);
+    return {
+      enabled: true,
+      gridSize: this.config.scopeGridSize,
+      magnification: this.config.magnification,
+      scopedGainFactor: 1 / mag,
+      lensDiameter: this.config.lensDiameter,
+      unadjustedMovement: rc.unadjustedMovement,
+      activations: rc.activations,
     };
   }
 
@@ -832,6 +1144,7 @@ export class App {
     tones: RunLog['tones'],
     grid?: RunLog['grid'],
     pointerPath?: RunLog['pointerPath'],
+    scope?: RunLog['scope'],
   ): Promise<void> {
     const machine = this.machine ?? (await this.machinePromise);
     const log = buildReport(rc.engine, result, {
@@ -844,6 +1157,7 @@ export class App {
       tones,
       grid,
       pointerPath,
+      scope,
     });
     this.run = null;
 

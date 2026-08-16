@@ -35,6 +35,15 @@ export interface GameConfig {
   crosshair: boolean; // full-field locator hairlines through the target cell
   hoverPulse: boolean; // pulse a white border while the pointer is inside the target cell
 
+  // ---- SCOPE MODE (experiment; grid variant — see bitrate-scope-mode-spec.md) ----
+  // A very fine grid whose cells are below comfortable clicking size, plus a hold-to-magnify
+  // "rifle scope" that inflates the region under the cursor and slows the pointer while held.
+  // Requires the Pointer Lock API (a virtual cursor + software gain). N = scopeGridSize².
+  scope: boolean; // SCOPE MODE on (takes precedence over plain grid)
+  scopeGridSize: number; // fine grid cells per side (128 | 256)
+  magnification: number; // lens zoom (4 | 8 | 12); scoped pointer gain = 1/magnification
+  lensDiameter: number; // lens diameter as a fraction of the field (default 0.4; not user-exposed)
+
   // ---- adaptive auditory pacer (experiment; never gates scoring — see bitrate-pacer-spec.md) ----
   pacer: PacerMode; // 'off' | 'proportional' | 'hillclimb'
   pacerPush: number; // proportional: click tempo = measured rate × (1 + push)
@@ -121,6 +130,10 @@ export const DEFAULT_CONFIG: GameConfig = {
   ghost: true,
   crosshair: true,
   hoverPulse: true,
+  scope: false,
+  scopeGridSize: 256, // 256×256 = 65,536 cells (~16 bits/selection); ~3.5px cells at 900px
+  magnification: 8, // scoped cells appear ~28px, matching the 32×32 baseline feel
+  lensDiameter: 0.4,
   pacer: 'off', // retired alongside the tones (see the A/B results)
   pacerPush: 0.1,
   pacerVolume: 0.22,
@@ -134,10 +147,12 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v17'; // + grid depth (stacked grids)
+const STORAGE_KEY = 'brm.config.v18'; // + scope mode
 
 export const GRID_SIZES = [16, 24, 32] as const; // cells per side offered on the config screen
 export const GRID_DEPTHS = [1, 2] as const; // stacked layers per selection offered on the config screen
+export const SCOPE_GRID_SIZES = [128, 256] as const; // fine grid sizes for scope mode
+export const MAGNIFICATIONS = [4, 8, 12] as const; // lens zoom factors for scope mode
 
 export function loadConfig(): GameConfig {
   try {

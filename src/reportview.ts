@@ -363,6 +363,9 @@ function gridSection(log: RunLog): HTMLElement {
   if (g) {
     cells.push(stat('grid', `${g.gridSize}×${g.gridSize}`));
     if (depth > 1) cells.push(stat('layers', `${depth} (orange→blue)`));
+    if (log.scope?.enabled) {
+      cells.push(stat('scope', `${log.scope.magnification}×`), stat('scope holds', String(log.scope.activations.length)));
+    }
     cells.push(stat('input', g.pointerType));
   }
   const deep = depth > 1;

@@ -93,6 +93,23 @@ export interface GridLog {
   pointerTypes?: string[]; // per down-event pointer type
 }
 
+/** SCOPE MODE's log section — a grid run under pointer lock with a hold-to-magnify lens. Present
+ *  (enabled) only on scope runs, alongside the `grid` section (scope is a grid variant). */
+export interface ScopeActivation {
+  tDown: number; // run-relative ms the scope was engaged
+  tUp: number | null; // released (null if still held at run end)
+  binding: 'rmb' | 'ctrl';
+}
+export interface ScopeLog {
+  enabled: boolean;
+  gridSize: number;
+  magnification: number;
+  scopedGainFactor: number; // pointer gain while scoped (= 1/magnification by default)
+  lensDiameter: number; // fraction of the field
+  unadjustedMovement: boolean; // was raw (un-accelerated) movement requested/granted
+  activations: ScopeActivation[];
+}
+
 export interface RunLog {
   schemaVersion: 3;
   meta: {
@@ -112,7 +129,8 @@ export interface RunLog {
   pacer: PacerLog;
   tones: TonesLog;
   grid?: GridLog; // present only on GRID MODE runs
-  pointerPath?: Array<[number, number, number]>; // GRID MODE: [t, x, y] field-local samples
+  scope?: ScopeLog; // present only on SCOPE MODE runs (a grid variant)
+  pointerPath?: Array<[number, number, number]>; // GRID/SCOPE: [t, x, y] field-local (virtual) samples
 }
 
 export interface FingerInfo {
