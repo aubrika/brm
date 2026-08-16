@@ -34,9 +34,9 @@ const PULSE_MS = 110; // correct-keystroke pulse
 const SHAKE_MS = 120;
 const SHAKE_PX = 10;
 
-// One colour per finger, from the Wong colourblind-safe palette. Slot 0 = pinky … 3 = index; the
-// same finger shares a colour on both hands (both pinkies blue, both index fingers orange, …).
-const FINGER = ['#0072B2', '#D55E00', '#56B4E9', '#E69F00']; // pinky, ring, middle, index
+// One colour per column, from the Wong colourblind-safe palette, applied left→right within each
+// hand in the same order (so the two hands' colours run in parallel, not mirrored).
+const FINGER = ['#0072B2', '#D55E00', '#56B4E9', '#E69F00']; // column 0..3, left→right
 
 // '#rrggbb' + alpha → 'rgba(r, g, b, a)'
 function rgbaOf(hex: string, a: number): string {
@@ -101,10 +101,10 @@ export class StripRenderer {
     this.root = root;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
-    // Two hand blocks (left fingers | neutral centre gap | right fingers), each coloured per
-    // finger (mirrored, so left and right pinky share a hue, etc.). Each hand has as many COLUMNS
-    // as its widest row; a top-row key shares the exact column of its home-row finger (q over a),
-    // so it differs only in the glyph shown — same lane, same colour, just stacked a row higher.
+    // Two hand blocks (left fingers | neutral centre gap | right fingers), each column coloured
+    // left→right in the same palette order on both hands. Each hand has as many COLUMNS as its
+    // widest row; a top-row key shares the exact column of its home-row finger (q over a), so it
+    // differs only in the glyph shown — same lane, same colour, just stacked a row higher.
     const cfg = engine.config;
     const leftHome = [...cfg.leftFingers], rightHome = [...cfg.rightFingers];
     const leftTop = cfg.topRow ? [...cfg.leftTopRow] : [];
@@ -121,16 +121,13 @@ export class StripRenderer {
     leftTop.forEach((c, j) => place.set(c, { hand: 'L', col: j, top: true }));
     rightTop.forEach((c, j) => place.set(c, { hand: 'R', col: j, top: true }));
     const GREY = 'hsl(220, 9%, 62%)', GREY_G = 'hsla(220, 9%, 62%, 0.18)';
-    const fingerSlot = (hand: 'L' | 'R', col: number, cols: number): number =>
-      // left counts columns pinky→index (0..); right mirrors, so its outermost column is the pinky
-      ((hand === 'L' ? col : cols - 1 - col) % FINGER.length + FINGER.length) % FINGER.length;
     for (let i = 0; i < engine.chars.length; i++) {
       const p = place.get(engine.chars[i]);
       if (p && (p.hand === 'L' || p.hand === 'R')) {
         const left = p.hand === 'L';
         this.laneUnitOf.push(left ? -half + p.col + 0.5 : -half + this.leftCount + this.centerWidth + p.col + 0.5);
         this.laneKind.push(p.hand); this.laneTop.push(p.top); this.blockIndex.push(p.col);
-        const c = FINGER[fingerSlot(p.hand, p.col, left ? this.leftCount : this.rightCount)];
+        const c = FINGER[p.col % FINGER.length]; // same left→right colour order on both hands
         this.laneColor.push(c); this.laneGlow.push(rgbaOf(c, 0.16));
       } else {
         this.laneUnitOf.push(-half + this.leftCount + this.centerWidth / 2); // unclassified → centre, grey
