@@ -148,14 +148,24 @@ export class GridRenderer {
       ctx.stroke();
     }
 
-    // 3) connector — active target centre → ghost centre, previews the next movement vector (§2.3)
+    // 3) connector — traces the actual click path: each still-to-click layer to the next, then on
+    //    to the ghost (the next selection's orange). Depth 2 in the orange phase is orange→blue→
+    //    ghost; once orange is clicked it's just blue→ghost. So the line follows real cursor travel.
     if (cfg.ghost && ghost >= 0 && target >= 0) {
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(107, 119, 137, 0.85)';
-      ctx.beginPath();
-      ctx.moveTo(this.centerX(target), this.centerY(target));
-      ctx.lineTo(this.centerX(ghost), this.centerY(ghost));
-      ctx.stroke();
+      const pts: Array<[number, number]> = [];
+      for (let L = active; L < this.engine.depth; L++) {
+        const c = this.engine.layerCell(L);
+        if (c >= 0) pts.push([this.centerX(c), this.centerY(c)]);
+      }
+      pts.push([this.centerX(ghost), this.centerY(ghost)]);
+      if (pts.length >= 2) {
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(107, 119, 137, 0.85)';
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.stroke();
+      }
     }
 
     // 4) ghost border — empty cell, gray outline; always drawn (even adjacent to the target), so it
