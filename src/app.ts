@@ -257,6 +257,7 @@ export class App {
     const rightTopRow = keyInput(this.config.rightTopRow);
     const topRow = el('input', { type: 'checkbox', ...(this.config.topRow ? { checked: true } : {}) }) as HTMLInputElement;
     const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
+    const challenge = el('input', { type: 'checkbox', ...(this.config.challenge ? { checked: true } : {}) }) as HTMLInputElement;
 
     const err = el('div', { class: 'field-error' });
 
@@ -284,6 +285,7 @@ export class App {
       return {
         ...parts,
         chords: chords.checked,
+        challenge: challenge.checked,
         alphabet: v.alphabet,
         label: machineLabel.value.trim().slice(0, 40),
         // pacer is fixed: always-on proportional, 20% above measured rate, kick at a fixed volume
@@ -326,6 +328,7 @@ export class App {
           el('div', { class: 'field toggles' }, [
             el('label', { class: 'toggle' }, [topRow, el('span', { text: ' Top row (adds a second row per hand)' })]),
             el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
+            el('label', { class: 'toggle' }, [challenge, el('span', { text: ' CHALLENGE MODE (fixed-rate scroll — hit before it leaves the band)' })]),
           ]),
         ]),
         err,
@@ -363,7 +366,8 @@ export class App {
     // The pacer is a training device: on by default only in practice; scored runs measure the
     // player unaided unless they explicitly opt in. It only reads rate/B and emits sound — it can
     // never gate scoring or advancement (spec §1).
-    const pacerOn = this.config.pacer !== 'off' && (timed ? this.config.pacerScored : true);
+    // the pacer is an adaptive click; challenge mode already fixes the rate, so it's off there
+    const pacerOn = this.config.pacer !== 'off' && !this.config.challenge && (timed ? this.config.pacerScored : true);
     const pacer = pacerOn
       ? new PacerController({ mode: this.config.pacer, push: this.config.pacerPush, logBits: engine.logBits })
       : null;
@@ -406,7 +410,7 @@ export class App {
       engine.start(now0);
       this.run.startedAt = new Date().toISOString();
       countdown.classList.add('hidden');
-      this.triggerTargetTone(this.run); // sound the first target's tone
+      if (!this.config.challenge) this.triggerTargetTone(this.run); // challenge sounds tones on hits
     }
     this.run.rafId = requestAnimationFrame(this.loop);
   }
@@ -427,7 +431,7 @@ export class App {
         rc.startedAt = new Date().toISOString();
         rc.ui.countdown.classList.add('hidden');
         this.audio.countdownBeep(true); // "go!"
-        this.triggerTargetTone(rc); // sound the first target's tone
+        if (!this.config.challenge) this.triggerTargetTone(rc); // challenge sounds tones on hits
       } else {
         rc.ui.countdown.classList.remove('hidden');
         rc.ui.countdown.textContent = String(left);

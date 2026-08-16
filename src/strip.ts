@@ -13,6 +13,7 @@
 // Hand colour (teal = left, amber = right) applies to both.
 
 import type { Engine } from './engine.js';
+import { CHALLENGE_RATE_HZ, CHALLENGE_LEAD_S, CHALLENGE_BAND } from './config.js';
 
 const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
@@ -73,6 +74,7 @@ export class StripRenderer {
   private readonly bands: HTMLElement[] = []; // per-column hand-tinted background wash
   private readonly laneHiCur: HTMLElement; // full-height highlight on the current target's lane
   private readonly laneHiNext: HTMLElement; // 50% highlight on the next target's lane
+  private readonly hitBand: HTMLElement; // challenge mode: the target band across the hit line
   private readonly receptors: HTMLElement[] = [];
   private readonly nodes: HTMLDivElement[] = [];
   private readonly inners: HTMLSpanElement[] = [];
@@ -153,6 +155,11 @@ export class StripRenderer {
       root.appendChild(b);
       this.bands.push(b);
     }
+
+    this.hitBand = document.createElement('div');
+    this.hitBand.className = 'hit-band';
+    this.hitBand.style.display = 'none';
+    root.appendChild(this.hitBand);
 
     this.laneHiCur = document.createElement('div');
     this.laneHiCur.className = 'lane-hi';
@@ -310,6 +317,15 @@ export class StripRenderer {
         r.style.setProperty('--rc', this.laneColor[i]);
         r.style.setProperty('--rcbg', this.laneGlow[i]);
       }
+      // challenge mode: the target band — a horizontal zone across the hit line. A target is
+      // hittable while inside it; below it (CHALLENGE_BAND rows past the line) is a miss.
+      if (this.engine.config.challenge) {
+        this.hitBand.style.display = 'block';
+        this.hitBand.style.top = `${(cy + this.hitOffset - 0.35 * this.rowStep).toFixed(1)}px`;
+        this.hitBand.style.height = `${((CHALLENGE_BAND + 0.35) * this.rowStep).toFixed(1)}px`;
+      } else {
+        this.hitBand.style.display = 'none';
+      }
       // peripheral columns sit just outside the lanes, clamped inside the container
       this.edgeX = Math.min(w / 2 - this.font * 0.72, (total / 2) * this.colStep + this.font);
       for (let i = 0; i < this.edgeL.length; i++) {
@@ -464,11 +480,19 @@ export class StripRenderer {
     const idx = this.engine.index;
     const step = lanes ? this.rowStep : this.W;
 
-    // flow toward the target; clamp lag so during a burst the target stays in the zone
-    const targetFlow = this.flowPos(idx);
-    this.flow += (targetFlow - this.flow) * (1 - Math.exp(-dt / SETTLE_TAU_MS));
-    if (targetFlow - this.flow > MAX_LAG * step) this.flow = targetFlow - MAX_LAG * step;
-    if (Math.abs(targetFlow - this.flow) < 0.5) this.flow = targetFlow;
+    if (this.engine.config.challenge && this.engine.state === 'running') {
+      // CHALLENGE MODE: the roll scrolls at a fixed rate, driven purely by time. progress counts
+      // targets past the hit line; the engine advances its index on the same clock, so what you
+      // see at the band is exactly what you must hit.
+      const elapsed = (nowMs - this.engine.startMs) / 1000;
+      this.flow = (elapsed - CHALLENGE_LEAD_S) * CHALLENGE_RATE_HZ * this.rowStep;
+    } else {
+      // flow toward the target; clamp lag so during a burst the target stays in the zone
+      const targetFlow = this.flowPos(idx);
+      this.flow += (targetFlow - this.flow) * (1 - Math.exp(-dt / SETTLE_TAU_MS));
+      if (targetFlow - this.flow > MAX_LAG * step) this.flow = targetFlow - MAX_LAG * step;
+      if (Math.abs(targetFlow - this.flow) < 0.5) this.flow = targetFlow;
+    }
 
     const sinceCorrect = nowMs - this.engine.lastCorrectMs;
     const pulse = sinceCorrect < PULSE_MS ? 1 + 0.07 * (1 - sinceCorrect / PULSE_MS) : 1;

@@ -45,6 +45,10 @@ On the start screen you set:
   it to N = 16; each top-row glyph is marked with a caret.
 - **Chords** — off by default (experiment). When on, targets are 1–3 key chords you press
   together and release; all keys of a chord appear on one line, linked and boxed at once.
+- **Challenge mode** — off by default (experiment/demo). The piano roll scrolls at a fixed rate
+  like a rhythm game; you must hit each target before it leaves the highlighted band or it counts
+  as a miss. Advancement is driven by time, not by your input, so throughput is capped at the
+  scroll rate. (The adaptive pacer is off in this mode — the scroll is the pace.)
 
 The default alphabet is the two home rows, `asdfjkl;` (N = 8).
 

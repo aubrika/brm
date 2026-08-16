@@ -3,6 +3,12 @@ import type { PacerMode } from './pacer.js';
 
 export type ErrorFeedback = 'none' | 'flash' | 'shake' | 'flash+shake';
 
+// CHALLENGE MODE (experiment): the piano roll scrolls at a fixed rate like a rhythm game, and each
+// target must be selected before it leaves the target band or it counts as a miss.
+export const CHALLENGE_RATE_HZ = 2.0; // targets per second — the fixed scroll rate
+export const CHALLENGE_LEAD_S = 1.6; // lead-in: the first target scrolls in for this long before the band
+export const CHALLENGE_BAND = 0.7; // hittable window past the hit line, in target-rows (miss beyond it)
+
 export interface GameConfig {
   // ---- user-facing (config screen) ----
   leftFingers: string; // keys the left hand home row types (left→right) — supports alternate layouts
@@ -11,6 +17,7 @@ export interface GameConfig {
   leftTopRow: string; // left hand top row; each key sits in the same column as its home-row finger
   rightTopRow: string; // right hand top row
   chords: boolean; // targets are 1-3 key chords pressed together (experiment)
+  challenge: boolean; // CHALLENGE MODE: fixed-rate scroll, hit the target before it leaves the band
   label: string; // free-text machine name, stamped into each log's filename + meta
 
   // ---- adaptive auditory pacer (experiment; never gates scoring — see bitrate-pacer-spec.md) ----
@@ -62,6 +69,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   leftTopRow: 'qwer',
   rightTopRow: 'uiop',
   chords: false,
+  challenge: false,
   label: '',
   pacer: 'proportional', // fixed: always-on proportional pacer (no longer user-configurable)
   pacerPush: 0.2, // fixed: click runs 20% above the measured rate
@@ -76,7 +84,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v13'; // pacer fixed (proportional, 20%, always on); options removed
+const STORAGE_KEY = 'brm.config.v14'; // challenge mode toggle
 
 export function loadConfig(): GameConfig {
   try {

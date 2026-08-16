@@ -17,7 +17,7 @@ import {
   makeRandInt,
   SEQUENCE_LENGTH,
 } from './scoring.js';
-import type { GameConfig } from './config.js';
+import { type GameConfig, CHALLENGE_RATE_HZ, CHALLENGE_LEAD_S, CHALLENGE_BAND } from './config.js';
 
 export interface KeyInput {
   key: string;
@@ -37,6 +37,7 @@ export class Engine {
   readonly symbols: string[]; // scored symbols; n = symbols.length
   readonly chord: boolean;
   readonly chords: boolean; // chords mode: a target is 1-3 keys pressed together
+  readonly challenge: boolean; // challenge mode: fixed-rate scroll, hit before the band passes
   readonly n: number;
   readonly alphaSet: Set<string>;
   readonly sequence: string[];
@@ -46,6 +47,7 @@ export class Engine {
   private readonly heldKeys = new Set<string>();
   private readonly pressedKeys = new Set<string>();
   private readonly chordErrors: Record<string, number> = {};
+  private currentHit = false; // challenge mode: has the current target been cleared this slot?
 
   sc = 0;
   si = 0;
@@ -67,6 +69,7 @@ export class Engine {
     this.chars = [...config.alphabet];
     this.chord = config.chord;
     this.chords = config.chords;
+    this.challenge = config.challenge && !config.chords; // challenge is a single-key experiment
     this.symbols = config.chords ? buildChordSymbols(config.alphabet) : buildSymbols(config.alphabet, config.chord);
     this.n = this.symbols.length; // N for the formula
     this.alphaSet = new Set(this.chars); // base keys are the selection keys
@@ -126,6 +129,22 @@ export class Engine {
       return 'ignored';
     }
     const produced = symbolFor(ev.key, ev.space === true, this.chord);
+    if (this.challenge) {
+      // Fixed-rate scroll: the target index advances by TIME (see challengeTick), not by hitting.
+      // A correct press clears the current target for this slot; the index moves on its own.
+      if (produced === this.target()) {
+        if (this.currentHit) return 'ignored'; // already cleared this target — no double count
+        this.currentHit = true;
+        this.sc++;
+        this.lastCorrectMs = nowMs;
+        this.onCorrect?.();
+        return 'correct';
+      }
+      this.si++;
+      this.lastErrorMs = nowMs;
+      this.onError?.();
+      return 'incorrect';
+    }
     if (produced === this.target()) {
       this.sc++;
       this.index++;
@@ -137,6 +156,22 @@ export class Engine {
     this.lastErrorMs = nowMs;
     this.onError?.();
     return 'incorrect';
+  }
+
+  // Challenge mode: advance the target index by the fixed scroll rate. A target still current when
+  // its band has passed (never cleared) is a miss — counted like an incorrect selection. Called
+  // each frame from tick(); the scroll (strip.ts) uses the same rate so visual and scoring agree.
+  private challengeTick(nowMs: number): void {
+    const progress = ((nowMs - this.startMs) / 1000 - CHALLENGE_LEAD_S) * CHALLENGE_RATE_HZ;
+    while (this.index < this.sequence.length && progress > this.index + CHALLENGE_BAND) {
+      if (!this.currentHit) {
+        this.si++; // missed: the target left the band unhit
+        this.lastErrorMs = nowMs;
+        this.onError?.();
+      }
+      this.index++;
+      this.currentHit = false;
+    }
   }
 
   // Chords mode only. A selection = the set of keys pressed together in one press→release
@@ -163,8 +198,10 @@ export class Engine {
     return 'incorrect';
   }
 
-  // Called from the render loop; ends a timed run exactly at the window boundary.
+  // Called from the render loop; advances challenge-mode targets by time and ends a timed run
+  // exactly at the window boundary.
   tick(nowMs: number): void {
+    if (this.state === 'running' && this.challenge) this.challengeTick(nowMs);
     if (this.timed && this.state === 'running' && nowMs - this.startMs >= this.config.durationMs) {
       this.end();
     }
@@ -188,10 +225,11 @@ export class Engine {
     return total > 0 ? this.sc / total : 1;
   }
 
-  // Authoritative result. Single-key mode folds the raw log (reduceLog). Chords are scored
-  // live (they depend on key-up timing), so their result is built from the live counters.
+  // Authoritative result. Plain single-key mode folds the raw log (reduceLog). Chords and challenge
+  // mode advance on timing (key-up / the fixed scroll), which the log-fold can't reconstruct, so
+  // their result is built from the live counters instead.
   result(): RunResult {
-    if (this.chords) {
+    if (this.chords || this.challenge) {
       const t = this.config.durationMs / 1000;
       const total = this.sc + this.si;
       return {
