@@ -67,7 +67,10 @@ function fmtKey(k: string): string {
 function heroSection(log: RunLog): { node: HTMLElement; animate: () => void } {
   const sm = log.summary;
   const num = h('div', { class: 'r-hero-num' });
-  num.textContent = sm.bitsPerSecond.toFixed(2);
+  // Four decimals: the score is a floating-point value (log2(N-1)·(Sc-Si)/t), not integer
+  // division — at N=1024 it's near-integer only because log2(1023)≈9.9986, so two places rounded
+  // 11.9983 up to a clean "12.00". Four places surface the real fraction.
+  num.textContent = sm.bitsPerSecond.toFixed(4);
   const util = h('div', {
     class: 'r-hero-util',
     text: `N ${sm.n} · Sc ${sm.sc} · Si ${sm.si} · ${sm.elapsedS.toFixed(1)} s`,
@@ -84,11 +87,11 @@ function heroSection(log: RunLog): { node: HTMLElement; animate: () => void } {
     const t0 = performance.now();
     const step = (now: number): void => {
       const p = Math.min(1, (now - t0) / dur);
-      num.textContent = (target * (1 - Math.pow(1 - p, 3))).toFixed(2);
+      num.textContent = (target * (1 - Math.pow(1 - p, 3))).toFixed(4);
       if (p < 1) requestAnimationFrame(step);
-      else num.textContent = target.toFixed(2);
+      else num.textContent = target.toFixed(4);
     };
-    num.textContent = '0.00';
+    num.textContent = '0.0000';
     requestAnimationFrame(step);
   };
   return { node, animate };
