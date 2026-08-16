@@ -81,6 +81,7 @@ export interface TonesLog {
 export interface GridLog {
   enabled: boolean;
   gridSize: number; // cells per side
+  depth?: number; // stacked layers per selection (1 default; 2 = orange+blue pair, N = (gridSize²)²)
   fieldPx: number; // play-field side in CSS px
   cellPx: number; // target width W (px) — the Fitts term
   devicePixelRatio: number;

@@ -70,9 +70,10 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
       machine: { ...opts.machine, label: engine.config.label },
       config,
     },
-    // targets shown, incl. the unfinished one. Grid targets are cell indices — stringified to match
-    // the event `key` column and the string[] schema.
-    sequence: (engine.sequence as Array<string | number>).slice(0, engine.index + 1).map(String),
+    // targets shown, incl. the unfinished one. Keyboard targets are glyph strings; grid targets are
+    // cell indices, and a depth>1 grid target is an array of cells whose String() is the joined
+    // "o,b" form — matching the event `key` column of a completed selection.
+    sequence: (engine.sequence as unknown[]).slice(0, engine.index + 1).map((x) => String(x)),
     eventColumns: EVENT_COLUMNS,
     events,
     latencySamples: opts.recorder.buildLatency(),

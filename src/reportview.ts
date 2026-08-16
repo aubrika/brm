@@ -165,14 +165,19 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
 
   // How a selection reads in the tooltip: for a grid run the sequence entries are cell indices, so
   // show them as (x, y) tuples (column, row from the top-left) — far more legible than a raw cell
-  // number; keyboard runs keep the glyph.
+  // number. A depth>1 selection is a joined "o,b" pair → two tuples joined with " + ". Keyboard
+  // runs keep the glyph.
   const gridN = log.grid?.enabled ? log.grid.gridSize : 0;
+  const gridDepth = log.grid?.enabled ? log.grid.depth ?? 1 : 0;
   const fmtSel = (sVal: string): string => {
-    if (gridN) {
-      const i = Number(sVal);
-      return Number.isFinite(i) ? `(${i % gridN}, ${Math.floor(i / gridN)})` : sVal;
-    }
-    return fmtKey(sVal);
+    if (!gridN) return fmtKey(sVal);
+    return sVal
+      .split(',')
+      .map((part) => {
+        const i = Number(part);
+        return Number.isFinite(i) ? `(${i % gridN}, ${Math.floor(i / gridN)})` : part;
+      })
+      .join(' + ');
   };
 
   // Even spacing: one column per selection (index-based x), so height alone carries the
@@ -198,7 +203,8 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): { node: HTMLElement; a
     const errPart = b.errCount
       ? ` · ${Math.round(b.errorDelay)}ms lost to ${b.errCount} error${b.errCount > 1 ? 's' : ''} (pressed ${b.errKeys.map(fmtSel).join(', ')})`
       : '';
-    const digraph = b.from ? `${fmtSel(b.from)} → ${fmtSel(b.label)}` : fmtSel(b.label);
+    // depth>1 grid: the "pair → pair" transition is too long, so show just this selection's cells.
+    const digraph = gridDepth > 1 ? fmtSel(b.label) : b.from ? `${fmtSel(b.from)} → ${fmtSel(b.label)}` : fmtSel(b.label);
     const label = `${(b.t / 1000).toFixed(2)}s · ${digraph} · ${Math.round(b.total)}ms${errPart}`;
     g.setAttribute('aria-label', label);
     g.append(s('title', {}, [document.createTextNode(label)]));
@@ -339,21 +345,31 @@ function transitionsColumn(log: RunLog): HTMLElement {
 // the offline analyzer for anyone who wants them; they don't belong on the player's screen.)
 function gridSection(log: RunLog): HTMLElement {
   const g = log.grid;
+  const depth = g?.depth ?? 1;
+  // gridFitts measures per-move distance from single cells; a depth>1 selection is a joined pair,
+  // so it yields no distance (count 0) and we fall back to plain selection cadence.
   const f = gridFitts(log);
+  const oks = reportStats(log).downs.filter((d) => d.verdict === 'ok');
+  let meanIki = 0;
+  for (let i = 1; i < oks.length; i++) meanIki += oks[i].t - oks[i - 1].t;
+  meanIki = oks.length > 1 ? meanIki / (oks.length - 1) : 0;
+
   const stat = (label: string, value: string): HTMLElement =>
     h('div', { class: 'r-trans-cell' }, [
       h('span', { class: 'r-trans-label', text: label }),
       h('span', { class: 'r-trans-ms', text: value }),
     ]);
   const cells: HTMLElement[] = [];
-  if (g) cells.push(stat('grid', `${g.gridSize}×${g.gridSize}`), stat('input', g.pointerType));
-  if (f && f.count > 0) {
-    cells.push(
-      stat('moves', String(f.count)),
-      stat('mean distance', `${f.meanDistCells.toFixed(1)} cells`),
-      stat('mean move time', `${Math.round(f.meanMt)} ms`),
-    );
+  if (g) {
+    cells.push(stat('grid', `${g.gridSize}×${g.gridSize}`));
+    if (depth > 1) cells.push(stat('layers', `${depth} (orange→blue)`));
+    cells.push(stat('input', g.pointerType));
   }
+  const deep = depth > 1;
+  cells.push(stat(deep ? 'selections' : 'moves', String(deep ? oks.length : f?.count ?? oks.length)));
+  if (!deep && f && f.count > 0) cells.push(stat('mean distance', `${f.meanDistCells.toFixed(1)} cells`));
+  const meanTime = !deep && f && f.count > 0 ? f.meanMt : meanIki;
+  if (meanTime > 0) cells.push(stat(deep ? 'mean selection time' : 'mean move time', `${Math.round(meanTime)} ms`));
   return section('Movement', h('div', { class: 'r-trans' }, cells));
 }
 

@@ -17,7 +17,7 @@ import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, composeAlphabet, laneAudio, GRID_SIZES, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
+import { loadConfig, saveConfig, composeAlphabet, laneAudio, GRID_SIZES, GRID_DEPTHS, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
 import { DEFAULT_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
 import type { MachineMeta, RunLog } from './stats.js';
 
@@ -111,7 +111,13 @@ export class App {
     // Dev aid: ?grid[=SIZE] forces GRID MODE on for this session (headless captures / quick trials).
     if (params.has('grid')) {
       const sz = Number(params.get('grid'));
-      this.config = { ...this.config, grid: true, ...(sz === 16 || sz === 24 || sz === 32 ? { gridSize: sz } : {}) };
+      const dp = Number(params.get('depth'));
+      this.config = {
+        ...this.config,
+        grid: true,
+        ...(sz === 16 || sz === 24 || sz === 32 ? { gridSize: sz } : {}),
+        ...(dp === 1 || dp === 2 ? { gridDepth: dp } : {}),
+      };
     }
     const auto = params.get('auto');
     if (auto === 'practice' || auto === 'scored') {
@@ -141,7 +147,7 @@ export class App {
         const eng = rc.engine as GridEngine;
         const gv = rc.gridView;
         let cell = eng.target();
-        if (Math.random() < errorRate) cell = (cell + 1) % eng.n; // an adjacent miss now and then
+        if (Math.random() < errorRate) cell = (cell + 1) % eng.cellsPerLayer; // an adjacent miss now and then
         const r = gv.element.getBoundingClientRect();
         const col = cell % eng.gridSize;
         const row = Math.floor(cell / eng.gridSize);
@@ -306,11 +312,21 @@ export class App {
     const outcome = eng.handleClick(cell, now);
     const pType = e.pointerType || 'mouse';
     if (!rc.pointerType) rc.pointerType = pType; // first observed = modal (mixed input is rare)
-    if (outcome === 'correct' || outcome === 'incorrect') {
-      rc.recorder.recordDown(String(cell), idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
+    // One 'ok' event per COMPLETED selection (its cells joined, e.g. "78,912" for a depth-2 pair),
+    // one 'err' per wrong click. A 'partial' (a correct sub-click that doesn't yet complete the
+    // tuple, e.g. orange done, blue to go) advances state but logs no event — so one 'ok' event
+    // still equals one scored selection, which the whole report/stats layer assumes.
+    if (outcome === 'correct') {
+      rc.recorder.recordDown(eng.lastCompleted.join(','), idxBefore, 'ok', tRun);
       rc.ghostAdjacent.push(ghostAdjacent ? 1 : 0);
       rc.pointerTypes.push(pType);
-      rc.pendingDownT = tRun; // pointerdown → next paint, for the latency samples
+    } else if (outcome === 'incorrect') {
+      rc.recorder.recordDown(String(cell), idxBefore, 'err', tRun);
+      rc.ghostAdjacent.push(ghostAdjacent ? 1 : 0);
+      rc.pointerTypes.push(pType);
+    }
+    if (outcome !== 'ignored') {
+      rc.pendingDownT = tRun; // this click → next paint, for the latency samples
       rc.pendingDown = true;
     }
     // an out-of-field press is counted in the engine (outOfField); no event is recorded
@@ -372,6 +388,15 @@ export class App {
         el('option', { value: String(sz), ...(this.config.gridSize === sz ? { selected: true } : {}), text: `${sz} × ${sz}  ·  N = ${sz * sz}` }),
       ),
     ) as HTMLSelectElement;
+    const gridDepth = el('select', { class: 'field-input mono' },
+      GRID_DEPTHS.map((d) =>
+        el('option', {
+          value: String(d),
+          ...(this.config.gridDepth === d ? { selected: true } : {}),
+          text: d === 1 ? '1 layer  ·  one cell' : `${d} layers  ·  orange → blue pair`,
+        }),
+      ),
+    ) as HTMLSelectElement;
 
     const err = el('div', { class: 'field-error' });
 
@@ -402,6 +427,7 @@ export class App {
         challenge: challenge.checked,
         grid: grid.checked,
         gridSize: Number(gridSize.value) || 32,
+        gridDepth: Number(gridDepth.value) || 1,
         ghost: ghost.checked,
         crosshair: crosshair.checked,
         hoverPulse: hoverPulse.checked,
@@ -454,6 +480,7 @@ export class App {
           el('div', { class: 'field toggles grid-options' }, [
             el('span', { class: 'field-label', text: 'Grid options (mouse/trackpad)' }),
             el('label', { class: 'toggle inline' }, [el('span', { text: 'Grid size ' }), gridSize]),
+            el('label', { class: 'toggle inline' }, [el('span', { text: 'Grid depth ' }), gridDepth]),
             el('label', { class: 'toggle' }, [crosshair, el('span', { text: ' Crosshair locator (hairlines through the target)' })]),
             el('label', { class: 'toggle' }, [ghost, el('span', { text: ' Ghost (preview the next target + connector)' })]),
             el('label', { class: 'toggle' }, [hoverPulse, el('span', { text: ' Hover pulse (confirm you are on the target)' })]),
@@ -766,6 +793,7 @@ export class App {
     return {
       enabled: true,
       gridSize: this.config.gridSize,
+      depth: this.config.gridDepth,
       fieldPx: v ? v.fieldPx : 0,
       cellPx: v ? v.cellPx : 0,
       devicePixelRatio: v ? v.dpr : 1,

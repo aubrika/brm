@@ -13,7 +13,10 @@
 import type { GridEngine } from './gridengine.js';
 
 const MARGIN = 20; // px inset from the smaller viewport dimension
-const TARGET_ORANGE = '#E69F00';
+// One fill colour per layer: layer 0 (click first) orange, layer 1 blue. Orange/blue is the
+// colourblind-safe pair. crosshair tints are the same hues at low alpha.
+const LAYER_COLORS = ['#E69F00', '#3B82F6'];
+const LAYER_CROSSHAIR = ['rgba(230, 159, 0, 0.32)', 'rgba(59, 130, 246, 0.34)'];
 const GHOST_GRAY = '#6B7789';
 const FLASH_MS = 140; // wrong-cell flash duration
 const PULSE_HZ = 2;
@@ -126,16 +129,17 @@ export class GridRenderer {
     }
     ctx.stroke();
 
-    const target = this.engine.target();
-    const ghost = this.engine.nextTarget();
+    const target = this.engine.target(); // the ACTIVE cell — the one to click now
+    const ghost = this.engine.nextTarget(); // next selection's first (orange) cell
+    const active = this.engine.subIndex; // active layer
 
-    // 2) crosshair locator — full-field hairlines through the target's centre, dim orange so they
-    //    read as belonging to the target but stay subordinate to the fill (§2.1)
+    // 2) crosshair locator — full-field hairlines through the ACTIVE target's centre, tinted with
+    //    that layer's colour so it reads as belonging to the cell you must click now (§2.1)
     if (cfg.crosshair && target >= 0) {
       const cx = Math.round(this.centerX(target)) + 0.5;
       const cy = Math.round(this.centerY(target)) + 0.5;
       ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(230, 159, 0, 0.32)';
+      ctx.strokeStyle = LAYER_CROSSHAIR[active] ?? LAYER_CROSSHAIR[0];
       ctx.beginPath();
       ctx.moveTo(0, cy);
       ctx.lineTo(f, cy);
@@ -144,7 +148,7 @@ export class GridRenderer {
       ctx.stroke();
     }
 
-    // 3) connector — target centre → ghost centre, previews the next movement vector (§2.3)
+    // 3) connector — active target centre → ghost centre, previews the next movement vector (§2.3)
     if (cfg.ghost && ghost >= 0 && target >= 0) {
       ctx.lineWidth = 1;
       ctx.strokeStyle = 'rgba(107, 119, 137, 0.85)';
@@ -164,11 +168,15 @@ export class GridRenderer {
       ctx.strokeRect(gx + 1.5, gy + 1.5, cp - 3, cp - 3);
     }
 
-    // 5) target fill — the active cell, solid orange
-    if (target >= 0) {
-      const tx = this.col(target) * cp;
-      const ty = this.row(target) * cp;
-      ctx.fillStyle = TARGET_ORANGE;
+    // 5) layer fills — every layer still to be clicked is drawn at once in its colour: the active
+    //    layer (click now) plus any pending layers (e.g. the blue cell shown while you click orange).
+    //    Already-clicked layers are hidden. The active fill is drawn last so it sits on top.
+    for (let L = this.engine.depth - 1; L >= active; L--) {
+      const cell = this.engine.layerCell(L);
+      if (cell < 0) continue;
+      const tx = this.col(cell) * cp;
+      const ty = this.row(cell) * cp;
+      ctx.fillStyle = LAYER_COLORS[L] ?? LAYER_COLORS[0];
       ctx.fillRect(tx + 0.5, ty + 0.5, cp - 1, cp - 1);
     }
 

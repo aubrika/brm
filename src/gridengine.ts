@@ -1,26 +1,37 @@
-// GRID MODE engine (pointing). The keyboard Engine's counterpart for a 2D grid: a selection is a
-// cell click, not a keydown. Deliberately DOM-free and allocation-light on the hot path, exactly
-// like Engine — it takes a cell index + a timestamp, updates counters, advances synchronously, and
-// the canvas renderer reads this state once per rAF. It exposes the same loop-facing surface the
-// app's run loop drives (start / tick / state / timing / liveBitRate / liveAccuracy / result), so
-// the shared loop treats keyboard and grid runs uniformly (see bitrate-grid-mode-spec.md §3).
+// GRID MODE engine (pointing). The keyboard Engine's counterpart for a grid: a selection is one or
+// more cell clicks, not a keydown. Deliberately DOM-free and allocation-light on the hot path,
+// exactly like Engine — it takes a cell index + a timestamp, updates counters, advances
+// synchronously, and the canvas renderer reads this state once per rAF.
+//
+// DEPTH (stacked "transparent" grids). A selection is `depth` cells, one per layer, drawn at once
+// in distinct colours (layer 0 orange, layer 1 blue). You click them in order: the active layer's
+// cell must be hit; a correct hit hides that layer and advances to the next; the last layer
+// completes the selection. So depth 2 is a 4-tuple (x1,y1,x2,y2) picked as an orange cell then a
+// blue cell, and N = (gridSize²)^depth = 1024² at 32×32. Any wrong click is an error and resets to
+// layer 0 (the orange cell reappears). See bitrate-grid-mode-spec.md §3 (depth is an extension).
 
-import { type Outcome, type RunResult, bitRate, sampleCells, makeRandInt, SEQUENCE_LENGTH } from './scoring.js';
+import { type RunResult, bitRate, makeRandInt, SEQUENCE_LENGTH } from './scoring.js';
 import type { GameConfig } from './config.js';
 import type { EngineState } from './engine.js';
+
+export type GridOutcome = 'correct' | 'partial' | 'incorrect' | 'ignored';
 
 export class GridEngine {
   readonly config: GameConfig;
   readonly timed: boolean;
-  readonly gridSize: number; // cells per side
-  readonly n: number; // cell count = gridSize²; N for the bit-rate formula
-  readonly sequence: number[]; // i.i.d. uniform cell indices
+  readonly gridSize: number; // cells per side of a single layer
+  readonly depth: number; // layers per selection (1 | 2)
+  readonly cellsPerLayer: number; // gridSize²
+  readonly n: number; // cellsPerLayer^depth — N for the bit-rate formula
+  readonly sequence: number[][]; // each selection = `depth` i.i.d. uniform cell indices
   readonly logBits: number; // log2(N - 1), precomputed
 
-  sc = 0;
-  si = 0;
-  index = 0;
+  sc = 0; // completed selections (full tuples)
+  si = 0; // wrong clicks
+  index = 0; // current selection
+  subIndex = 0; // active layer within the current selection (0 = orange, 1 = blue)
   outOfField = 0; // pointerdowns outside the play field (counted once, like out-of-alphabet keys)
+  lastCompleted: number[] = []; // the cells of the selection that just completed (for the log)
   startMs = 0;
   state: EngineState = 'idle';
   lastErrorMs = -Infinity; // drives the wrong-cell flash
@@ -37,8 +48,15 @@ export class GridEngine {
     this.config = config;
     this.timed = timed;
     this.gridSize = config.gridSize;
-    this.n = this.gridSize * this.gridSize;
-    this.sequence = sampleCells(this.n, SEQUENCE_LENGTH, randInt);
+    this.depth = Math.max(1, Math.round(config.gridDepth || 1));
+    this.cellsPerLayer = this.gridSize * this.gridSize;
+    this.n = Math.pow(this.cellsPerLayer, this.depth);
+    this.sequence = new Array(SEQUENCE_LENGTH);
+    for (let i = 0; i < SEQUENCE_LENGTH; i++) {
+      const tuple = new Array<number>(this.depth);
+      for (let d = 0; d < this.depth; d++) tuple[d] = randInt(this.cellsPerLayer);
+      this.sequence[i] = tuple;
+    }
     this.logBits = Math.log2(this.n - 1);
   }
 
@@ -57,49 +75,63 @@ export class GridEngine {
     return Math.max(0, this.config.durationMs - (nowMs - this.startMs));
   }
 
-  // The current target cell index (-1 past the end of the sequence, which never happens in 60 s).
+  // The active cell — the one that must be clicked now (the current layer of the current selection).
   target(): number {
-    return this.index < this.sequence.length ? this.sequence[this.index] : -1;
+    const tuple = this.sequence[this.index];
+    return tuple ? tuple[this.subIndex] : -1;
   }
 
-  // The T+1 target cell (for the ghost); -1 if none.
+  // The cell of a given layer in the current selection (for the renderer to draw all layers at once);
+  // -1 if out of range.
+  layerCell(layer: number): number {
+    const tuple = this.sequence[this.index];
+    return tuple && layer < tuple.length ? tuple[layer] : -1;
+  }
+
+  // The ghost: the next selection's first (orange) cell; -1 if none.
   nextTarget(): number {
-    return this.index + 1 < this.sequence.length ? this.sequence[this.index + 1] : -1;
+    const tuple = this.sequence[this.index + 1];
+    return tuple ? tuple[0] : -1;
   }
 
-  // Score a pointerdown on cell `cellIdx` (or -1 for a press outside the field). Synchronous:
-  // correct → Sc++ and advance immediately; any other cell → Si++ and the target stays
-  // (retry-until-correct, matching the keyboard mode). Returns the outcome so the app can flash /
-  // record; the renderer picks up the new state on the next frame.
-  handleClick(cellIdx: number, nowMs: number): Outcome {
+  // Score a pointerdown on `cellIdx` (or -1 for a press outside the field). Synchronous:
+  //  - hit the active layer's cell → 'partial' if more layers remain, else 'correct' (Sc++, advance)
+  //  - any other cell → 'incorrect' (Si++) and reset to layer 0 (the orange cell reappears)
+  handleClick(cellIdx: number, nowMs: number): GridOutcome {
     if (this.state !== 'running') return 'ignored';
     if (this.timed && nowMs - this.startMs >= this.config.durationMs) {
       this.end();
       return 'ignored';
     }
-    if (cellIdx < 0 || cellIdx >= this.n) {
+    if (cellIdx < 0 || cellIdx >= this.cellsPerLayer) {
       this.outOfField++;
       return 'ignored';
     }
     this.lastEventMs = nowMs;
     if (cellIdx === this.target()) {
-      this.sc++;
-      this.index++;
       this.lastCorrectMs = nowMs;
-      this.onCorrect?.();
-      return 'correct';
+      this.lastErrorCell = -1; // a correct sub-click clears any lingering error flash
+      this.subIndex++;
+      if (this.subIndex >= this.depth) {
+        this.lastCompleted = this.sequence[this.index].slice();
+        this.sc++;
+        this.index++;
+        this.subIndex = 0;
+        this.onCorrect?.();
+        return 'correct';
+      }
+      return 'partial'; // orange done; blue still to go
     }
     this.si++;
     const t = String(this.target());
     this.errorsByCell[t] = (this.errorsByCell[t] ?? 0) + 1;
+    this.subIndex = 0; // reset the tuple — the orange cell reappears
     this.lastErrorMs = nowMs;
     this.lastErrorCell = cellIdx;
     this.onError?.();
     return 'incorrect';
   }
 
-  // Called each frame; ends a timed run exactly at the window boundary (no time-based advancement —
-  // grid targets only advance on a correct click).
   tick(nowMs: number): void {
     if (this.timed && this.state === 'running' && nowMs - this.startMs >= this.config.durationMs) {
       this.end();
@@ -123,9 +155,9 @@ export class GridEngine {
     return total > 0 ? this.sc / total : 1;
   }
 
-  // Authoritative result, built from the live counters (grid scoring, like chords/challenge, isn't
-  // a fold over a keydown log). Same RunResult shape the report/log expect; errorsByTarget is keyed
-  // by cell index (as a string) and outcomes is empty (per-selection detail lives in the event log).
+  // Authoritative result from the live counters (same RunResult shape the report/log expect).
+  // errorsByTarget is keyed by the active cell at the time of each error; outcomes is empty
+  // (per-selection detail lives in the event log).
   result(): RunResult {
     const t = this.config.durationMs / 1000;
     const total = this.sc + this.si;

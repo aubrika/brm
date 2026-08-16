@@ -29,7 +29,8 @@ export interface GameConfig {
   // 32×32 grid scores log2(1023) ≈ 10 bits/selection. Its own engine + canvas renderer; when on it
   // replaces the keyboard game entirely (the alphabet/finger machinery is unused).
   grid: boolean; // GRID MODE on
-  gridSize: number; // cells per side (16 | 24 | 32); N = gridSize²
+  gridSize: number; // cells per side (16 | 24 | 32); a layer has gridSize² cells
+  gridDepth: number; // stacked "transparent" grids per selection (1 | 2); N = (gridSize²)^depth
   ghost: boolean; // show the next target (T+1) as a ghost cell + connector
   crosshair: boolean; // full-field locator hairlines through the target cell
   hoverPulse: boolean; // pulse a white border while the pointer is inside the target cell
@@ -116,6 +117,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   label: '',
   grid: false,
   gridSize: 32, // 32×32 = 1024 cells; the geometry whose Fitts ceiling is ~2× device throughput
+  gridDepth: 1, // one layer per selection; 2 stacks an orange+blue pair (N = 1024²)
   ghost: true,
   crosshair: true,
   hoverPulse: true,
@@ -132,9 +134,10 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v16'; // + grid mode (pointing)
+const STORAGE_KEY = 'brm.config.v17'; // + grid depth (stacked grids)
 
 export const GRID_SIZES = [16, 24, 32] as const; // cells per side offered on the config screen
+export const GRID_DEPTHS = [1, 2] as const; // stacked layers per selection offered on the config screen
 
 export function loadConfig(): GameConfig {
   try {
