@@ -34,6 +34,16 @@ const PULSE_MS = 110; // correct-keystroke pulse
 const SHAKE_MS = 120;
 const SHAKE_PX = 10;
 
+// One colour per finger, from the Wong colourblind-safe palette. Slot 0 = pinky … 3 = index; the
+// same finger shares a colour on both hands (both pinkies blue, both index fingers orange, …).
+const FINGER = ['#0072B2', '#D55E00', '#56B4E9', '#E69F00']; // pinky, ring, middle, index
+
+// '#rrggbb' + alpha → 'rgba(r, g, b, a)'
+function rgbaOf(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
 export class StripRenderer {
   private readonly root: HTMLElement;
   private readonly layer: HTMLElement;
@@ -91,10 +101,10 @@ export class StripRenderer {
     this.root = root;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
-    // Two hand blocks (left fingers blue | neutral centre gap | right fingers yellow). Each
-    // hand has as many COLUMNS as its widest row; a top-row key shares the exact column of its
-    // home-row finger (q over a), so it differs only in the glyph shown — same lane, same
-    // colour, same everything else, just stacked a row higher on a real keyboard.
+    // Two hand blocks (left fingers | neutral centre gap | right fingers), each coloured per
+    // finger (mirrored, so left and right pinky share a hue, etc.). Each hand has as many COLUMNS
+    // as its widest row; a top-row key shares the exact column of its home-row finger (q over a),
+    // so it differs only in the glyph shown — same lane, same colour, just stacked a row higher.
     const cfg = engine.config;
     const leftHome = [...cfg.leftFingers], rightHome = [...cfg.rightFingers];
     const leftTop = cfg.topRow ? [...cfg.leftTopRow] : [];
@@ -110,19 +120,18 @@ export class StripRenderer {
     rightHome.forEach((c, j) => place.set(c, { hand: 'R', col: j, top: false }));
     leftTop.forEach((c, j) => place.set(c, { hand: 'L', col: j, top: true }));
     rightTop.forEach((c, j) => place.set(c, { hand: 'R', col: j, top: true }));
-    const BLUE = 'hsl(214, 82%, 67%)', BLUE_G = 'hsla(214, 82%, 67%, 0.16)';
-    const YELLOW = 'hsl(48, 85%, 60%)', YELLOW_G = 'hsla(48, 85%, 60%, 0.16)';
     const GREY = 'hsl(220, 9%, 62%)', GREY_G = 'hsla(220, 9%, 62%, 0.18)';
+    const fingerSlot = (hand: 'L' | 'R', col: number, cols: number): number =>
+      // left counts columns pinky→index (0..); right mirrors, so its outermost column is the pinky
+      ((hand === 'L' ? col : cols - 1 - col) % FINGER.length + FINGER.length) % FINGER.length;
     for (let i = 0; i < engine.chars.length; i++) {
       const p = place.get(engine.chars[i]);
-      if (p && p.hand === 'L') {
-        this.laneUnitOf.push(-half + p.col + 0.5);
-        this.laneKind.push('L'); this.laneTop.push(p.top); this.blockIndex.push(p.col);
-        this.laneColor.push(BLUE); this.laneGlow.push(BLUE_G);
-      } else if (p && p.hand === 'R') {
-        this.laneUnitOf.push(-half + this.leftCount + this.centerWidth + p.col + 0.5);
-        this.laneKind.push('R'); this.laneTop.push(p.top); this.blockIndex.push(p.col);
-        this.laneColor.push(YELLOW); this.laneGlow.push(YELLOW_G);
+      if (p && (p.hand === 'L' || p.hand === 'R')) {
+        const left = p.hand === 'L';
+        this.laneUnitOf.push(left ? -half + p.col + 0.5 : -half + this.leftCount + this.centerWidth + p.col + 0.5);
+        this.laneKind.push(p.hand); this.laneTop.push(p.top); this.blockIndex.push(p.col);
+        const c = FINGER[fingerSlot(p.hand, p.col, left ? this.leftCount : this.rightCount)];
+        this.laneColor.push(c); this.laneGlow.push(rgbaOf(c, 0.16));
       } else {
         this.laneUnitOf.push(-half + this.leftCount + this.centerWidth / 2); // unclassified → centre, grey
         this.laneKind.push('T'); this.laneTop.push(false); this.blockIndex.push(0);
@@ -280,9 +289,8 @@ export class StripRenderer {
         b.style.display = 'block';
         b.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
         b.style.width = `${this.colStep.toFixed(1)}px`;
-        const left = this.laneKind[i] === 'L';
-        const a = (this.blockIndex[i] % 2 === 0 ? 1 : 0.4) * (left ? 0.08 : 0.058); // alternate intensity; balance blue vs (brighter) yellow
-        b.style.background = left ? `hsla(214, 80%, 60%, ${a.toFixed(3)})` : `hsla(48, 85%, 55%, ${a.toFixed(3)})`;
+        const a = (this.blockIndex[i] % 2 === 0 ? 1 : 0.55) * 0.09; // faint per-finger wash, alternating
+        b.style.background = rgbaOf(this.laneColor[i], a);
       }
       for (let i = 0; i < this.receptors.length; i++) {
         const r = this.receptors[i];

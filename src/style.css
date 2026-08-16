@@ -94,7 +94,7 @@ code { font-family: var(--mono); }
   border-right: 1px solid var(--grid-line);
 }
 
-/* per-column hand wash (left = blue, right = yellow), alternating intensity */
+/* per-column finger wash (one hue per finger, mirrored across hands), alternating intensity */
 .lane-band { position: absolute; top: 0; height: 100%; z-index: 0; pointer-events: none; transform: translateX(-50%); }
 
 /* full-height highlight on the current target's lane (--hc = its hand colour); .next = 50% */
