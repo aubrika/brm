@@ -19,6 +19,7 @@ const LAYER_COLORS = ['#E69F00', '#3B82F6'];
 const LAYER_CROSSHAIR = ['rgba(230, 159, 0, 0.32)', 'rgba(59, 130, 246, 0.34)'];
 const GHOST_GRAY = '#6B7789';
 const FLASH_MS = 140; // wrong-cell flash duration
+const REPEAT_FLASH_MS = 200; // white confirm-flash when the next target repeats the same cell
 const PULSE_HZ = 2;
 const GHOST_ADJACENT = 2; // Chebyshev distance flagged as "next target is close" (logged, not suppressed)
 
@@ -189,6 +190,18 @@ export class GridRenderer {
       const tx = this.col(cell) * cp;
       const ty = this.row(cell) * cp;
       ctx.fillStyle = LAYER_COLORS[L] ?? LAYER_COLORS[0];
+      ctx.fillRect(tx + 0.5, ty + 0.5, cp - 1, cp - 1);
+    }
+
+    // 5b) repeated-target flash — the i.i.d. sequence can draw the same cell twice in a row (rate
+    //     1/N). Then the orange cell doesn't move on a correct click, so the hit would look like a
+    //     dead click; a brief white flash on the target makes the repeat legible. Only fires when the
+    //     just-completed cell IS the new target (i.e. an actual repeat), so normal play is unchanged.
+    const sinceCorrect = nowMs - this.engine.lastCorrectMs;
+    if (target >= 0 && this.engine.lastCorrectCell === target && sinceCorrect >= 0 && sinceCorrect < REPEAT_FLASH_MS) {
+      const tx = this.col(target) * cp;
+      const ty = this.row(target) * cp;
+      ctx.fillStyle = `rgba(255, 255, 255, ${(0.7 * (1 - sinceCorrect / REPEAT_FLASH_MS)).toFixed(3)})`;
       ctx.fillRect(tx + 0.5, ty + 0.5, cp - 1, cp - 1);
     }
 

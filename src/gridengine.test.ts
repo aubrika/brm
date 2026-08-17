@@ -46,6 +46,20 @@ describe('GridEngine (depth 1)', () => {
     expect(e.sc).toBe(2);
   });
 
+  it('allows a repeated target (i.i.d. sampling with replacement)', () => {
+    const e = new GridEngine(cfg(16), true, seqRand([5, 5, 9])); // same cell twice in a row
+    e.start(0);
+    expect(e.target()).toBe(5);
+    expect(e.nextTarget()).toBe(5); // the repeat: next target is the same cell
+    expect(e.handleClick(5, 100)).toBe('correct');
+    expect(e.sc).toBe(1);
+    expect(e.target()).toBe(5); // still 5 — the repeat
+    expect(e.lastCorrectCell).toBe(5); // flags the repeat for the confirm-flash
+    expect(e.handleClick(5, 200)).toBe('correct');
+    expect(e.sc).toBe(2);
+    expect(e.target()).toBe(9);
+  });
+
   it('counts an out-of-field press without recording a selection', () => {
     const e = new GridEngine(cfg(16), true, seqRand([3]));
     e.start(0);

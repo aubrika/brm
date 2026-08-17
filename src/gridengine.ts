@@ -37,6 +37,7 @@ export class GridEngine {
   lastErrorMs = -Infinity; // drives the wrong-cell flash
   lastErrorCell = -1; // which cell was last clicked wrong (for the flash), -1 = none
   lastCorrectMs = -Infinity;
+  lastCorrectCell = -1; // the cell just correctly completed — flags a repeated (same-cell) next target
   lastEventMs = -Infinity;
   private readonly errorsByCell: Record<string, number> = {};
 
@@ -114,6 +115,7 @@ export class GridEngine {
       this.subIndex++;
       if (this.subIndex >= this.depth) {
         this.lastCompleted = this.sequence[this.index].slice();
+        this.lastCorrectCell = cellIdx; // the cell just completed (to flag a repeated next target)
         this.sc++;
         this.index++;
         this.subIndex = 0;
