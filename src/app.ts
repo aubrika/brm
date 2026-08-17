@@ -57,7 +57,6 @@ interface RunCtx {
   scopeView: ScopeRenderer | null; // non-null in SCOPE MODE
   grid: boolean; // this run is a plain pointing (grid) run
   scope: boolean; // this run is a SCOPE MODE run (pointer lock + magnify lens)
-  errorSoundOn: boolean; // GRID A/B: did the wrong-cell buzzer play this run (visual flash is constant)
   // SCOPE MODE lock/scope state
   scopeBindings: Set<'rmb' | 'ctrl'>; // which scope bindings are currently held
   scoped: boolean; // is the lens active (any binding held)
@@ -499,7 +498,6 @@ export class App {
       scopeView: null,
       grid: false,
       scope: false,
-      errorSoundOn: false,
       scopeBindings: new Set(),
       scoped: false,
       activations: [],
@@ -543,11 +541,8 @@ export class App {
     if (this.config.sound) this.audio.unlock(); // the Start-button click is the unlocking gesture
 
     const engine = new GridEngine(this.config, timed);
-    // A/B: half of runs get the wrong-cell buzzer, half get silence — the visual red flash is
-    // constant either way, so the comparison isolates the sound's effect on time lost to errors.
-    const errorSoundOn = this.drawErrorSoundArm();
     engine.onCorrect = () => this.audio.bloop(); // hit: rising bloop (+ particle burst in the renderer)
-    engine.onError = errorSoundOn ? () => this.audio.buzzer() : null; // miss: buzzer (A/B arm)
+    // no wrong-cell buzzer — the red flash (drawn by the renderer) is the only miss feedback
     const stripRoot = el('div', { class: 'strip-root grid-root' });
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
@@ -580,7 +575,6 @@ export class App {
       scopeView: null,
       grid: true,
       scope: false,
-      errorSoundOn,
       scopeBindings: new Set(),
       scoped: false,
       activations: [],
@@ -651,7 +645,6 @@ export class App {
       scopeView,
       grid: false,
       scope: true,
-      errorSoundOn: true,
       scopeBindings: new Set(),
       scoped: false,
       activations: [],
@@ -918,28 +911,6 @@ export class App {
     return arm;
   }
 
-  // GRID error-sound A/B: draw on/off from a balanced [on, off] bag (shuffled, refilled when empty),
-  // so the two arms stay balanced and their order isn't confounded with the practice curve.
-  private drawErrorSoundArm(): boolean {
-    const KEY = 'brm.errsound.bag';
-    let bag: boolean[] = [];
-    try {
-      bag = JSON.parse(localStorage.getItem(KEY) ?? '[]') as boolean[];
-    } catch {
-      bag = [];
-    }
-    if (!Array.isArray(bag) || bag.length === 0) {
-      bag = Math.random() < 0.5 ? [true, false] : [false, true];
-    }
-    const arm = bag.pop() ?? true;
-    try {
-      localStorage.setItem(KEY, JSON.stringify(bag));
-    } catch {
-      /* ignore */
-    }
-    return arm === true;
-  }
-
   private updateHud(now: number, rc: RunCtx): void {
     const eng = rc.engine;
     if (rc.timed) {
@@ -1012,7 +983,6 @@ export class App {
       pointerType: rc.pointerType || 'mouse',
       ghostAdjacent: rc.ghostAdjacent,
       pointerTypes: rc.pointerTypes,
-      errorSound: rc.errorSoundOn, // A/B arm: was the wrong-cell buzzer audible this run
     };
   }
 

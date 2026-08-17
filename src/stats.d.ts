@@ -91,7 +91,6 @@ export interface GridLog {
   pointerType: string; // modal pointer type across the run ('mouse' | 'touch' | 'pen')
   ghostAdjacent?: number[]; // per down-event: 1 if the next target was within a couple cells of this one
   pointerTypes?: string[]; // per down-event pointer type
-  errorSound?: boolean; // A/B arm: was the wrong-cell buzzer audible this run (visual flash constant)
 }
 
 /** SCOPE MODE's log section — a grid run under pointer lock with a hold-to-magnify lens. Present

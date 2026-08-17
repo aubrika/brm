@@ -176,8 +176,11 @@ export class GridRenderer {
     }
 
     // 4) ghost border — empty cell, gray outline; always drawn (even adjacent to the target), so it
-    //    never flickers on/off between selections
-    if (cfg.ghost && ghost >= 0) {
+    //    never flickers on/off between selections. But NOT when the next target repeats the current
+    //    cell (ghost === target): drawing a ghost box on the same cell as the orange fill is
+    //    redundant and misreads as a stray second target — so skip it (the connector, a zero-length
+    //    segment there, is already invisible).
+    if (cfg.ghost && ghost >= 0 && ghost !== target) {
       const gx = this.col(ghost) * cp;
       const gy = this.row(ghost) * cp;
       ctx.lineWidth = 1.5;
