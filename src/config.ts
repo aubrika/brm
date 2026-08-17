@@ -124,7 +124,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   tones: false, // retired: the A/B found no bit-rate gain (and a small accuracy cost)
   abTest: false,
   label: '',
-  grid: false,
+  grid: true, // grid is the singular default mode
   gridSize: 32, // 32×32 = 1024 cells; the geometry whose Fitts ceiling is ~2× device throughput
   gridDepth: 1, // one layer per selection; 2 stacks an orange+blue pair (N = 1024²)
   ghost: true,
@@ -147,9 +147,9 @@ export const DEFAULT_CONFIG: GameConfig = {
   errorFeedback: 'flash',
 };
 
-const STORAGE_KEY = 'brm.config.v18'; // + scope mode
+const STORAGE_KEY = 'brm.config.v19'; // grid-only config screen; grid is the default mode
 
-export const GRID_SIZES = [16, 24, 32] as const; // cells per side offered on the config screen
+export const GRID_SIZES = [16, 24, 32, 64, 128] as const; // cells per side offered on the config screen
 export const GRID_DEPTHS = [1, 2] as const; // stacked layers per selection offered on the config screen
 export const SCOPE_GRID_SIZES = [128, 256] as const; // fine grid sizes for scope mode
 export const MAGNIFICATIONS = [4, 8, 12] as const; // lens zoom factors for scope mode

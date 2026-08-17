@@ -18,8 +18,8 @@ import { buildReport, downloadReport } from './report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, composeAlphabet, laneAudio, GRID_SIZES, GRID_DEPTHS, SCOPE_GRID_SIZES, MAGNIFICATIONS, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
-import { DEFAULT_LOOKAHEAD, SCORED_DURATION_MS, validateAlphabet, symbolFor } from './scoring.js';
+import { loadConfig, saveConfig, laneAudio, GRID_SIZES, DEFAULT_CONFIG, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
+import { symbolFor } from './scoring.js';
 import type { MachineMeta, RunLog, ScopeActivation } from './stats.js';
 
 type Props = Record<string, string | number | boolean | EventListener>;
@@ -128,7 +128,7 @@ export class App {
       this.config = {
         ...this.config,
         grid: true,
-        ...(sz === 16 || sz === 24 || sz === 32 ? { gridSize: sz } : {}),
+        ...((GRID_SIZES as readonly number[]).includes(sz) ? { gridSize: sz } : {}),
         ...(dp === 1 || dp === 2 ? { gridDepth: dp } : {}),
       };
     }
@@ -380,68 +380,11 @@ export class App {
     this.run = null;
     this.root.replaceChildren();
 
-    const keyInput = (value: string, placeholder = ''): HTMLInputElement =>
-      el('input', {
-        type: 'text',
-        class: 'field-input mono',
-        value,
-        placeholder,
-        spellcheck: false,
-        autocomplete: 'off',
-        autocapitalize: 'off',
-      }) as HTMLInputElement;
-
-    const machineLabel = el('input', {
-      type: 'text',
-      class: 'field-input',
-      value: this.config.label,
-      placeholder: 'e.g. calvin',
-      spellcheck: false,
-      autocomplete: 'off',
-    }) as HTMLInputElement;
-
-    const leftFingers = keyInput(this.config.leftFingers);
-    const rightFingers = keyInput(this.config.rightFingers);
-    const leftTopRow = keyInput(this.config.leftTopRow);
-    const rightTopRow = keyInput(this.config.rightTopRow);
-    const topRow = el('input', { type: 'checkbox', ...(this.config.topRow ? { checked: true } : {}) }) as HTMLInputElement;
-    const chords = el('input', { type: 'checkbox', ...(this.config.chords ? { checked: true } : {}) }) as HTMLInputElement;
-    const challenge = el('input', { type: 'checkbox', ...(this.config.challenge ? { checked: true } : {}) }) as HTMLInputElement;
-
-    // GRID MODE controls (pointing)
-    const grid = el('input', { type: 'checkbox', ...(this.config.grid ? { checked: true } : {}) }) as HTMLInputElement;
-    const ghost = el('input', { type: 'checkbox', ...(this.config.ghost ? { checked: true } : {}) }) as HTMLInputElement;
-    const crosshair = el('input', { type: 'checkbox', ...(this.config.crosshair ? { checked: true } : {}) }) as HTMLInputElement;
-    const hoverPulse = el('input', { type: 'checkbox', ...(this.config.hoverPulse ? { checked: true } : {}) }) as HTMLInputElement;
     const gridSize = el('select', { class: 'field-input mono' },
       GRID_SIZES.map((sz) =>
         el('option', { value: String(sz), ...(this.config.gridSize === sz ? { selected: true } : {}), text: `${sz} × ${sz}  ·  N = ${sz * sz}` }),
       ),
     ) as HTMLSelectElement;
-    const gridDepth = el('select', { class: 'field-input mono' },
-      GRID_DEPTHS.map((d) =>
-        el('option', {
-          value: String(d),
-          ...(this.config.gridDepth === d ? { selected: true } : {}),
-          text: d === 1 ? '1 layer  ·  one cell' : `${d} layers  ·  orange → blue pair`,
-        }),
-      ),
-    ) as HTMLSelectElement;
-
-    // SCOPE MODE controls
-    const scope = el('input', { type: 'checkbox', ...(this.config.scope ? { checked: true } : {}) }) as HTMLInputElement;
-    const scopeGridSize = el('select', { class: 'field-input mono' },
-      SCOPE_GRID_SIZES.map((sz) =>
-        el('option', { value: String(sz), ...(this.config.scopeGridSize === sz ? { selected: true } : {}), text: `${sz} × ${sz}  ·  N = ${sz * sz}` }),
-      ),
-    ) as HTMLSelectElement;
-    const magnification = el('select', { class: 'field-input mono' },
-      MAGNIFICATIONS.map((m) =>
-        el('option', { value: String(m), ...(this.config.magnification === m ? { selected: true } : {}), text: `${m}×` }),
-      ),
-    ) as HTMLSelectElement;
-
-    const err = el('div', { class: 'field-error' });
 
     const field = (label: string, control: Node, hint?: string): HTMLElement =>
       el('label', { class: 'field' }, [
@@ -450,106 +393,40 @@ export class App {
         ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
       ]);
 
-    const collect = (): GameConfig | null => {
-      const parts = {
-        leftFingers: leftFingers.value,
-        rightFingers: rightFingers.value,
-        topRow: topRow.checked,
-        leftTopRow: leftTopRow.value,
-        rightTopRow: rightTopRow.value,
-      };
-      const v = validateAlphabet(composeAlphabet(parts));
-      if (!v.ok) {
-        err.textContent = v.error;
-        return null;
-      }
-      err.textContent = '';
-      return {
-        ...parts,
-        chords: chords.checked,
-        challenge: challenge.checked,
-        grid: grid.checked,
-        gridSize: Number(gridSize.value) || 32,
-        gridDepth: Number(gridDepth.value) || 1,
-        scope: scope.checked,
-        scopeGridSize: Number(scopeGridSize.value) || 256,
-        magnification: Number(magnification.value) || 8,
-        lensDiameter: this.config.lensDiameter || 0.4,
-        ghost: ghost.checked,
-        crosshair: crosshair.checked,
-        hoverPulse: hoverPulse.checked,
-        tones: false, // pacer + tones retired (A/B showed no bit-rate gain, slight accuracy cost)
-        abTest: false,
-        alphabet: v.alphabet,
-        label: machineLabel.value.trim().slice(0, 40),
-        pacer: 'off',
-        pacerPush: 0.1,
-        pacerVolume: 0.22,
-        pacerScored: false,
-        durationMs: SCORED_DURATION_MS,
-        lookahead: DEFAULT_LOOKAHEAD,
-        lanes: true,
-        chord: false,
-        sound: true,
-        errorFeedback: 'flash',
-      };
-    };
+    // Grid is the singular mode now; the config screen picks only the grid size. Everything else
+    // (the retired keyboard/chords/challenge/scope machinery) stays fixed at its default.
+    const collect = (): GameConfig => ({
+      ...DEFAULT_CONFIG,
+      grid: true,
+      scope: false,
+      gridSize: Number(gridSize.value) || 32,
+    });
 
     const startPractice = (): void => {
-      const c = collect();
-      if (!c) return;
-      this.commit(c);
+      this.commit(collect());
       this.startRun(false);
     };
     const startScored = (): void => {
-      const c = collect();
-      if (!c) return;
-      this.commit(c);
+      this.commit(collect());
       this.startRun(true);
     };
 
     this.root.append(
       el('div', { class: 'screen config' }, [
         el('h1', { class: 'title', text: 'Bit-Rate Maximizer' }),
-        el('p', { class: 'subtitle', text: 'Type the magnified target. Correct selections add bits; errors subtract. Accuracy is worth about twice raw speed.' }),
+        el('p', { class: 'subtitle', text: 'Click the highlighted cell as fast and as accurately as you can. Correct clicks add bits; errors subtract — so accuracy is worth about twice raw speed. A bigger grid packs more bits per click, but the targets are smaller.' }),
         el('div', { class: 'config-grid' }, [
-          field('Your name', machineLabel, 'Labels this machine’s logs.'),
-          field('Left hand home row', leftFingers, 'Keys the left hand types (edit for other layouts).'),
-          field('Right hand home row', rightFingers, 'Keys the right hand types.'),
-          field('Left hand top row', leftTopRow, 'Sits above the home row, same finger columns.'),
-          field('Right hand top row', rightTopRow, 'Sits above the home row, same finger columns.'),
-          el('div', { class: 'field toggles' }, [
-            el('label', { class: 'toggle' }, [topRow, el('span', { text: ' Top row (adds a second row per hand)' })]),
-            el('label', { class: 'toggle' }, [chords, el('span', { text: ' Chords (press 1–3 keys together)' })]),
-            el('label', { class: 'toggle' }, [challenge, el('span', { text: ' CHALLENGE MODE (fixed-rate scroll — hit before it leaves the band)' })]),
-            el('label', { class: 'toggle' }, [grid, el('span', { text: ' GRID MODE (mouse/trackpad — click the highlighted cell)' })]),
-            el('label', { class: 'toggle' }, [scope, el('span', { text: ' SCOPE MODE (256² grid + hold-to-magnify — needs pointer lock)' })]),
-          ]),
-          el('div', { class: 'field toggles grid-options' }, [
-            el('span', { class: 'field-label', text: 'Grid options (mouse/trackpad)' }),
-            el('label', { class: 'toggle inline' }, [el('span', { text: 'Grid size ' }), gridSize]),
-            el('label', { class: 'toggle inline' }, [el('span', { text: 'Grid depth ' }), gridDepth]),
-            el('label', { class: 'toggle' }, [crosshair, el('span', { text: ' Crosshair locator (hairlines through the target)' })]),
-            el('label', { class: 'toggle' }, [ghost, el('span', { text: ' Ghost (preview the next target + connector)' })]),
-            el('label', { class: 'toggle' }, [hoverPulse, el('span', { text: ' Hover pulse (confirm you are on the target)' })]),
-          ]),
-          el('div', { class: 'field toggles grid-options' }, [
-            el('span', { class: 'field-label', text: 'Scope options (experiment · mouse only)' }),
-            el('label', { class: 'toggle inline' }, [el('span', { text: 'Fine grid ' }), scopeGridSize]),
-            el('label', { class: 'toggle inline' }, [el('span', { text: 'Magnification ' }), magnification]),
-            el('span', { class: 'field-hint', text: 'Hold right-mouse or Ctrl to scope. Esc releases the mouse.' }),
-          ]),
+          field('Grid size', gridSize, 'More cells = more bits per correct click, but smaller targets.'),
         ]),
-        err,
         el('div', { class: 'field-note', text: 'Duration is locked to 60 s for scored runs.' }),
         el('div', { class: 'buttons' }, [
           el('button', { class: 'btn ghost', onclick: startPractice, text: 'Practice' }),
           el('button', { class: 'btn primary', onclick: startScored, text: 'Start scored run' }),
         ]),
-        el('p', { class: 'consent', text: 'Runs are saved locally to the logs/ folder and never transmitted anywhere. Only in-alphabet keys are recorded — no free text.' }),
+        el('p', { class: 'consent', text: 'Runs are saved locally and never transmitted anywhere.' }),
       ]),
     );
-    machineLabel.focus();
+    gridSize.focus();
   }
 
   private commit(c: GameConfig): void {

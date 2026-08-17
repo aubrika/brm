@@ -57,7 +57,9 @@ export class GridRenderer {
     const w = this.root.clientWidth || window.innerWidth;
     const h = this.root.clientHeight || 360;
     const avail = Math.max(64, Math.min(w, h) - MARGIN * 2);
-    this.cellPx = Math.max(6, Math.floor(avail / this.gridSize));
+    // integer cell px keeps gridlines crisp; min 2px so large grids (64/128) still fit the field
+    // instead of overflowing it (floor keeps fieldPx ≤ avail).
+    this.cellPx = Math.max(2, Math.floor(avail / this.gridSize));
     this.fieldPx = this.cellPx * this.gridSize;
     this.dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
     this.canvas.style.width = `${this.fieldPx}px`;
