@@ -149,7 +149,7 @@ export const DEFAULT_CONFIG: GameConfig = {
 
 const STORAGE_KEY = 'brm.config.v19'; // grid-only config screen; grid is the default mode
 
-export const GRID_SIZES = [16, 24, 32, 64, 128] as const; // cells per side offered on the config screen
+export const GRID_SIZES = [8, 16, 24, 32, 64, 128] as const; // cells per side offered on the config screen
 export const GRID_DEPTHS = [1, 2] as const; // stacked layers per selection offered on the config screen
 export const SCOPE_GRID_SIZES = [128, 256] as const; // fine grid sizes for scope mode
 export const MAGNIFICATIONS = [4, 8, 12] as const; // lens zoom factors for scope mode

@@ -34,6 +34,10 @@ export class GridRenderer {
   dpr = 1;
   hoverCell = -1; // set by the app on pointermove; drives the pulse
 
+  // hit particle burst (juice on a correct click)
+  private particles: Array<{ x: number; y: number; vx: number; vy: number; t0: number; life: number; r: number; color: string }> = [];
+  private lastBurstMs = -Infinity;
+
   constructor(private readonly engine: GridEngine, private readonly root: HTMLElement) {
     this.gridSize = engine.gridSize;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -223,5 +227,60 @@ export class GridRenderer {
       ctx.strokeStyle = `rgba(255, 255, 255, ${a.toFixed(3)})`;
       ctx.strokeRect(tx + 1, ty + 1, cp - 2, cp - 2);
     }
+
+    // 8) hit particles — spawn a burst at the just-completed cell on each correct click, then
+    //    animate them on top of everything. Skipped under reduced-motion (the flash/sound remain).
+    if (!this.reducedMotion) {
+      if (this.engine.lastCorrectMs > this.lastBurstMs && this.engine.lastCorrectCell >= 0) {
+        this.spawnBurst(this.engine.lastCorrectCell, nowMs);
+        this.lastBurstMs = this.engine.lastCorrectMs;
+      }
+      this.drawParticles(nowMs);
+    }
+  }
+
+  private spawnBurst(cell: number, nowMs: number): void {
+    const cx = (this.col(cell) + 0.5) * this.cellPx;
+    const cy = (this.row(cell) + 0.5) * this.cellPx;
+    const speed = Math.max(70, this.cellPx * 7); // scales with cell size, floored so it shows on tiny cells
+    const r = Math.max(1.5, this.cellPx * 0.14);
+    const n = 16;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+      const sp = speed * (0.45 + Math.random() * 0.8);
+      this.particles.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        t0: nowMs,
+        life: 340 + Math.random() * 260,
+        r,
+        color: i % 3 === 0 ? '#ffffff' : '#E69F00',
+      });
+    }
+    if (this.particles.length > 400) this.particles.splice(0, this.particles.length - 400); // hard cap
+  }
+
+  private drawParticles(nowMs: number): void {
+    const ctx = this.ctx;
+    const G = 260; // gravity px/s²
+    const alive: typeof this.particles = [];
+    for (const p of this.particles) {
+      const ms = nowMs - p.t0;
+      if (ms < 0 || ms >= p.life) continue;
+      const s = ms / 1000;
+      const x = p.x + p.vx * s;
+      const y = p.y + p.vy * s + 0.5 * G * s * s;
+      const a = 1 - ms / p.life;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(x, y, p.r * (0.5 + 0.5 * a), 0, Math.PI * 2);
+      ctx.fill();
+      alive.push(p);
+    }
+    ctx.globalAlpha = 1;
+    this.particles = alive;
   }
 }

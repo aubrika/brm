@@ -58,6 +58,43 @@ export class AudioFeedback {
     this.blip(170, 95, 0.16, 'sine'); // low tone
   }
 
+  // GRID MODE hit: a quick rising "bloop" — sine sweeping up, soft attack, fast decay.
+  bloop(): void {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, t0);
+    osc.frequency.exponentialRampToValueAtTime(960, t0 + 0.06); // the "bloop" rise
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(0.25, t0 + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.18);
+  }
+
+  // GRID MODE miss: a short harsh downward buzzer (sawtooth, low).
+  buzzer(): void {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(160, t0);
+    osc.frequency.linearRampToValueAtTime(104, t0 + 0.2); // drop = "wrong"
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(0.14, t0 + 0.006);
+    g.gain.setValueAtTime(0.14, t0 + 0.16);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.24);
+  }
+
   // ---- target tones: one pitch per lane, gated to the target's lifetime (see bitrate-tones-spec.md) ----
   // A tone starts when a target becomes current and releases when it resolves, so fast play runs
   // legato and slow play sustains — the tone length is an audible readout of the player's pacing.

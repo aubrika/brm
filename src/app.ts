@@ -538,8 +538,11 @@ export class App {
   private startGridRun(timed: boolean, immediate = false): void {
     this.mode = 'run';
     this.root.replaceChildren();
+    if (this.config.sound) this.audio.unlock(); // the Start-button click is the unlocking gesture
 
     const engine = new GridEngine(this.config, timed);
+    engine.onCorrect = () => this.audio.bloop(); // hit: rising bloop (+ particle burst in the renderer)
+    engine.onError = () => this.audio.buzzer(); // miss: harsh buzzer
     const stripRoot = el('div', { class: 'strip-root grid-root' });
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
