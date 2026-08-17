@@ -6,7 +6,8 @@ transmitted off this machine.
 
 **These are keystroke timings from real people. `logs/*.json` and `logs/index.jsonl` are
 gitignored** — the submitted repo ships this folder empty (just `.gitkeep` and this README).
-Only **in-alphabet keys** are recorded — never free text, ever. Out-of-alphabet presses are
+A GRID (v2) run records only **cell indices** — no keyboard input is read at all. A keyboard
+(v1) run records only **in-alphabet keys** — never free text, ever; out-of-alphabet presses are
 kept only as a single count in `summary.outOfAlphabet`.
 
 ## Files
@@ -20,11 +21,11 @@ analysis.json                            # written by scripts/analyze.mjs
 Filename: `<ISO timestamp, colons→dashes>_<machine label, slugified>_<first 4 of runId>.json`
 — sortable, greppable by machine, collision-free.
 
-## Schema (`schemaVersion: 2`)
+## Schema (`schemaVersion: 3`)
 
 ```jsonc
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "meta": {
     "runId": "…",                  // crypto.randomUUID()
     "startedAt": "2026-…Z",
@@ -36,9 +37,13 @@ Filename: `<ISO timestamp, colons→dashes>_<machine label, slugified>_<first 4 
       "estimatedRefreshHz": 120,   // median of ~30 rAF ticks at startup
       "timeOriginPrecisionMs": 0.1 // smallest nonzero performance.now() delta (see below)
     },
-    "config": { "alphabet": "asdfjkl;", "n": 8, "lookahead": 7,
-                "lanes": true, "sound": true, "errorFeedback": "flash+shake",
-                "durationMs": 60000 }
+    "appVersion": "1.0.0", "commit": "a1b2c3d",  // the build that produced this run
+    // `config` states only what was actually played, discriminated by `mode`.
+    // GRID (v2):     { "mode": "grid", "n": 1024, "durationMs": 60000, "sound": true }
+    //                (the grid geometry itself lives in the top-level `grid` section)
+    // KEYBOARD (v1): adds "alphabet", "leftFingers"/"rightFingers", "lookahead",
+    //                "lanes", "errorFeedback", "chords" …
+    "config": { "mode": "grid", "n": 1024, "durationMs": 60000, "sound": true }
   },
   "sequence": ["j","f",";", …],     // targets presented, in order
   "eventColumns": ["t","type","key","idx","verdict"],
@@ -49,6 +54,21 @@ Filename: `<ISO timestamp, colons→dashes>_<machine label, slugified>_<first 4 
     [712.9, "down", ";", 2, "ok"]
   ],
   "latencySamples": [ { "t": 412.3, "downToPaintMs": 8.2 }, … ],
+  // ---- GRID (v2) sections; absent on keyboard runs ----
+  "grid": { "enabled": true, "gridSize": 32, "depth": 1, "fieldPx": 896, "cellPx": 28,
+            "devicePixelRatio": 2, "ghost": true, "crosshair": true, "hoverPulse": true,
+            "pointerType": "mouse", "ghostAdjacent": [0,1,…], "pointerTypes": ["mouse",…] },
+  "calibration": { "referenceGrid": 24, "clicks": [ {"t":…,"targetCell":…,"dx":…,"dy":…,"mtMs":…} ],
+                   "sigmaX": …, "sigmaY": …, "sigmaUsed": …,   // sigmaUsed = RMS of the two axes
+                   "effectiveWidthPx": …, "fittsA": …, "fittsB": …, "fittsR2": …,
+                   "impliedThroughput": null,                   // null when the slope is unmeasurable
+                   "recommendedGrid": 32, "chosenGrid": 32, "overridden": false,
+                   "pointerType": "mouse", "fieldPx": 896, "devicePixelRatio": 2 },
+  "pointerPath": [[t, x, y], …],   // field-local pointer samples, ~one per frame
+  // `scope` (pointer-lock magnifier experiment) appears only on scope runs.
+
+  // `rollovers` is keyboard-only (it counts down/up overlap); it is 0 on grid runs,
+  // which record no key-up events.
   "summary": { "bitsPerSecond": …, "n": …, "sc": …, "si": …, "elapsedS": 60,
                "accuracy": …, "grossKeysPerSec": …, "netSelectionsPerSec": …,
                "medianIkiMs": …, "rollovers": …, "droppedFrames": …, "outOfAlphabet": … }

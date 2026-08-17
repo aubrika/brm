@@ -17,8 +17,10 @@ cd "$(dirname "$0")/.."
 MSG="${1:-}"
 if [ -z "$MSG" ]; then echo "usage: scripts/deploy.sh \"commit message\"" >&2; exit 1; fi
 
-# 1. commit source only (dist is added in step 3)
-git add -A -- ':!dist' ':!logs'
+# 1. commit source only (dist is added in step 3). Note we do NOT exclude logs/: the run data
+# there is already gitignored, while logs/README.md is tracked documentation — excluding it would
+# leave the tree dirty at build time and stamp the bundle `-dirty` for no reason.
+git add -A -- ':!dist'
 if ! git diff --cached --quiet; then
   git commit -q -m "$MSG"
   echo "committed source: $(git rev-parse --short HEAD)"
