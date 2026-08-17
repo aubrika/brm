@@ -730,9 +730,9 @@ export class App {
   }
 
   // SCOPE MODE run: a very fine grid (256²) played under Pointer Lock. A software virtual cursor
-  // (movement × gain, gain = 1 unscoped and 1/magnification while the lens is held) drives
-  // arithmetic hit-testing, exactly like grid scoring. Losing lock pauses the clock behind a
-  // "click to resume" overlay. All document-level listeners hang off one AbortController.
+  // (accumulated raw movement, same sensitivity scoped or not) drives arithmetic hit-testing,
+  // exactly like grid scoring. The lens is a visual magnifier only. Losing lock pauses the clock
+  // behind a "click to resume" overlay. All document-level listeners hang off one AbortController.
   private startScopeRun(timed: boolean, immediate = false): void {
     this.mode = 'run';
     this.root.replaceChildren();
@@ -866,10 +866,12 @@ export class App {
     if (!rc || !rc.scope || !rc.scopeView || rc.paused) return;
     if (document.pointerLockElement !== rc.scopeView.element) return; // only under lock
     const v = rc.scopeView;
-    const gain = rc.scoped ? 1 / Math.max(2, this.config.magnification) : 1;
+    // Sensitivity is the same scoped and unscoped: the lens is a pure visual magnifier (no pointer
+    // slowdown — the 1/magnification reduction felt too sluggish). So the scope aids perception, not
+    // motor precision.
     v.virtualCursor = {
-      x: Math.max(0, Math.min(v.fieldPx, v.virtualCursor.x + e.movementX * gain)),
-      y: Math.max(0, Math.min(v.fieldPx, v.virtualCursor.y + e.movementY * gain)),
+      x: Math.max(0, Math.min(v.fieldPx, v.virtualCursor.x + e.movementX)),
+      y: Math.max(0, Math.min(v.fieldPx, v.virtualCursor.y + e.movementY)),
     };
     if (rc.phase === 'playing') rc.pendingPointer = { t: performance.now() - rc.engine.startMs, x: v.virtualCursor.x, y: v.virtualCursor.y };
   };
@@ -1106,12 +1108,11 @@ export class App {
 
   // Assemble the SCOPE MODE section: the lens/gain parameters and the scope hold intervals.
   private buildScopeLog(rc: RunCtx): RunLog['scope'] {
-    const mag = Math.max(2, this.config.magnification);
     return {
       enabled: true,
       gridSize: this.config.scopeGridSize,
       magnification: this.config.magnification,
-      scopedGainFactor: 1 / mag,
+      scopedGainFactor: 1, // sensitivity is not reduced while scoped (the lens is visual only)
       lensDiameter: this.config.lensDiameter,
       unadjustedMovement: rc.unadjustedMovement,
       activations: rc.activations,
