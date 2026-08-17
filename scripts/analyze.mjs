@@ -29,11 +29,10 @@ const LOGS_DIR = path.resolve(HERE, '..', 'logs');
 
 // ---------------------------------------------------------------- loading ----
 function parseArgs(argv) {
-  const args = { machine: null, scoredOnly: false, compare: false };
+  const args = { machine: null, scoredOnly: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--machine') args.machine = argv[++i];
     else if (argv[i] === '--scored-only') args.scoredOnly = true;
-    else if (argv[i] === '--compare') args.compare = true;
   }
   return args;
 }
@@ -289,81 +288,6 @@ function bucketLine(name, s) {
   return `    ${name.padEnd(24)} median ${ms(s.median).padStart(6)}  p90 ${ms(s.p90).padStart(6)}  n=${s.count}`;
 }
 
-// 7 & 8. Pacer entrainment: for every correct keystroke in a paced run, where does it fall within
-// the beat it lands in? Phase clustering (resultant length R → 1) means the player is locking to
-// the click; a flat distribution (R → 0) means the click is wallpaper. Negative mean asynchrony —
-// keystrokes landing slightly BEFORE the beat — is the classic sensorimotor-synchronization
-// signature, so a negative mean here is evidence entrainment is real rather than assumed.
-function analyzePacerPhase(logs) {
-  const paced = logs.filter(
-    (l) => l.pacer?.enabled && Array.isArray(l.pacer.clickTimes) && l.pacer.clickTimes.length >= 2,
-  );
-  const BINS = 10;
-  const phaseBins = new Array(BINS).fill(0);
-  const asyncs = [];
-  for (const log of paced) {
-    const clicks = [...log.pacer.clickTimes].sort((a, b) => a - b);
-    const { downs } = splitEvents(log);
-    for (const d of downs) {
-      if (d.verdict !== 'ok') continue; // only correct selections
-      const j = upperBound(clicks, d.t); // first click strictly after the keystroke
-      if (j <= 0 || j >= clicks.length) continue; // keystroke outside the click span
-      const prev = clicks[j - 1];
-      const next = clicks[j];
-      const iv = next - prev;
-      if (iv <= 0) continue;
-      const phase = (d.t - prev) / iv; // 0 = on this beat, →1 = just before the next
-      phaseBins[Math.min(BINS - 1, Math.floor(phase * BINS))]++;
-      asyncs.push(d.t - prev <= next - d.t ? d.t - prev : d.t - next); // signed offset to nearest beat
-    }
-  }
-  // circular resultant length over the phase histogram: 0 = flat, 1 = perfectly locked
-  let cx = 0,
-    cy = 0;
-  const total = asyncs.length;
-  for (let b = 0; b < BINS; b++) {
-    const ang = (2 * Math.PI * (b + 0.5)) / BINS;
-    cx += phaseBins[b] * Math.cos(ang);
-    cy += phaseBins[b] * Math.sin(ang);
-  }
-  return {
-    pacedRuns: paced.length,
-    keystrokes: total,
-    bins: BINS,
-    phaseBins,
-    resultantLength: total ? Math.hypot(cx, cy) / total : 0,
-    meanAsynchronyMs: mean(asyncs),
-    medianAsynchronyMs: median(asyncs),
-  };
-}
-
-// 9. Carryover: does a paced session leave the player faster on the NEXT, unpaced run? Per machine,
-// in chronological order, split unpaced runs into those immediately preceded by a paced run vs the
-// rest, and compare median IKI. This is the question that decides whether the pacer trains or toys.
-function analyzeCarryover(logs) {
-  const byMachine = new Map();
-  for (const l of logs) {
-    const label = l.meta.machine.label || '(unlabeled)';
-    if (!byMachine.has(label)) byMachine.set(label, []);
-    byMachine.get(label).push(l);
-  }
-  const postPaced = [];
-  const baseline = [];
-  for (const runs of byMachine.values()) {
-    runs.sort((a, b) => String(a.meta.startedAt).localeCompare(String(b.meta.startedAt)));
-    for (let i = 0; i < runs.length; i++) {
-      if (runs[i].pacer?.enabled) continue; // only unpaced runs count as the outcome
-      const mi = medianIki(splitEvents(runs[i]).downs);
-      if (!Number.isFinite(mi) || mi <= 0) continue;
-      (i > 0 && runs[i - 1].pacer?.enabled ? postPaced : baseline).push(mi);
-    }
-  }
-  return {
-    postPaced: { count: postPaced.length, medianIkiMs: median(postPaced) },
-    baseline: { count: baseline.length, medianIkiMs: median(baseline) },
-  };
-}
-
 // 10. bits/s grouped by build (commit) — the payoff of the version stamp: see whether a change
 // moved the score. Ordered by first-seen so the chronology of builds reads top to bottom.
 function analyzeByBuild(logs) {
@@ -382,51 +306,6 @@ function analyzeByBuild(logs) {
 
 // 11. A/B by condition: group runs by which audio layer was on, derived from the log's tones/pacer
 // flags — the whole point of the A/B harness. Median IKI, accuracy and bits/s per arm.
-function armOf(log) {
-  const tones = log.tones ? !!log.tones.enabled : true; // pre-A/B runs had tones always on
-  const pacer = !!(log.pacer && log.pacer.enabled);
-  if (tones && pacer) return 'both';
-  if (tones) return 'tones';
-  if (pacer) return 'pacer';
-  return 'none';
-}
-function analyzeConditions(logs) {
-  const byArm = new Map();
-  for (const log of logs) {
-    if (!log.tones) continue; // only A/B-era runs — older runs predate the tones/pacer log split
-    const arm = armOf(log);
-    if (!byArm.has(arm)) byArm.set(arm, { arm, iki: [], acc: [], bps: [] });
-    const g = byArm.get(arm);
-    const mi = medianIki(splitEvents(log).downs);
-    if (Number.isFinite(mi) && mi > 0) g.iki.push(mi);
-    g.acc.push(log.summary.accuracy);
-    g.bps.push(log.summary.bitsPerSecond);
-  }
-  const order = ['none', 'pacer', 'tones', 'both'];
-  return [...byArm.values()]
-    .map((g) => ({
-      arm: g.arm,
-      n: g.bps.length,
-      medianIkiMs: median(g.iki),
-      medianAccuracy: median(g.acc),
-      medianBps: median(g.bps),
-      meanBps: mean(g.bps),
-    }))
-    .sort((a, b) => order.indexOf(a.arm) - order.indexOf(b.arm));
-}
-
-function conditionLines(conditions) {
-  if (conditions.length === 0) return ['    no runs'];
-  const L = [];
-  for (const r of conditions) {
-    L.push(
-      `    ${r.arm.padEnd(6)} n=${String(r.n).padStart(3)}   IKI ${ms(r.medianIkiMs).padStart(6)}   acc ${(r.medianAccuracy * 100).toFixed(0).padStart(3)}%   bits/s ${r.medianBps.toFixed(2).padStart(5)} (mean ${r.meanBps.toFixed(2)})`,
-    );
-  }
-  L.push('    arms: none = no audio layer · pacer = tick only · tones = lane tones only · both = both on');
-  return L;
-}
-
 // ------------------------------------------------------- GRID MODE analyses ----
 // Only runs when grid logs are present. Four analyses from the spec (§5): a pooled Fitts
 // regression (throughput = 1000/slope), verify-dwell (hover→click), the ghost A/B, and a
@@ -662,46 +541,10 @@ function printReport(logs, analysis) {
   }
   L.push('');
 
-  const pp = analysis.pacerPhase;
-  L.push('  [7] Pacer entrainment (correct keystrokes vs the beat they land in)');
-  if (pp.keystrokes === 0) {
-    L.push('    no paced runs with click times yet');
-  } else {
-    L.push(`    paced runs ${pp.pacedRuns}   keystrokes ${pp.keystrokes}`);
-    const maxc = Math.max(1, ...pp.phaseBins);
-    pp.phaseBins.forEach((c, i) => {
-      const lo = (i / pp.bins).toFixed(1);
-      const bar = '█'.repeat(Math.round((c / maxc) * 34));
-      L.push(`    ${lo}–${((i + 1) / pp.bins).toFixed(1)}  ${bar} ${c}`);
-    });
-    const nma = pp.meanAsynchronyMs;
-    L.push(`    phase concentration R ${pp.resultantLength.toFixed(3)}  (0 = click ignored, →1 = locked to it)`);
-    L.push(`    mean asynchrony ${nma >= 0 ? '+' : ''}${nma.toFixed(1)}ms  (negative = tapping ahead of the beat — the synchronization signature)`);
-  }
-  L.push('');
-
-  const co = analysis.carryover;
-  L.push('  [8] Carryover: median IKI on unpaced runs, after a paced session vs not');
-  if (co.postPaced.count === 0 && co.baseline.count === 0) {
-    L.push('    no unpaced runs yet');
-  } else {
-    L.push(`    after a paced run   median ${ms(co.postPaced.medianIkiMs).padStart(6)}   n=${co.postPaced.count}`);
-    L.push(`    baseline (not)      median ${ms(co.baseline.medianIkiMs).padStart(6)}   n=${co.baseline.count}`);
-    if (co.postPaced.count && co.baseline.count) {
-      const d = co.postPaced.medianIkiMs - co.baseline.medianIkiMs;
-      L.push(`    difference ${d <= 0 ? '' : '+'}${Math.round(d)}ms  (negative = faster after pacing — the result that matters)`);
-    }
-  }
-  L.push('');
-
   L.push('  [9] bits/s by build (commit), oldest first');
   for (const r of analysis.byBuild) {
     L.push(`    ${r.commit.padEnd(12)} v${String(r.version).padEnd(6)} median ${r.medianBps.toFixed(2).padStart(6)}  mean ${r.meanBps.toFixed(2).padStart(6)}  n=${String(r.n).padStart(3)}  ${String(r.first).slice(0, 10)}`);
   }
-  L.push('');
-
-  L.push('  [10] A/B by condition (audio layer on), median per arm');
-  for (const line of conditionLines(analysis.conditions)) L.push(line);
   L.push('');
 
   const gr = analysis.grid;
@@ -748,22 +591,10 @@ function main() {
     confusion: analyzeConfusion(logs),
     histogram: analyzeHistogram(logs),
     digraphs: analyzeDigraphs(logs),
-    pacerPhase: analyzePacerPhase(logs),
-    carryover: analyzeCarryover(logs),
     byBuild: analyzeByBuild(logs),
-    conditions: analyzeConditions(logs),
     grid: analyzeGrid(logs),
   };
-  if (args.compare) {
-    console.log('════════════════════════════════════════════════════════════');
-    console.log('  Bit-Rate Maximizer — A/B condition comparison');
-    console.log(`  runs: ${logs.length}`);
-    console.log('════════════════════════════════════════════════════════════');
-    console.log(conditionLines(analysis.conditions).join('\n'));
-    console.log('════════════════════════════════════════════════════════════');
-  } else {
-    printReport(logs, analysis);
-  }
+  printReport(logs, analysis);
   writeFileSync(path.join(LOGS_DIR, 'analysis.json'), JSON.stringify(analysis, null, 2));
   console.log(`\nWrote ${path.join('logs', 'analysis.json')}`);
 }

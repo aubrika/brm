@@ -1,103 +1,80 @@
+// v1 (legacy keyboard game) engine: the single-key falling-lanes path, which is all that remains
+// after the chords / challenge / pacer experiments were retired. v1 is frozen but still shipped at
+// /brm/v1, so its scoring is worth pinning down.
+
 import { describe, it, expect } from 'vitest';
-import { Engine, type KeyInput } from './engine.js';
-import { DEFAULT_CONFIG, CHALLENGE_ABOVE, CHALLENGE_BELOW } from '../core/config.js';
+import { Engine } from './engine.js';
+import { DEFAULT_CONFIG } from '../core/config.js';
 
-const key = (k: string): KeyInput => ({ key: k, repeat: false, ctrlKey: false, metaKey: false, altKey: false });
+const cfg = { ...DEFAULT_CONFIG, grid: false, alphabet: 'asdfjkl;', durationMs: 60_000 };
+const key = (k: string) => ({ key: k, repeat: false, ctrlKey: false, metaKey: false, altKey: false });
 
-// buildChordSymbols('asdfjkl;') orders: 8 singles, then 2-key combos ('as' is the first, index 8).
-const chordEngine = (randIndex: number): Engine =>
-  new Engine({ ...DEFAULT_CONFIG, chords: true, alphabet: 'asdfjkl;' }, true, () => randIndex);
+/** Deterministic target sequence. */
+function engineOver(targets: string[]): Engine {
+  let i = 0;
+  const chars = [...cfg.alphabet];
+  return new Engine(cfg, true, () => chars.indexOf(targets[i++ % targets.length]));
+}
 
-describe('chords mode (press keys together, scored on release)', () => {
-  it('a chord is correct when exactly its keys were pressed together and released', () => {
-    const eng = chordEngine(8); // every target = 'as'
-    eng.start(0);
-    expect(eng.n).toBe(8 + 28 + 56); // singles + pairs + triples
-    expect(eng.target()).toBe('as');
+describe('v1 Engine', () => {
+  it('advances on the right key and holds on the wrong one', () => {
+    const e = engineOver(['a', 'j', 'l']);
+    e.start(0);
+    expect(e.target()).toBe('a');
 
-    eng.handleKey(key('a'), 100);
-    eng.handleKey(key('s'), 110);
-    eng.handleKeyUp('a', 150);
-    expect(eng.sc).toBe(0); // 's' still held — not complete yet
-    eng.handleKeyUp('s', 160);
-    expect(eng.sc).toBe(1); // all released, pressed set === target
-    expect(eng.index).toBe(1);
+    expect(e.handleKey(key('a'), 100)).toBe('correct');
+    expect(e.sc).toBe(1);
+    expect(e.target()).toBe('j');
+
+    expect(e.handleKey(key('f'), 200)).toBe('incorrect'); // wrong key
+    expect(e.si).toBe(1);
+    expect(e.target()).toBe('j'); // retry-until-correct: no advance
+
+    expect(e.handleKey(key('j'), 300)).toBe('correct');
+    expect(e.sc).toBe(2);
   });
 
-  it('a partial or wrong set is incorrect and does not advance', () => {
-    const eng = chordEngine(8); // target = 'as'
-    eng.start(0);
-    eng.handleKey(key('a'), 100);
-    eng.handleKeyUp('a', 150); // pressed {a} ≠ 'as'
-    expect(eng.si).toBe(1);
-    expect(eng.index).toBe(0); // retry: target unchanged
-
-    eng.handleKey(key('a'), 200);
-    eng.handleKey(key('d'), 210); // wrong extra key
-    eng.handleKeyUp('a', 250);
-    eng.handleKeyUp('d', 260); // pressed {a,d} ≠ 'as'
-    expect(eng.si).toBe(2);
-    expect(eng.sc).toBe(0);
+  it('ignores auto-repeat, modified and out-of-alphabet keys', () => {
+    const e = engineOver(['a']);
+    e.start(0);
+    expect(e.handleKey({ ...key('a'), repeat: true }, 10)).toBe('ignored');
+    expect(e.handleKey({ ...key('a'), ctrlKey: true }, 20)).toBe('ignored');
+    expect(e.handleKey({ ...key('a'), metaKey: true }, 30)).toBe('ignored');
+    expect(e.handleKey(key('z'), 40)).toBe('ignored'); // not in the alphabet
+    expect(e.sc).toBe(0);
+    expect(e.si).toBe(0);
+    expect(e.target()).toBe('a');
   });
 
-  it('key order within the chord does not matter', () => {
-    const eng = chordEngine(8); // target = 'as'
-    eng.start(0);
-    eng.handleKey(key('s'), 100); // press s first
-    eng.handleKey(key('a'), 110);
-    eng.handleKeyUp('s', 150);
-    eng.handleKeyUp('a', 160);
-    expect(eng.sc).toBe(1);
-  });
-});
-
-// challenge mode: the roll's scroll position (challengeProgress) is set by the app; the engine hits
-// the current target while it's in the band [−ABOVE, BELOW] and misses it once it scrolls past BELOW.
-// All targets are 'a' (randInt → 0).
-const challengeEngine = (): Engine =>
-  new Engine({ ...DEFAULT_CONFIG, challenge: true, chords: false, alphabet: 'asdfjkl;' }, true, () => 0);
-
-describe('challenge mode (rhythm scroll, hit while the target is in the band)', () => {
-  it('a correct hit while the target is in the band scores and advances', () => {
-    const eng = challengeEngine();
-    eng.start(0);
-    eng.challengeProgress = 0; // target 0 is at the hit line
-    expect(eng.target()).toBe('a');
-    eng.handleKey(key('a'), 100);
-    expect(eng.sc).toBe(1);
-    expect(eng.index).toBe(1); // the hit clears it and advances to the next target
+  it('ignores input before start and after the window closes', () => {
+    const e = engineOver(['a']);
+    expect(e.handleKey(key('a'), 0)).toBe('ignored'); // idle
+    e.start(0);
+    expect(e.handleKey(key('a'), 60_000)).toBe('ignored'); // at the boundary
+    expect(e.state).toBe('ended');
+    expect(e.sc).toBe(0);
   });
 
-  it('a correct key pressed before the target reaches the band is ignored (no penalty)', () => {
-    const eng = challengeEngine();
-    eng.start(0);
-    eng.challengeProgress = -(CHALLENGE_ABOVE + 0.5); // target 0 still above the band
-    eng.handleKey(key('a'), 100);
-    expect(eng.sc).toBe(0);
-    expect(eng.si).toBe(0);
-    expect(eng.index).toBe(0);
+  it('ends a timed run exactly at the window boundary', () => {
+    const e = engineOver(['a']);
+    e.start(0);
+    e.tick(59_999);
+    expect(e.state).toBe('running');
+    e.tick(60_000);
+    expect(e.state).toBe('ended');
   });
 
-  it('a target that scrolls past the bottom of the band unhit is a miss', () => {
-    const eng = challengeEngine();
-    eng.start(0);
-    eng.challengeProgress = CHALLENGE_BELOW + 0.1; // target 0 has scrolled past the band
-    eng.tick(200);
-    expect(eng.si).toBe(1);
-    expect(eng.index).toBe(1);
-    expect(eng.sc).toBe(0);
-  });
-
-  it('a wrong key is an error and does not advance', () => {
-    const eng = challengeEngine();
-    eng.start(0);
-    eng.challengeProgress = 0;
-    eng.handleKey(key('s'), 100); // wrong key
-    expect(eng.si).toBe(1);
-    expect(eng.sc).toBe(0);
-    expect(eng.index).toBe(0);
-    eng.handleKey(key('a'), 150); // the correct key still clears it
-    expect(eng.sc).toBe(1);
-    expect(eng.index).toBe(1);
+  it('result() folds the keydown log back to the same score', () => {
+    const e = engineOver(['a', 'j']);
+    e.start(0);
+    e.handleKey(key('a'), 100); // correct
+    e.handleKey(key('f'), 200); // wrong
+    e.handleKey(key('j'), 300); // correct
+    const r = e.result();
+    expect(r.n).toBe(8);
+    expect(r.sc).toBe(2);
+    expect(r.si).toBe(1);
+    // B = log2(N-1)·max(Sc-Si,0)/t — the fold must agree with the live counters
+    expect(r.bitsPerSecond).toBeCloseTo((Math.log2(7) * 1) / 60, 10);
   });
 });

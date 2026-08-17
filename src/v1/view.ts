@@ -4,16 +4,12 @@
 //
 // Two layouts share a cumulative-flow model (glyph p sits `flow` px along the flow axis,
 // and the strip slides so the target sits at the target zone):
-//   • DDR lanes (default): each key owns a VERTICAL column ordered left→right by finger
-//     (a = left pinky … ; = right pinky); glyphs fall downward to a hit-line near the
-//     bottom, with static receptors (the target's lights up) and horizontal divider lines
-//     every four rows to chunk the stream.
-//   • chunked row: a single horizontal line, letters grouped in fours with a gap, a fixed
-//     centre magnifier.
-// Hand colour (teal = left, amber = right) applies to both.
+// Each key owns a VERTICAL column ordered left→right by finger (a = left pinky … ; = right pinky);
+// glyphs fall downward to a hit-line near the bottom, with static receptors (the target's lights
+// up) and horizontal divider lines every four rows to chunk the stream. One colour per finger.
 
 import type { Engine } from './engine.js';
-import { CHALLENGE_ABOVE, CHALLENGE_BELOW, OKABE_ITO } from '../core/config.js';
+import { OKABE_ITO } from '../core/config.js';
 
 const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
@@ -23,17 +19,13 @@ const LINK_ARROWS = false; // true = per-digraph arrows coloured by the target's
 const FOVEAL_CUE = false; // small hand-coloured preview of the next few chars, right above the target
 const FOVEAL_N = 3; // how many upcoming chars the foveal cue shows
 const LANE_HIGHLIGHT = true; // highlight the full lane of the current target (+ 50% for the next)
-const TOP_ROW_CARET = true; // a small caret above every top-row glyph (cue: reach up a row)
 const HIT_FRAC = 0.8; // hit-line position (fraction down the strip) in DDR lanes
 const TARGET_SCALE_LANES = 1.5;
-const TARGET_SCALE_ROW = 1.7;
 const SIGMA_LANES = 0.8; // fisheye falloff (rows from the hit-line)
-const SIGMA_ROW = 0.85; // fisheye falloff (glyph units from centre)
 const SETTLE_TAU_MS = 22; // flow smoothing — snappy, keeps up with fast typing
 const MAX_LAG = 0.45; // cap drift of the target past the target zone during bursts
 const PULSE_MS = 110; // correct-keystroke pulse
-const SHAKE_MS = 120;
-const SHAKE_PX = 10;
+const ERROR_FLASH_MS = 120; // wrong-key flash on the target glyph
 
 // The lane palette (OKABE_ITO, one colour per lane left→right) lives in config.ts so the report
 // screen can reuse it — a key keeps the exact colour it wore falling.
@@ -47,14 +39,8 @@ function rgbaOf(hex: string, a: number): string {
 export class StripRenderer {
   private readonly root: HTMLElement;
   private readonly layer: HTMLElement;
-  private readonly mag: HTMLElement; // chunked-row magnifier
   private readonly foveal: HTMLElement; // small next-N preview pinned above the target
   private readonly fovealInners: HTMLSpanElement[] = [];
-  // chords mode: a separate pool (up to 3 glyphs per position) + a horizontal link per chord
-  private chordLayer: HTMLElement | null = null;
-  private readonly chordNodes: HTMLDivElement[] = [];
-  private readonly chordInners: HTMLSpanElement[] = [];
-  private chordPoly: SVGPathElement | null = null;
   private readonly gridL: HTMLElement; // left-hand lane grid (dividers + chunk lines)
   private readonly gridR: HTMLElement; // right-hand lane grid; the gap between them stays empty
   private readonly svg: SVGSVGElement; // links between consecutive glyphs (lanes)
@@ -63,7 +49,6 @@ export class StripRenderer {
   private readonly bands: HTMLElement[] = []; // per-column hand-tinted background wash
   private readonly laneHiCur: HTMLElement; // full-height highlight on the current target's lane
   private readonly laneHiNext: HTMLElement; // 50% highlight on the next target's lane
-  private readonly hitBand: HTMLElement; // challenge mode: the target band across the hit line
   private readonly receptors: HTMLElement[] = [];
   private readonly nodes: HTMLDivElement[] = [];
   private readonly inners: HTMLSpanElement[] = [];
@@ -78,62 +63,50 @@ export class StripRenderer {
   // per-key-index layout, precomputed from the hand structure (left fingers | thumbs | right)
   private readonly laneUnitOf: number[] = []; // lane centre in lane-widths from the strip centre
   private readonly laneKind: string[] = []; // 'L' | 'R' | 'T'(humb)
-  private readonly laneTop: boolean[] = []; // true = top-row key (shares its home finger's column)
   private readonly blockIndex: number[] = []; // position within its own block (band alternation)
   private readonly leftCount: number;
   private readonly rightCount: number;
   private readonly centerWidth: number; // thumb lanes, or the empty gap when there are none
   private readonly totalUnits: number; // full width in lane-widths
   private readonly poolSize: number;
-  private readonly reducedMotion: boolean;
   private readonly laneColor: string[] = []; // per-column hue, blue (left) → yellow (right)
   private readonly laneGlow: string[] = [];
 
-  private W = 56; // horizontal glyph advance (chunked row)
   private colStep = 54; // column spacing (DDR lanes)
   private rowStep = 34; // vertical advance per glyph (DDR lanes)
   private font = 22;
-  private gapW = 0; // chunk gap (chunked row)
   private hitOffset = 0; // hit-line offset from strip centre (px, +down)
   private flow = 0; // smoothed cumulative flow position of the target (px)
   private lastFrameMs = -1;
 
   constructor(private readonly engine: Engine, root: HTMLElement) {
     this.root = root;
-    this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
     // Two hand blocks (left fingers | neutral centre gap | right fingers), each lane coloured from
-    // the Okabe-Ito palette in order left→right across both hands. Each hand has as many COLUMNS as
-    // its widest row; a top-row key shares the exact column of its home-row finger (q over a), so it
-    // differs only in the glyph shown — same lane, same colour, just stacked a row higher.
+    // the Okabe-Ito palette in order left→right across both hands.
     const cfg = engine.config;
     const leftHome = [...cfg.leftFingers], rightHome = [...cfg.rightFingers];
-    const leftTop = cfg.topRow ? [...cfg.leftTopRow] : [];
-    const rightTop = cfg.topRow ? [...cfg.rightTopRow] : [];
-    this.leftCount = Math.max(leftHome.length, leftTop.length);
-    this.rightCount = Math.max(rightHome.length, rightTop.length);
+    this.leftCount = leftHome.length;
+    this.rightCount = rightHome.length;
     this.centerWidth = GAP; // no thumbs; a neutral centre gap
     this.totalUnits = this.leftCount + this.centerWidth + this.rightCount;
     const half = this.totalUnits / 2;
-    // char → {hand, column, top?}; the two rows of a hand index into the same columns
-    const place = new Map<string, { hand: 'L' | 'R'; col: number; top: boolean }>();
-    leftHome.forEach((c, j) => place.set(c, { hand: 'L', col: j, top: false }));
-    rightHome.forEach((c, j) => place.set(c, { hand: 'R', col: j, top: false }));
-    leftTop.forEach((c, j) => place.set(c, { hand: 'L', col: j, top: true }));
-    rightTop.forEach((c, j) => place.set(c, { hand: 'R', col: j, top: true }));
+    const place = new Map<string, { hand: 'L' | 'R'; col: number }>();
+    leftHome.forEach((c, j) => place.set(c, { hand: 'L', col: j }));
+    rightHome.forEach((c, j) => place.set(c, { hand: 'R', col: j }));
     const GREY = 'hsl(220, 9%, 62%)', GREY_G = 'hsla(220, 9%, 62%, 0.18)';
     for (let i = 0; i < engine.chars.length; i++) {
       const p = place.get(engine.chars[i]);
-      if (p && (p.hand === 'L' || p.hand === 'R')) {
+      if (p) {
         const left = p.hand === 'L';
         this.laneUnitOf.push(left ? -half + p.col + 0.5 : -half + this.leftCount + this.centerWidth + p.col + 0.5);
-        this.laneKind.push(p.hand); this.laneTop.push(p.top); this.blockIndex.push(p.col);
+        this.laneKind.push(p.hand); this.blockIndex.push(p.col);
         const laneIdx = left ? p.col : this.leftCount + p.col; // global lane, left→right across both hands
         const c = OKABE_ITO[laneIdx % OKABE_ITO.length];
         this.laneColor.push(c); this.laneGlow.push(rgbaOf(c, 0.16));
       } else {
         this.laneUnitOf.push(-half + this.leftCount + this.centerWidth / 2); // unclassified → centre, grey
-        this.laneKind.push('T'); this.laneTop.push(false); this.blockIndex.push(0);
+        this.laneKind.push('T'); this.blockIndex.push(0);
         this.laneColor.push(GREY); this.laneGlow.push(GREY_G);
       }
     }
@@ -144,11 +117,6 @@ export class StripRenderer {
       root.appendChild(b);
       this.bands.push(b);
     }
-
-    this.hitBand = document.createElement('div');
-    this.hitBand.className = 'hit-band';
-    this.hitBand.style.display = 'none';
-    root.appendChild(this.hitBand);
 
     this.laneHiCur = document.createElement('div');
     this.laneHiCur.className = 'lane-hi';
@@ -184,14 +152,8 @@ export class StripRenderer {
       this.receptors.push(r);
     }
 
-    this.mag = document.createElement('div');
-    this.mag.className = 'magnifier cell';
-    root.appendChild(this.mag);
-
     this.layer = document.createElement('div');
     this.layer.className = 'strip-layer';
-    // top-row mode reserves a diacritic strip above every glyph (scoped in CSS to this class)
-    if (engine.config.topRow) this.layer.classList.add('diacritics');
     for (let k = 0; k < this.poolSize; k++) {
       const [node, inner] = this.mkGlyph('glyph');
       this.nodes.push(node);
@@ -215,25 +177,6 @@ export class StripRenderer {
     }
     root.appendChild(this.foveal);
 
-    if (engine.config.chords) {
-      this.chordLayer = document.createElement('div');
-      this.chordLayer.className = 'strip-layer';
-      for (let k = 0; k < this.poolSize * 3; k++) {
-        const node = document.createElement('div');
-        node.className = 'glyph';
-        const inner = document.createElement('span');
-        inner.className = 'glyph-inner';
-        node.appendChild(inner);
-        this.chordLayer.appendChild(node);
-        this.chordNodes.push(node);
-        this.chordInners.push(inner);
-      }
-      root.appendChild(this.chordLayer);
-      const cp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      cp.setAttribute('class', 'chord-link');
-      this.svg.appendChild(cp);
-      this.chordPoly = cp;
-    }
 
     this.resize();
     this.flow = this.flowPos(engine.index);
@@ -252,191 +195,81 @@ export class StripRenderer {
   resize(): void {
     const w = this.root.clientWidth || window.innerWidth;
     const h = this.root.clientHeight || 360;
-    const lanes = this.engine.config.lanes;
     const lookahead = this.engine.config.lookahead;
 
-    if (lanes) {
-      // the hands + centre (thumbs or empty gap) span totalUnits lane-widths across the
-      // centre ~80%; the outer margin holds the peripheral sequence columns
-      const total = this.totalUnits;
-      this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / total)));
-      const hitY = h * HIT_FRAC;
-      this.hitOffset = hitY - h / 2;
-      this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
-      // when the top row is on, glyphs carry a diacritic strip (box ≈ 1.4·font), so cap the font
-      // smaller to keep strip + letter inside one row's pitch; otherwise use the full size.
-      const rowFactor = this.engine.config.topRow ? 1.1 : 1.3;
-      this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * rowFactor) * 0.62));
-      const cx = w / 2, cy = h / 2;
-      const half = total / 2;
+    // the hands + the centre gap span totalUnits lane-widths across the centre ~80%; the outer
+    // margin holds the peripheral sequence columns
+    const total = this.totalUnits;
+    this.colStep = Math.max(36, Math.min(200, Math.round((w * 0.8) / total)));
+    const hitY = h * HIT_FRAC;
+    this.hitOffset = hitY - h / 2;
+    this.rowStep = Math.max(24, Math.min(this.colStep * 0.95, (hitY - 6) / (lookahead + 1)));
+    this.font = Math.max(14, Math.round(Math.min(this.colStep, this.rowStep * 1.3) * 0.62));
+    const cx = w / 2, cy = h / 2;
+    const half = total / 2;
 
-      // one grid block per hand; the centre (thumbs / gap) has no dividers, so chunk lines
-      // never cross it. Block borders bound the neutral centre.
-      const blocks: Array<[HTMLElement, number, number]> = [
-        [this.gridL, cx + -half * this.colStep, this.leftCount * this.colStep],
-        [this.gridR, cx + (-half + this.leftCount + this.centerWidth) * this.colStep, this.rightCount * this.colStep],
-      ];
-      for (const [g, gx, gw] of blocks) {
-        if (gw <= 0) { g.style.display = 'none'; continue; }
-        g.style.display = 'block';
-        g.style.left = `${gx.toFixed(1)}px`;
-        g.style.width = `${gw.toFixed(1)}px`;
-        g.style.setProperty('--col-step', `${this.colStep.toFixed(2)}px`);
-        g.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
-      }
-      this.svg.style.display = 'block';
-
-      for (let i = 0; i < this.bands.length; i++) {
-        const b = this.bands[i];
-        // thumb/centre stays neutral; a top-row key shares its home finger's band (drawn once)
-        if (this.laneKind[i] === 'T' || this.laneTop[i]) { b.style.display = 'none'; continue; }
-        b.style.display = 'block';
-        b.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
-        b.style.width = `${this.colStep.toFixed(1)}px`;
-        const a = (this.blockIndex[i] % 2 === 0 ? 1 : 0.55) * 0.09; // faint per-finger wash, alternating
-        b.style.background = rgbaOf(this.laneColor[i], a);
-      }
-      for (let i = 0; i < this.receptors.length; i++) {
-        const r = this.receptors[i];
-        r.style.display = 'block';
-        r.style.width = `${(this.colStep * 0.82).toFixed(0)}px`;
-        r.style.height = `${(this.rowStep * 1.15).toFixed(0)}px`;
-        r.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
-        r.style.top = `${(cy + this.hitOffset).toFixed(1)}px`;
-        r.style.setProperty('--rc', this.laneColor[i]);
-        r.style.setProperty('--rcbg', this.laneGlow[i]);
-      }
-      // challenge mode: the target band — a horizontal zone across the hit line. A target is
-      // hittable while inside it; below it (CHALLENGE_BAND rows past the line) is a miss.
-      if (this.engine.config.challenge) {
-        this.hitBand.style.display = 'block';
-        this.hitBand.style.top = `${(cy + this.hitOffset - CHALLENGE_ABOVE * this.rowStep).toFixed(1)}px`;
-        this.hitBand.style.height = `${((CHALLENGE_ABOVE + CHALLENGE_BELOW) * this.rowStep).toFixed(1)}px`;
-      } else {
-        this.hitBand.style.display = 'none';
-      }
-      // peripheral columns sit just outside the lanes, clamped inside the container
-      this.edgeX = Math.min(w / 2 - this.font * 0.72, (total / 2) * this.colStep + this.font);
-      for (let i = 0; i < this.edgeL.length; i++) {
-        this.edgeL[i].style.display = 'block';
-        this.edgeR[i].style.display = 'block';
-      }
-      this.mag.style.display = 'none';
-      this.foveal.style.display = FOVEAL_CUE ? 'flex' : 'none';
-      this.foveal.style.fontSize = `${Math.max(11, Math.round(this.font * 0.5))}px`;
-    } else {
-      this.W = Math.max(34, Math.min(78, Math.round(w / 22)));
-      this.font = Math.round(this.W * 0.62);
-      this.gapW = Math.round(this.W * 0.7);
-      this.gridL.style.display = 'none';
-      this.gridR.style.display = 'none';
-      this.svg.style.display = 'none';
-      for (const b of this.bands) b.style.display = 'none';
-      for (const r of this.receptors) r.style.display = 'none';
-      for (let i = 0; i < this.edgeL.length; i++) {
-        this.edgeL[i].style.display = 'none';
-        this.edgeR[i].style.display = 'none';
-      }
-      this.mag.style.display = 'block';
-      this.mag.style.width = `${(this.W * 1.55).toFixed(0)}px`;
-      this.mag.style.height = `${(this.font * 1.9).toFixed(0)}px`;
-      this.foveal.style.display = 'none';
+    // one grid block per hand; the centre gap has no dividers, so chunk lines never cross it
+    const blocks: Array<[HTMLElement, number, number]> = [
+      [this.gridL, cx + -half * this.colStep, this.leftCount * this.colStep],
+      [this.gridR, cx + (-half + this.leftCount + this.centerWidth) * this.colStep, this.rightCount * this.colStep],
+    ];
+    for (const [g, gx, gw] of blocks) {
+      if (gw <= 0) { g.style.display = 'none'; continue; }
+      g.style.display = 'block';
+      g.style.left = `${gx.toFixed(1)}px`;
+      g.style.width = `${gw.toFixed(1)}px`;
+      g.style.setProperty('--col-step', `${this.colStep.toFixed(2)}px`);
+      g.style.setProperty('--chunk-h', `${(CHUNK * this.rowStep).toFixed(2)}px`);
     }
+    this.svg.style.display = 'block';
+
+    for (let i = 0; i < this.bands.length; i++) {
+      const b = this.bands[i];
+      if (this.laneKind[i] === 'T') { b.style.display = 'none'; continue; } // centre stays neutral
+      b.style.display = 'block';
+      b.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
+      b.style.width = `${this.colStep.toFixed(1)}px`;
+      const a = (this.blockIndex[i] % 2 === 0 ? 1 : 0.55) * 0.09; // faint per-finger wash, alternating
+      b.style.background = rgbaOf(this.laneColor[i], a);
+    }
+    for (let i = 0; i < this.receptors.length; i++) {
+      const r = this.receptors[i];
+      r.style.display = 'block';
+      r.style.width = `${(this.colStep * 0.82).toFixed(0)}px`;
+      r.style.height = `${(this.rowStep * 1.15).toFixed(0)}px`;
+      r.style.left = `${(cx + this.laneCentreX(i)).toFixed(1)}px`;
+      r.style.top = `${(cy + this.hitOffset).toFixed(1)}px`;
+      r.style.setProperty('--rc', this.laneColor[i]);
+      r.style.setProperty('--rcbg', this.laneGlow[i]);
+    }
+    // peripheral columns sit just outside the lanes, clamped inside the container
+    this.edgeX = Math.min(w / 2 - this.font * 0.72, (total / 2) * this.colStep + this.font);
+    for (let i = 0; i < this.edgeL.length; i++) {
+      this.edgeL[i].style.display = 'block';
+      this.edgeR[i].style.display = 'block';
+    }
+    this.foveal.style.display = FOVEAL_CUE ? 'flex' : 'none';
+    this.foveal.style.fontSize = `${Math.max(11, Math.round(this.font * 0.5))}px`;
     this.layer.style.setProperty('--glyph-font', `${this.font}px`);
-
-    if (this.chordLayer) {
-      const on = this.engine.config.chords && lanes;
-      this.chordLayer.style.display = on ? 'block' : 'none';
-      this.chordLayer.style.setProperty('--glyph-font', `${this.font}px`);
-      if (on) {
-        // chords render into their own pool; hide the single-key glyphs/edges/link
-        for (const n of this.nodes) n.style.display = 'none';
-        for (const n of this.edgeL) n.style.display = 'none';
-        for (const n of this.edgeR) n.style.display = 'none';
-        this.poly.setAttribute('points', '');
-      }
-    }
   }
 
   // cumulative flow position (px) of sequence position p
   private flowPos(p: number): number {
-    if (this.engine.config.lanes) return p * this.rowStep;
-    const gaps = this.gapW > 0 ? Math.floor(p / CHUNK) : 0;
-    return p * this.W + gaps * this.gapW;
+    return p * this.rowStep;
   }
 
   private laneCentreX(i: number): number {
     return this.laneUnitOf[i] * this.colStep;
   }
 
-  // symbol → its BASE key index (a and a* share the same finger/lane); -1 if unknown
   private baseIndexOf(symbol: string): number {
-    const base = symbol.endsWith('*') ? symbol.slice(0, -1) : symbol;
-    return this.engine.chars.indexOf(base);
+    return this.engine.chars.indexOf(symbol);
   }
 
   private laneX(glyph: string): number {
     const i = this.baseIndexOf(glyph);
     if (i < 0) return 0;
     return this.laneCentreX(i);
-  }
-
-  // chords mode: each sequence position is a 1-3 key chord. Its keys fall on the SAME row
-  // (one y per position), each in its own lane, joined by a horizontal link. The current
-  // target's keys are all boxed (their lane receptors light up) and enlarged together.
-  private renderChordFrame(nowMs: number): void {
-    const seq = this.engine.sequence;
-    const idx = this.engine.index;
-    const lookahead = this.engine.config.lookahead;
-    const cw = this.root.clientWidth, ch = this.root.clientHeight;
-    const sinceCorrect = nowMs - this.engine.lastCorrectMs;
-    const pulse = sinceCorrect < PULSE_MS ? 1 + 0.07 * (1 - sinceCorrect / PULSE_MS) : 1;
-    const sinceErr = nowMs - this.engine.lastErrorMs;
-    const flashActive = sinceErr < SHAKE_MS && this.engine.config.errorFeedback.includes('flash');
-
-    // box every lane in the current target chord (multiple receptors lit at once)
-    const targetKeys = new Set([...this.engine.target()]);
-    for (let i = 0; i < this.receptors.length; i++) {
-      const active = targetKeys.has(this.engine.chars[i]);
-      this.receptors[i].style.display = active ? 'block' : 'none';
-      this.receptors[i].classList.toggle('active', active);
-      if (active) this.receptors[i].style.transform = `translate(-50%,-50%) scale(${pulse.toFixed(3)})`;
-    }
-
-    let slot = 0;
-    const segs: string[] = [];
-    const maxP = idx + lookahead + SLACK + 1;
-    for (let p = idx; p < maxP && p < seq.length; p++) {
-      const chord = seq[p];
-      if (!chord) continue;
-      const along = this.flowPos(p) - this.flow;
-      const y = this.hitOffset - along;
-      const d = along / this.rowStep;
-      const scale = 1 + (TARGET_SCALE_LANES - 1) * Math.exp(-((d / SIGMA_LANES) ** 2));
-      const gi = p - idx;
-      const o = Math.max(0, 1 - gi / (lookahead + 2));
-      const isTarget = p === idx;
-      let minx = Infinity, maxx = -Infinity;
-      for (const key of chord) {
-        if (slot >= this.chordNodes.length) break;
-        const node = this.chordNodes[slot];
-        this.chordInners[slot].textContent = key;
-        slot++;
-        const lx = this.laneX(key);
-        node.className = 'glyph' + (isTarget ? ' current' : '') + (isTarget && flashActive ? ' error' : '');
-        const ci = this.engine.chars.indexOf(key);
-        node.style.setProperty('--gc', ci >= 0 ? this.laneColor[ci] : 'var(--ink)');
-        node.style.transform = `translate(-50%,-50%) translate3d(${lx.toFixed(2)}px,${y.toFixed(2)}px,0) scale(${scale.toFixed(3)})`;
-        node.style.opacity = o.toFixed(3);
-        node.style.zIndex = isTarget ? '3' : '1';
-        node.style.display = 'block';
-        if (lx < minx) minx = lx;
-        if (lx > maxx) maxx = lx;
-      }
-      if (maxx > minx) segs.push(`M${(cw / 2 + minx).toFixed(1)},${(ch / 2 + y).toFixed(1)}L${(cw / 2 + maxx).toFixed(1)},${(ch / 2 + y).toFixed(1)}`);
-    }
-    for (; slot < this.chordNodes.length; slot++) this.chordNodes[slot].style.display = 'none';
-    if (this.chordPoly) this.chordPoly.setAttribute('d', segs.join(' '));
   }
 
   // SVG path for an arrow from the border of an invisible box around the origin glyph to the
@@ -465,39 +298,25 @@ export class StripRenderer {
   render(nowMs: number): void {
     const dt = this.lastFrameMs < 0 ? 16 : Math.min(64, nowMs - this.lastFrameMs);
     this.lastFrameMs = nowMs;
-    const lanes = this.engine.config.lanes;
     const idx = this.engine.index;
-    const step = lanes ? this.rowStep : this.W;
+    const step = this.rowStep;
 
-    if (this.engine.config.challenge && this.engine.state === 'running') {
-      // CHALLENGE MODE: the roll scrolls to the beat position the app integrated from the pacer
-      // tempo (engine.challengeProgress). The engine scores misses off the same value, so what you
-      // see at the band is exactly what you must hit.
-      this.flow = this.engine.challengeProgress * this.rowStep;
-    } else {
-      // flow toward the target; clamp lag so during a burst the target stays in the zone
-      const targetFlow = this.flowPos(idx);
-      this.flow += (targetFlow - this.flow) * (1 - Math.exp(-dt / SETTLE_TAU_MS));
-      if (targetFlow - this.flow > MAX_LAG * step) this.flow = targetFlow - MAX_LAG * step;
-      if (Math.abs(targetFlow - this.flow) < 0.5) this.flow = targetFlow;
-    }
+    // flow toward the target; clamp lag so during a burst the target stays in the zone
+    const targetFlow = this.flowPos(idx);
+    this.flow += (targetFlow - this.flow) * (1 - Math.exp(-dt / SETTLE_TAU_MS));
+    if (targetFlow - this.flow > MAX_LAG * step) this.flow = targetFlow - MAX_LAG * step;
+    if (Math.abs(targetFlow - this.flow) < 0.5) this.flow = targetFlow;
 
     const sinceCorrect = nowMs - this.engine.lastCorrectMs;
     const pulse = sinceCorrect < PULSE_MS ? 1 + 0.07 * (1 - sinceCorrect / PULSE_MS) : 1;
 
-    if (lanes) {
+    {
       // chunk dividers scroll down with the flow
       const chunkH = CHUNK * this.rowStep;
       const hitY = this.root.clientHeight / 2 + this.hitOffset;
       const vy = (hitY + this.flow + 0.5 * this.rowStep) % chunkH;
       this.gridL.style.setProperty('--vy', `${vy.toFixed(2)}px`);
       this.gridR.style.setProperty('--vy', `${vy.toFixed(2)}px`);
-      if (this.engine.config.chords) {
-        this.laneHiCur.style.display = 'none';
-        this.laneHiNext.style.display = 'none';
-        this.renderChordFrame(nowMs);
-        return; // chords use their own pool; skip the single-key glyph path
-      }
       // show ONLY the target's receptor (a box around the current character), and pulse it
       const col = this.baseIndexOf(this.engine.target());
       for (let i = 0; i < this.receptors.length; i++) {
@@ -537,24 +356,15 @@ export class StripRenderer {
           sp.style.opacity = g ? (1 - k * 0.24).toFixed(2) : '0';
         }
       }
-    } else {
-      // chunked-row magnifier holds at centre and pulses on correct
-      this.mag.style.transform = `translate(-50%,-50%) scale(${pulse.toFixed(3)})`;
-      this.laneHiCur.style.display = 'none';
-      this.laneHiNext.style.display = 'none';
     }
 
     const seq = this.engine.sequence;
     const P = this.poolSize;
     const base = Math.max(0, idx - TAIL);
     const lookahead = this.engine.config.lookahead;
-    const sinceErr = nowMs - this.engine.lastErrorMs;
-    const fb = this.engine.config.errorFeedback; // 'none' | 'flash' | 'shake' | 'flash+shake'
-    const recentErr = sinceErr < SHAKE_MS;
-    const shakeActive = recentErr && !this.reducedMotion && fb.includes('shake');
-    const flashActive = recentErr && fb.includes('flash');
-    const targetScale = lanes ? TARGET_SCALE_LANES : TARGET_SCALE_ROW;
-    const sigma = lanes ? SIGMA_LANES : SIGMA_ROW;
+    const flashActive = nowMs - this.engine.lastErrorMs < ERROR_FLASH_MS;
+    const targetScale = TARGET_SCALE_LANES;
+    const sigma = SIGMA_LANES;
     const cw = this.root.clientWidth, ch = this.root.clientHeight;
     const pts: string[] = []; // link path through the upcoming glyphs (LINK_ARROWS = false)
     // per-glyph centres/scale/hand, captured for the per-digraph arrows (LINK_ARROWS = true)
@@ -567,13 +377,9 @@ export class StripRenderer {
       const glyph = p < seq.length ? seq[p] : '';
       if (this.nodeSeq[nk] !== p) {
         this.nodeSeq[nk] = p;
-        // glyph may be a chord symbol like 'a*': show the base letter + a 'chord' class (star)
-        const chorded = glyph.endsWith('*');
-        const baseCh = chorded ? glyph.slice(0, -1) : glyph;
-        const displayCh = baseCh === ' ' ? '␣' : baseCh; // show the space key as an open box
+        const displayCh = glyph === ' ' ? '␣' : glyph; // show the space key as an open box
         const ci = this.baseIndexOf(glyph);
-        const topRow = TOP_ROW_CARET && ci >= 0 && this.laneTop[ci]; // caret cue for top-row keys
-        const cls = 'glyph' + (chorded ? ' chord' : '') + (topRow ? ' toprow' : '');
+        const cls = 'glyph';
         const gc = ci >= 0 ? this.laneColor[ci] : 'var(--ink)';
         this.inners[nk].textContent = displayCh;
         node.className = cls;
@@ -595,34 +401,22 @@ export class StripRenderer {
       if (gi < 0) o = 0; // don't render already-selected letters beneath the target
 
       const isTarget = p === idx;
-      let shake = 0;
-      if (isTarget && shakeActive) {
-        const t = sinceErr / SHAKE_MS;
-        shake = Math.sin(t * Math.PI * 3) * SHAKE_PX * (1 - t);
-      }
-      let x: number, y: number;
-      if (lanes) {
-        const lx = this.laneX(glyph);
-        y = this.hitOffset - along; // fall downward toward the type line
-        x = lx + shake;
-        const rel = p - base;
-        cX[rel] = cw / 2 + lx;
-        cY[rel] = ch / 2 + y;
-        cCi[rel] = this.baseIndexOf(glyph);
-        cScl[rel] = scale;
-        cVis[rel] = glyph !== '' && gi >= 0; // only upcoming glyphs are linked
-        if (!LINK_ARROWS && p >= idx && glyph) pts.push(`${(cw / 2 + lx).toFixed(1)},${(ch / 2 + y).toFixed(1)}`);
-      } else {
-        x = along + shake;
-        y = 0;
-      }
+      const x = this.laneX(glyph);
+      const y = this.hitOffset - along; // fall downward toward the type line
+      const rel = p - base;
+      cX[rel] = cw / 2 + x;
+      cY[rel] = ch / 2 + y;
+      cCi[rel] = this.baseIndexOf(glyph);
+      cScl[rel] = scale;
+      cVis[rel] = glyph !== '' && gi >= 0; // only upcoming glyphs are linked
+      if (!LINK_ARROWS && p >= idx && glyph) pts.push(`${(cw / 2 + x).toFixed(1)},${(ch / 2 + y).toFixed(1)}`);
       node.style.transform = `translate(-50%,-50%) translate3d(${x.toFixed(2)}px,${y.toFixed(2)}px,0) scale(${scale.toFixed(3)})`;
       node.style.opacity = o.toFixed(3);
       node.style.zIndex = isTarget ? '3' : '1';
       node.classList.toggle('error', isTarget && flashActive);
       node.classList.toggle('current', isTarget);
 
-      if (lanes) {
+      {
         // peripheral copies fall at the same height in fixed edge columns (same fisheye,
         // so the current target enlarges in the periphery too)
         const eo = (o * 0.9).toFixed(3);
@@ -639,7 +433,7 @@ export class StripRenderer {
       }
     }
 
-    if (lanes) {
+    {
       if (LINK_ARROWS) {
         this.poly.setAttribute('points', ''); // hide the plain line
         let ai = 0;

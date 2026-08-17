@@ -122,7 +122,7 @@ function synthLog(selections: number, errEvery: number): RunLog {
       startedAt: '2026-08-14T10:00:00.000Z',
       mode: 'scored',
       machine: { installId: 'u_test', label: 'test', ua: 'x', platform: 'x', hardwareConcurrency: 8, estimatedRefreshHz: 120, timeOriginPrecisionMs: 0.1 },
-      config: { alphabet: 'asdfjkl;', n: 8, leftFingers: 'asdf', rightFingers: 'jkl;', chords: false, lookahead: 7, lanes: true, chord: false, sound: true, errorFeedback: 'flash', durationMs: 60000 },
+      config: { mode: 'keyboard', alphabet: 'asdfjkl;', n: 8, leftFingers: 'asdf', rightFingers: 'jkl;', lookahead: 7, sound: true, durationMs: 60000 },
     },
     sequence: seq.slice(0, idx + 1),
     eventColumns: ['t', 'type', 'key', 'idx', 'verdict'],
@@ -133,8 +133,6 @@ function synthLog(selections: number, errEvery: number): RunLog {
       accuracy: sc / (sc + si), grossKeysPerSec: (sc + si) / 60, netSelectionsPerSec: Math.max(sc - si, 0) / 60,
       medianIkiMs: 260, rollovers: 0, droppedFrames: 0, outOfAlphabet: 0,
     },
-    pacer: { enabled: false },
-    tones: { enabled: false, scale: 'pentatonic', baseHz: 523.25, handCoding: 'timbre+pan', voiceStealEvents: 0 },
   };
 }
 
@@ -177,8 +175,6 @@ function synthGridLog(gridSize: number, selections: number, errEvery: number): R
       accuracy: sc / (sc + si), grossKeysPerSec: (sc + si) / 60, netSelectionsPerSec: Math.max(sc - si, 0) / 60,
       medianIkiMs: 560, rollovers: 0, droppedFrames: 0, outOfAlphabet: 0,
     },
-    pacer: { enabled: false },
-    tones: { enabled: false, scale: 'pentatonic', baseHz: 523.25, handCoding: 'timbre+pan', voiceStealEvents: 0 },
     grid: {
       enabled: true, gridSize, depth: 1, fieldPx: gridSize * 20, cellPx: 20, devicePixelRatio: 2,
       ghost: true, crosshair: true, hoverPulse: true, pointerType: 'mouse',

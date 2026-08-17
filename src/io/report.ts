@@ -20,8 +20,6 @@ export interface BuildOpts {
   mode: 'scored' | 'practice';
   startedAt: string; // ISO
   droppedFrames: number;
-  pacer: RunLog['pacer'];
-  tones: RunLog['tones'];
   grid?: RunLog['grid']; // GRID / SCOPE MODE
   pointerPath?: RunLog['pointerPath']; // GRID / SCOPE MODE
   scope?: RunLog['scope']; // SCOPE MODE only
@@ -58,14 +56,7 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
         alphabet: engine.config.alphabet,
         leftFingers: engine.config.leftFingers,
         rightFingers: engine.config.rightFingers,
-        topRow: engine.config.topRow, // lets the report colour top-row keys by their lane
-        leftTopRow: engine.config.leftTopRow,
-        rightTopRow: engine.config.rightTopRow,
-        chords: engine.config.chords,
         lookahead: engine.config.lookahead,
-        lanes: engine.config.lanes,
-        chord: engine.config.chord,
-        errorFeedback: engine.config.errorFeedback,
       };
 
   // build stamp (Vite `define`); `typeof` guard keeps it safe if ever run outside the bundle
@@ -104,8 +95,6 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
       droppedFrames: opts.droppedFrames,
       outOfAlphabet: opts.recorder.outOfAlphabet,
     },
-    pacer: opts.pacer,
-    tones: opts.tones,
     ...(opts.grid ? { grid: opts.grid } : {}),
     ...(opts.scope ? { scope: opts.scope } : {}),
     ...(opts.calibration ? { calibration: opts.calibration } : {}),

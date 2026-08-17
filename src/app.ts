@@ -11,15 +11,14 @@ import { GridEngine } from './v2/engine.js';
 import { StripRenderer } from './v1/view.js';
 import { GridRenderer } from './v2/view.js';
 import { ScopeRenderer } from './v2/scope.js';
-import { AudioFeedback, laneToneHz } from './ui/audio.js';
-import { PacerController } from './v1/pacer.js';
+import { AudioFeedback } from './ui/audio.js';
 import { LatencyOverlay } from './ui/latency.js';
 import { buildReport, downloadReport } from './io/report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './io/logging.js';
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
-import { loadConfig, saveConfig, laneAudio, GRID_SIZES, DEFAULT_CONFIG, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './core/config.js';
-import { symbolFor, validateAlphabet } from './core/alphabet.js';
+import { loadConfig, saveConfig, GRID_SIZES, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
+import { validateAlphabet } from './core/alphabet.js';
 import { generateCalibrationScript, computeCalibration, seededRandInt, REFERENCE_GRID, CALIB_CLICKS, type CalibrationResult, type CalibClick } from './v2/calibration.js';
 import type { MachineMeta, RunLog, ScopeActivation } from './core/stats.js';
 
@@ -92,9 +91,6 @@ interface RunCtx {
   timed: boolean;
   phase: 'ready' | 'playing' | 'done'; // ready = waiting for the first selection to start the clock
   startedAt: string; // ISO, stamped when play begins
-  pacer: PacerController | null; // the tempo controller (null when the pacer is off for this run)
-  pacerStarted: boolean; // whether the click scheduler has been kicked off yet
-  challengeBeat: number; // challenge mode: cumulative beat position, integrated from the pacer tempo
   droppedFrames: number;
   lastFrameMs: number;
   pendingDownT: number; // run-relative t of a keydown awaiting its paint (latency sample)
@@ -123,8 +119,6 @@ export class App {
   // grid calibration: session-scoped; gates the scored run and is attached to every run log.
   private calibration: CalibrationResult | null = null;
   private calib: CalibCtx | null = null; // the in-progress calibration task
-  private spaceHeld = false; // chord modifier state (thumb on the spacebar)
-  private toneTable = new Map<string, { freq: number; hand: 0 | 1 }>(); // base key → tone, rebuilt per run
 
   // gathered once at startup; awaited (long-settled) when a run finishes
   private machine: MachineMeta | null = null;
@@ -136,7 +130,7 @@ export class App {
     this.latency = new LatencyOverlay(params.has('debug'));
     // v1 and v2 are served from the same origin and so share localStorage; a saved v2 config would
     // otherwise start v1 in grid mode. v1 is the keyboard game, always.
-    if (VARIANT === 'v1') this.config = { ...this.config, grid: false, scope: false, topRow: false, chords: false, challenge: false };
+    if (VARIANT === 'v1') this.config = { ...this.config, grid: false, scope: false };
 
     this.machinePromise = probeMachine().then((m) => (this.machine = m));
     void probeHealth().then((ok) => (this.loggingAvailable = ok));
@@ -252,33 +246,15 @@ export class App {
       if (!rc || rc.phase === 'done') return;
       if (rc.phase === 'playing') {
         const eng = rc.engine as Engine;
-        if (this.config.chords) {
-          const keys = [...eng.target()];
-          if (Math.random() < errorRate && keys.length) {
-            const others = eng.chars.filter((c) => !keys.includes(c));
-            if (others.length) keys[Math.floor(Math.random() * keys.length)] = others[Math.floor(Math.random() * others.length)];
-          }
-          for (const k of keys) window.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
-          window.setTimeout(() => {
-            for (const k of keys) window.dispatchEvent(new KeyboardEvent('keyup', { key: k, bubbles: true }));
-          }, 40);
-        } else {
-          const sym = eng.target();
-          const wantStar = sym.endsWith('*');
-          let base = wantStar ? sym.slice(0, -1) : sym;
-          if (Math.random() < errorRate) {
-            const others = eng.chars.filter((c) => c !== base);
-            base = others[Math.floor(Math.random() * others.length)] ?? base;
-          }
-          if (wantStar) window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-          window.dispatchEvent(new KeyboardEvent('keydown', { key: base, bubbles: true }));
-          window.setTimeout(() => {
-            window.dispatchEvent(new KeyboardEvent('keyup', { key: base, bubbles: true }));
-            if (wantStar) window.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
-          }, 30);
+        let key = eng.target();
+        if (Math.random() < errorRate) {
+          const others = eng.chars.filter((c) => c !== key);
+          key = others[Math.floor(Math.random() * others.length)] ?? key;
         }
+        window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+        window.setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })), 30);
       }
-      window.setTimeout(tick, (this.config.chords ? 320 : 70) + Math.random() * 80);
+      window.setTimeout(tick, 70 + Math.random() * 80);
     };
     window.setTimeout(tick, 200);
   }
@@ -314,48 +290,20 @@ export class App {
       rc.startedAt = new Date().toISOString();
       rc.ui.countdown.classList.add('hidden');
     }
-    // spacebar is the chord modifier, not a selection — track it and never let it score/scroll
-    if (this.config.chord && e.key === ' ') {
-      e.preventDefault();
-      this.spaceHeld = true;
-      return;
-    }
     const eng = eng0;
     const inAlpha = eng.alphaSet.has(e.key);
     const modified = e.ctrlKey || e.metaKey || e.altKey;
     if (inAlpha && !modified) e.preventDefault();
     const now = performance.now();
     this.latency.markKey(now);
-    const input: KeyInput = {
-      key: e.key,
-      repeat: e.repeat,
-      ctrlKey: e.ctrlKey,
-      metaKey: e.metaKey,
-      altKey: e.altKey,
-      space: this.spaceHeld,
-    };
+    const input: KeyInput = { key: e.key, repeat: e.repeat, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey };
     const idxBefore = eng.index;
     const tRun = now - eng.startMs;
     const outcome = eng.handleKey(input, now);
-    if (this.config.chords) {
-      // chords are scored on release; log the keydown with a placeholder verdict
-      if (inAlpha && !modified && !e.repeat) {
-        rc.recorder.recordDown(e.key, idxBefore, 'ok', tRun);
-        rc.pendingDownT = tRun;
-        rc.pendingDown = true;
-      }
-      return;
-    }
     if (outcome === 'correct' || outcome === 'incorrect') {
-      const produced = symbolFor(e.key, this.spaceHeld, this.config.chord);
-      rc.recorder.recordDown(produced, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
+      rc.recorder.recordDown(e.key, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
       rc.pendingDownT = tRun; // measure this keydown → next paint for the latency samples
       rc.pendingDown = true;
-      // feed the pacer's rate estimate (reads only; the pacer cannot affect this outcome)
-      if (outcome === 'correct') {
-        rc.pacer?.recordCorrect(tRun);
-        this.triggerTargetTone(rc); // the resolved target's tone releases, the next one's starts
-      } else rc.pacer?.recordError(tRun);
     } else if (!inAlpha && !modified && !e.repeat && e.key.length === 1) {
       rc.recorder.outOfAlphabet++; // a genuine out-of-alphabet character (not a modifier/nav key)
     }
@@ -364,18 +312,11 @@ export class App {
   // Key releases are logged (in-alphabet only — never free text) so rollover, the next key
   // going down before the previous comes up, is measurable. Not part of scoring.
   private onKeyUp = (e: KeyboardEvent): void => {
-    if (e.key === ' ') this.spaceHeld = false;
     const rc = this.run;
     if (this.mode !== 'run' || !rc || rc.phase !== 'playing' || rc.grid || rc.scope) return;
     const eng0 = rc.engine as Engine;
     if (!eng0.alphaSet.has(e.key)) return;
     const now = performance.now();
-    if (this.config.chords) {
-      const oc = eng0.handleKeyUp(e.key, now); // completes a chord on last release
-      const tRun = now - eng0.startMs;
-      if (oc === 'correct') rc.pacer?.recordCorrect(tRun);
-      else if (oc === 'incorrect') rc.pacer?.recordError(tRun);
-    }
     rc.recorder.recordUp(e.key, eng0.index, now - eng0.startMs);
   };
 
@@ -570,7 +511,7 @@ export class App {
         return null;
       }
       err.textContent = '';
-      return { ...DEFAULT_CONFIG, ...parts, grid: false, scope: false, alphabet: v.alphabet, topRow: false, leftTopRow: '', rightTopRow: '' };
+      return { ...DEFAULT_CONFIG, ...parts, grid: false, scope: false, alphabet: v.alphabet };
     };
     const start = (timed: boolean) => (): void => {
       const c = collect();
@@ -713,33 +654,11 @@ export class App {
       return;
     }
     this.mode = 'run';
-    this.spaceHeld = false;
-    // A/B mode: override this run's audio condition with a randomly drawn arm (not saved to config,
-    // so the assignment is per-run). Challenge mode is its own thing and opts out.
-    if (this.config.abTest && !this.config.challenge) {
-      const arm = this.drawArm();
-      this.config = { ...this.config, tones: arm === 'tones', pacer: arm === 'pacer' ? 'proportional' : 'off' };
-    }
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock(); // user gesture (button click) is active
-    this.audio.voiceStealEvents = 0; // reset the per-run tone stat
 
     const engine = new Engine(this.config, timed);
-    // target tones: pitch ascends left→right (major pentatonic), hand carried by timbre + pan. The
-    // tone is gated to each target's lifetime, triggered from the advance point (not the loop).
-    this.toneTable = new Map([...laneAudio(this.config)].map(([ch, { lane, hand }]) => [ch, { freq: laneToneHz(lane), hand }]));
-    engine.onCorrect = this.config.chords ? () => this.audio.correct() : null;
     engine.onError = () => this.audio.error();
-
-    // The pacer is a training device: on by default only in practice; scored runs measure the
-    // player unaided unless they explicitly opt in. It only reads rate/B and emits sound — it can
-    // never gate scoring or advancement (spec §1).
-    // In challenge mode the pacer beat drives the scroll rate, so it always runs; otherwise it's a
-    // practice-by-default click (scored only on opt-in).
-    const pacerOn = this.config.pacer !== 'off' && (this.config.challenge || (timed ? this.config.pacerScored : true));
-    const pacer = pacerOn
-      ? new PacerController({ mode: this.config.pacer, push: this.config.pacerPush, logBits: engine.logBits })
-      : null;
 
     const stripRoot = el('div', { class: 'strip-root' });
     const time = el('div', { class: 'time' });
@@ -777,9 +696,6 @@ export class App {
       timed,
       phase: immediate ? 'playing' : 'ready',
       startedAt: '',
-      pacer,
-      pacerStarted: false,
-      challengeBeat: 0,
       droppedFrames: 0,
       lastFrameMs: -1,
       pendingDownT: 0,
@@ -866,9 +782,6 @@ export class App {
       timed,
       phase: immediate ? 'playing' : 'ready',
       startedAt: '',
-      pacer: null,
-      pacerStarted: false,
-      challengeBeat: 0,
       droppedFrames: 0,
       lastFrameMs: -1,
       pendingDownT: 0,
@@ -936,9 +849,6 @@ export class App {
       timed,
       phase: immediate ? 'playing' : 'ready',
       startedAt: '',
-      pacer: null,
-      pacerStarted: false,
-      challengeBeat: 0,
       droppedFrames: 0,
       lastFrameMs: -1,
       pendingDownT: 0,
@@ -1112,16 +1022,8 @@ export class App {
     }
 
     if (rc.phase === 'playing' && !rc.paused) {
-      const dtMs = rc.lastFrameMs >= 0 ? Math.min(64, now - rc.lastFrameMs) : 16;
       if (rc.lastFrameMs >= 0 && now - rc.lastFrameMs > DROPPED_FRAME_MS) rc.droppedFrames++;
       rc.lastFrameMs = now;
-      // CHALLENGE MODE: integrate the scroll rate (the pacer's tempo, or a seed until it establishes)
-      // into a beat position; the engine scores misses and the strip scrolls from the same value.
-      if (this.config.challenge) {
-        const tempo = rc.pacer && rc.pacer.started ? rc.pacer.currentTempo : CHALLENGE_SEED_HZ;
-        rc.challengeBeat += tempo * (dtMs / 1000);
-        (rc.engine as Engine).challengeProgress = rc.challengeBeat - CHALLENGE_LEAD_BEATS; // keyboard-only
-      }
       rc.engine.tick(now);
       if (rc.engine.state === 'ended') {
         rc.phase = 'done';
@@ -1129,15 +1031,6 @@ export class App {
         return;
       }
       this.updateHud(now, rc);
-      // Adaptive pacer: recompute the target tempo from the measured rate and retune the click
-      // track. This only reads state and emits sound — it never touches sc/si/index.
-      if (rc.pacer) {
-        const hz = rc.pacer.update(now - rc.engine.startMs);
-        if (hz !== null) {
-          if (!rc.pacerStarted) rc.pacerStarted = this.audio.startPacer(hz, this.config.pacerVolume);
-          else this.audio.setPacerTempo(hz);
-        }
-      }
     }
 
     rc.strip.render(now);
@@ -1155,41 +1048,6 @@ export class App {
     rc.rafId = requestAnimationFrame(this.loop);
   };
 
-  // Fire-and-forget: sound the current target's tone (releasing the previous). Single-key only —
-  // chords have no single lane. Called from the advance point, never before state advances.
-  private triggerTargetTone(rc: RunCtx): void {
-    if (this.config.chords || !this.config.tones) return;
-    const tone = this.toneTable.get((rc.engine as Engine).target());
-    if (tone) this.audio.toneAdvance(tone.freq, tone.hand);
-  }
-
-  // A/B: draw the next condition from a shuffled bag of [none, pacer, tones], refilling when empty,
-  // so the three arms stay balanced and their order is randomized (not confounded with the practice
-  // curve). The bag persists in localStorage so it survives reloads mid-experiment.
-  private drawArm(): 'none' | 'pacer' | 'tones' {
-    const KEY = 'brm.ab.bag';
-    let bag: string[] = [];
-    try {
-      bag = JSON.parse(localStorage.getItem(KEY) ?? '[]') as string[];
-    } catch {
-      bag = [];
-    }
-    if (!Array.isArray(bag) || bag.length === 0) {
-      bag = ['none', 'pacer', 'tones'];
-      for (let i = bag.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [bag[i], bag[j]] = [bag[j], bag[i]];
-      }
-    }
-    const arm = (bag.pop() ?? 'none') as 'none' | 'pacer' | 'tones';
-    try {
-      localStorage.setItem(KEY, JSON.stringify(bag));
-    } catch {
-      /* ignore */
-    }
-    return arm;
-  }
-
   private updateHud(now: number, rc: RunCtx): void {
     const eng = rc.engine;
     if (rc.timed) {
@@ -1199,9 +1057,7 @@ export class App {
     }
     rc.ui.rate.innerHTML = `${eng.liveBitRate(now).toFixed(2)}<span class="unit"> bits/s</span>`;
     const acc = Math.round(eng.liveAccuracy() * 100);
-    // ♪N = pacer beats scheduled so far — a visible check that the click track is running
-    const paced = rc.pacer ? ` · ♪${this.audio.pacerBeats()}` : '';
-    rc.ui.stats.textContent = `Sc ${eng.sc} · Si ${eng.si} · N ${eng.n} · acc ${acc}%${paced}`;
+    rc.ui.stats.textContent = `Sc ${eng.sc} · Si ${eng.si} · N ${eng.n} · acc ${acc}%`;
   }
 
   private abortRun(): void {
@@ -1211,8 +1067,6 @@ export class App {
       rc.cleanup.abort(); // tear down any scope listeners
       if (rc.scope && document.pointerLockElement) document.exitPointerLock();
     }
-    this.audio.releaseAllTones();
-    this.audio.stopPacer();
     this.run = null;
     this.showConfig();
   }
@@ -1226,23 +1080,13 @@ export class App {
       if (rc.activeActivation) rc.activeActivation.tUp = Math.round((performance.now() - rc.engine.startMs) * 10) / 10;
       if (document.pointerLockElement) document.exitPointerLock();
     }
-    this.audio.releaseAllTones();
-    const clickAbs = this.audio.stopPacer(); // absolute performance.now() ms
-    const pacerLog = this.buildPacerLog(rc, clickAbs);
-    const tonesLog: RunLog['tones'] = {
-      enabled: this.config.tones && !this.config.chords,
-      scale: 'pentatonic',
-      baseHz: 523.25,
-      handCoding: 'timbre+pan',
-      voiceStealEvents: this.audio.voiceStealEvents,
-    };
     const result = rc.engine.result();
     const pointing = rc.grid || rc.scope;
     const gridLog = pointing ? this.buildGridLog(rc) : undefined;
     const scopeLog = rc.scope ? this.buildScopeLog(rc) : undefined;
     const pointerPath = pointing ? rc.recorder.buildPointerPath() : undefined;
     const calibration = rc.grid && this.calibration ? this.calibration : undefined; // session calibration
-    void this.completeRun(rc, result, pacerLog, tonesLog, gridLog, pointerPath, scopeLog, calibration);
+    void this.completeRun(rc, result, gridLog, pointerPath, scopeLog, calibration);
   }
 
   // Assemble the GRID MODE section of the log. The Fitts difficulty of every selection depends on
@@ -1279,30 +1123,11 @@ export class App {
     };
   }
 
-  // Assemble the pacer section of the log. clickTimes are shifted to the run-relative clock the
-  // event log uses, so phase analysis can line them up without guessing the offset.
-  private buildPacerLog(rc: RunCtx, clickAbs: number[]): RunLog['pacer'] {
-    const p = rc.pacer;
-    if (!p) return { enabled: false };
-    const r3 = (x: number): number | null => (Number.isFinite(x) ? Math.round(x * 1000) / 1000 : null);
-    return {
-      enabled: true,
-      mode: this.config.pacer,
-      push: this.config.pacerPush,
-      startTempoHz: r3(p.startTempoHz),
-      endTempoHz: r3(p.endTempoHz),
-      clickTimes: clickAbs.map((t) => Math.round((t - rc.engine.startMs) * 1000) / 1000),
-      tempoChanges: p.tempoChanges.map((c) => ({ t: Math.round(c.t * 1000) / 1000, hz: Math.round(c.hz * 1000) / 1000 })),
-    };
-  }
-
   // Off the hot path (the run is over): assemble the log, write it if the endpoint is live,
   // then render the report. Falls back to the download button when logging is unavailable.
   private async completeRun(
     rc: RunCtx,
     result: ReturnType<Engine['result']>,
-    pacer: RunLog['pacer'],
-    tones: RunLog['tones'],
     grid?: RunLog['grid'],
     pointerPath?: RunLog['pointerPath'],
     scope?: RunLog['scope'],
@@ -1315,8 +1140,6 @@ export class App {
       mode: rc.timed ? 'scored' : 'practice',
       startedAt: rc.startedAt || new Date().toISOString(),
       droppedFrames: rc.droppedFrames,
-      pacer,
-      tones,
       grid,
       pointerPath,
       scope,

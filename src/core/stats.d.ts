@@ -2,7 +2,6 @@
 // './stats.js' and resolve to these declarations; Node imports the .js directly and needs
 // no types. The runtime file is stats.js — keep the two in sync by hand (the API is small).
 
-import type { PacerMode } from '../v1/pacer.js';
 import type { CalibrationResult } from '../v2/calibration.js';
 
 export type Verdict = 'ok' | 'err';
@@ -27,14 +26,7 @@ export interface RunConfig {
   alphabet?: string;
   leftFingers?: string;
   rightFingers?: string;
-  topRow?: boolean;
-  leftTopRow?: string;
-  rightTopRow?: string;
-  chords?: boolean;
   lookahead?: number;
-  lanes?: boolean;
-  chord?: boolean;
-  errorFeedback?: 'none' | 'flash' | 'shake' | 'flash+shake';
 }
 
 export interface MachineMeta {
@@ -60,27 +52,6 @@ export interface RunSummary {
   rollovers: number;
   droppedFrames: number;
   outOfAlphabet: number;
-}
-
-/** The adaptive pacer's log. `enabled: false` runs carry only that flag; enabled runs carry the
- *  tempo history and every click time (run-relative ms, the same clock as `events`). */
-export interface PacerLog {
-  enabled: boolean;
-  mode?: PacerMode;
-  push?: number;
-  startTempoHz?: number | null;
-  endTempoHz?: number | null;
-  clickTimes?: number[];
-  tempoChanges?: Array<{ t: number; hz: number }>;
-}
-
-/** The target-tone layer's log — enough to group A/B runs by condition. */
-export interface TonesLog {
-  enabled: boolean;
-  scale: string;
-  baseHz: number;
-  handCoding: string;
-  voiceStealEvents: number;
 }
 
 /** GRID MODE's log section. Present (with `enabled: true`) only on pointing runs; the Fitts
@@ -134,8 +105,6 @@ export interface RunLog {
   events: RawEvent[];
   latencySamples: Array<{ t: number; downToPaintMs: number }>;
   summary: RunSummary;
-  pacer: PacerLog;
-  tones: TonesLog;
   grid?: GridLog; // present only on GRID MODE runs
   scope?: ScopeLog; // present only on SCOPE MODE runs (a grid variant)
   calibration?: CalibrationResult; // grid mode: the session's calibration (attached to every run)

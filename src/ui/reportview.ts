@@ -378,13 +378,7 @@ function transitionsColumn(log: RunLog): HTMLElement {
     return section('Transitions', el('p', { class: 'r-empty', text: 'Not enough repeated transitions yet.' }));
   }
   const cfg = log.meta.config; // keyboard (v1) runs only — grid runs never reach here
-  const colors = laneColors({
-    leftFingers: cfg.leftFingers ?? '',
-    rightFingers: cfg.rightFingers ?? '',
-    topRow: cfg.topRow,
-    leftTopRow: cfg.leftTopRow,
-    rightTopRow: cfg.rightTopRow,
-  });
+  const colors = laneColors({ leftFingers: cfg.leftFingers ?? '', rightFingers: cfg.rightFingers ?? '' });
 
   const slowest = digraphs.slice(0, 5);
   // take the fastest from the tail, never overlapping the slowest five
