@@ -1,5 +1,6 @@
-import { SCORED_DURATION_MS, DEFAULT_LOOKAHEAD } from './scoring.js';
-import type { PacerMode } from './pacer.js';
+import { SCORED_DURATION_MS } from './bitrate.js';
+import { DEFAULT_LOOKAHEAD } from './alphabet.js';
+import type { PacerMode } from '../v1/pacer.js';
 
 export type ErrorFeedback = 'none' | 'flash' | 'shake' | 'flash+shake';
 

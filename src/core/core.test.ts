@@ -1,14 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import {
-  validateAlphabet,
-  makeRandInt,
-  generateSequence,
-  bitRate,
-  reduceLog,
-  isSelection,
-  type RawKey,
-  type Uint32Source,
-} from './scoring.js';
+import { bitRate } from './bitrate.js';
+import { makeRandInt, generateSequence, type Uint32Source } from './sequence.js';
+import { validateAlphabet, isSelection, type RawKey } from './alphabet.js';
+import { reduceLog } from '../v1/reduce.js';
 
 // A deterministic 32-bit word source (mulberry32) so the statistical tests are reproducible
 // — they exercise OUR rejection-sampling / modulo pipeline for uniformity, given a uniform

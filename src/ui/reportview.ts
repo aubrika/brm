@@ -7,10 +7,10 @@
 // never draws a trend line through a handful of points. Overclaiming from small n is the
 // thing this screen is built to avoid.
 
-import type { RunLog, DownEvent } from './stats.js';
-import { reportStats, digraphStats, transitionMeans, confusion, ikiList, quantile, gridFitts } from './stats.js';
-import { laneColors } from './config.js';
-import type { IndexRow } from './logging.js';
+import type { RunLog, DownEvent } from '../core/stats.js';
+import { reportStats, digraphStats, transitionMeans, confusion, ikiList, quantile, gridFitts } from '../core/stats.js';
+import { laneColors } from '../core/config.js';
+import type { IndexRow } from '../io/logging.js';
 
 // Each key wears its exact per-lane colour from the falling strip (the Okabe-Ito palette, one hue
 // per finger left→right), so a letter's identity carries over from play into the report.

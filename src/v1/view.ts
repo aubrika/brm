@@ -13,7 +13,7 @@
 // Hand colour (teal = left, amber = right) applies to both.
 
 import type { Engine } from './engine.js';
-import { CHALLENGE_ABOVE, CHALLENGE_BELOW, OKABE_ITO } from './config.js';
+import { CHALLENGE_ABOVE, CHALLENGE_BELOW, OKABE_ITO } from '../core/config.js';
 
 const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead

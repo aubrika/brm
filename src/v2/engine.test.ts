@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { GridEngine } from './gridengine.js';
-import { DEFAULT_CONFIG } from './config.js';
-import { sampleCells } from './scoring.js';
+import { GridEngine } from './engine.js';
+import { DEFAULT_CONFIG } from '../core/config.js';
+import { sampleCells } from '../core/sequence.js';
 
 function cfg(gridSize: number, gridDepth = 1) {
   return { ...DEFAULT_CONFIG, grid: true, gridSize, gridDepth, durationMs: 60_000 };

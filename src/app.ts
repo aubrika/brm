@@ -6,22 +6,22 @@
 // log, a RunRecorder buffers a richer event log (down+up, verdict, live idx) entirely from
 // primitives, written to logs/ once at run end — never during the 60 s.
 
-import { Engine, type KeyInput } from './engine.js';
-import { GridEngine } from './gridengine.js';
-import { StripRenderer } from './strip.js';
-import { GridRenderer } from './gridview.js';
-import { ScopeRenderer } from './gridscope.js';
-import { AudioFeedback, laneToneHz } from './audio.js';
-import { PacerController } from './pacer.js';
-import { LatencyOverlay } from './latency.js';
-import { buildReport, downloadReport } from './report.js';
-import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './logging.js';
-import { probeMachine } from './machine.js';
-import { renderReport, type LogInfo } from './reportview.js';
-import { loadConfig, saveConfig, laneAudio, GRID_SIZES, DEFAULT_CONFIG, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
-import { symbolFor, validateAlphabet } from './scoring.js';
-import { generateCalibrationScript, computeCalibration, seededRandInt, REFERENCE_GRID, CALIB_CLICKS, type CalibrationResult, type CalibClick } from './calibration.js';
-import type { MachineMeta, RunLog, ScopeActivation } from './stats.js';
+import { Engine, type KeyInput } from './v1/engine.js';
+import { GridEngine } from './v2/engine.js';
+import { StripRenderer } from './v1/view.js';
+import { GridRenderer } from './v2/view.js';
+import { ScopeRenderer } from './v2/scope.js';
+import { AudioFeedback, laneToneHz } from './ui/audio.js';
+import { PacerController } from './v1/pacer.js';
+import { LatencyOverlay } from './ui/latency.js';
+import { buildReport, downloadReport } from './io/report.js';
+import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './io/logging.js';
+import { probeMachine } from './io/machine.js';
+import { renderReport, type LogInfo } from './ui/reportview.js';
+import { loadConfig, saveConfig, laneAudio, GRID_SIZES, DEFAULT_CONFIG, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './core/config.js';
+import { symbolFor, validateAlphabet } from './core/alphabet.js';
+import { generateCalibrationScript, computeCalibration, seededRandInt, REFERENCE_GRID, CALIB_CLICKS, type CalibrationResult, type CalibClick } from './v2/calibration.js';
+import type { MachineMeta, RunLog, ScopeActivation } from './core/stats.js';
 
 type Props = Record<string, string | number | boolean | EventListener>;
 function el<K extends keyof HTMLElementTagNameMap>(

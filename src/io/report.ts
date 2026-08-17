@@ -5,11 +5,11 @@
 // holds: the log carries the full generated sequence AND every keystroke, so B is
 // independently recomputable and the sequence independently checkable for uniformity.
 
-import type { Engine } from './engine.js';
-import type { GridEngine } from './gridengine.js';
-import type { RunResult } from './scoring.js';
-import type { RunLog, MachineMeta, RunConfig } from './stats.js';
-import { splitEvents, medianIki, countRollovers } from './stats.js';
+import type { Engine } from '../v1/engine.js';
+import type { GridEngine } from '../v2/engine.js';
+import type { RunResult } from '../core/bitrate.js';
+import type { RunLog, MachineMeta, RunConfig } from '../core/stats.js';
+import { splitEvents, medianIki, countRollovers } from '../core/stats.js';
 import type { RunRecorder } from './logging.js';
 
 const EVENT_COLUMNS: RunLog['eventColumns'] = ['t', 'type', 'key', 'idx', 'verdict'];

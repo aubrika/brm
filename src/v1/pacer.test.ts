@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PacerController, scheduleClicks } from './pacer.js';
 import { Engine, type KeyInput } from './engine.js';
-import { DEFAULT_CONFIG } from './config.js';
+import { DEFAULT_CONFIG } from '../core/config.js';
 
 const L = Math.log2(7); // log2(N-1) for N=8
 

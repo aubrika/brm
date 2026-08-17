@@ -10,7 +10,7 @@
 // path samples are done in these field-local pixels (getBoundingClientRect gives the origin), so
 // the log is self-contained for Fitts analysis without needing the viewport offset.
 
-import type { GridEngine } from './gridengine.js';
+import type { GridEngine } from './engine.js';
 
 const MARGIN = 20; // px inset from the smaller viewport dimension
 // One fill colour per layer: layer 0 (click first) orange, layer 1 blue. Orange/blue is the

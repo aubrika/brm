@@ -4,7 +4,7 @@
 //
 //   node scripts/analyze.mjs [--machine calvin] [--scored-only]
 //
-// It shares src/stats.js with the in-browser report screen, so the offline numbers and the
+// It shares src/core/stats.js with the in-browser report screen, so the offline numbers and the
 // on-screen numbers are computed by the exact same functions and cannot drift. Each of the
 // six analyses is a separate pure function taking the parsed logs and returning a plain
 // object — adding another is a ten-line change.
@@ -21,7 +21,7 @@ import {
   ikiList,
   medianIki,
   gridFitts,
-} from '../src/stats.js';
+} from '../src/core/stats.js';
 
 const SCHEMA = 3;
 const HERE = path.dirname(fileURLToPath(import.meta.url));

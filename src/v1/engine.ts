@@ -3,21 +3,18 @@
 // touches layout, never waits on a frame, and stays unit-testable. The renderer reads
 // this state once per rAF; input never waits on the renderer.
 
+import { bitRate, type RunResult } from '../core/bitrate.js';
+import { makeRandInt, sampleSequence, SEQUENCE_LENGTH } from '../core/sequence.js';
 import {
   type RawKey,
   type Outcome,
-  type RunResult,
   isSelection,
-  reduceLog,
-  bitRate,
+  symbolFor,
   buildSymbols,
   buildChordSymbols,
-  sampleSequence,
-  symbolFor,
-  makeRandInt,
-  SEQUENCE_LENGTH,
-} from './scoring.js';
-import { type GameConfig, CHALLENGE_ABOVE, CHALLENGE_BELOW } from './config.js';
+} from '../core/alphabet.js';
+import { reduceLog } from './reduce.js';
+import { type GameConfig, CHALLENGE_ABOVE, CHALLENGE_BELOW } from '../core/config.js';
 
 export interface KeyInput {
   key: string;

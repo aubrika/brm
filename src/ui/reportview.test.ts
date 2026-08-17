@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { renderReport, type LogInfo } from './reportview.js';
-import type { RunLog, RawEvent } from './stats.js';
+import type { RunLog, RawEvent } from '../core/stats.js';
 
 // --------------------------------------------------------------- DOM shim ----
 class TextNode {

@@ -9,7 +9,7 @@
 // is presentation. The app sets `virtualCursor` (field-local px) and `scoped` each frame; the
 // renderer reads the shared GridEngine for the target/ghost cells.
 
-import type { GridEngine } from './gridengine.js';
+import type { GridEngine } from './engine.js';
 
 const MARGIN = 20;
 const TARGET_ORANGE = '#E69F00';

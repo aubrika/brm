@@ -3,7 +3,7 @@
 // derived from anything identifying — installId is a fresh random token persisted in
 // localStorage, not a hash of the device.
 
-import type { MachineMeta } from './stats.js';
+import type { MachineMeta } from '../core/stats.js';
 
 const INSTALL_KEY = 'brm.installId';
 

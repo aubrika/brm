@@ -10,9 +10,10 @@
 // blue cell, and N = (gridSize²)^depth = 1024² at 32×32. Any wrong click is an error and resets to
 // layer 0 (the orange cell reappears). See bitrate-grid-mode-spec.md §3 (depth is an extension).
 
-import { type RunResult, bitRate, makeRandInt, SEQUENCE_LENGTH } from './scoring.js';
-import type { GameConfig } from './config.js';
-import type { EngineState } from './engine.js';
+import { type RunResult, bitRate } from '../core/bitrate.js';
+import { makeRandInt, SEQUENCE_LENGTH } from '../core/sequence.js';
+import type { GameConfig } from '../core/config.js';
+import type { EngineState } from '../v1/engine.js';
 
 export type GridOutcome = 'correct' | 'partial' | 'incorrect' | 'ignored';
 

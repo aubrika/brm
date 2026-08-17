@@ -2,7 +2,7 @@
 // unacceptable). A ~5 ms click on a correct selection, a distinct low tone on error.
 // Off by default; unlocked on a user gesture (browsers require it).
 
-import { scheduleClicks } from './pacer.js';
+import { scheduleClicks } from '../v1/pacer.js';
 
 export class AudioFeedback {
   private ctx: AudioContext | null = null;

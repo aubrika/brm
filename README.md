@@ -73,14 +73,38 @@ mouse-vs-trackpad split. See `logs/README.md` for the log format.
 
 ## Structure
 
-- `src/gridengine.ts` — grid run state and the click handler. No DOM.
-- `src/gridview.ts` — the canvas renderer and the hit-test geometry.
-- `src/calibration.ts` — the σ pipeline and grid-size recommendation. Pure.
-- `src/scoring.ts` — the scoring math and sequence generation. No DOM.
-- `src/stats.js` — shared run statistics, used by the report screen *and* the analyzer.
-- `src/reportview.ts` — the post-run report screen.
-- `src/app.ts` — screen flow (config → calibrate → run → report).
-- `scripts/analyze.mjs` — offline cross-run analysis.
+```
+src/
+  app.ts            screen flow (config → calibrate → run → report)
+  main.ts           entry point
+  core/             the maths — no DOM, no I/O, no game
+    bitrate.ts        THE score: B = log2(N-1)·max(Sc-Si,0)/t, and nothing else
+    sequence.ts       the uniform RNG and the i.i.d. target samplers
+    alphabet.ts       keyboard alphabet / symbol helpers (v1-facing)
+    stats.js|.d.ts    shared run statistics — used by the report screen AND the analyzer
+    config.ts         GameConfig + persistence
+  io/               everything that crosses a boundary
+    logging.ts        the hot-path run recorder, and POSTing a finished log
+    report.ts         assembles the one JSON artifact a run produces
+    machine.ts        one-time machine/display probe
+  ui/               presentation shared by both versions
+    reportview.ts     the post-run report screen
+    audio.ts          Web Audio feedback
+    latency.ts        the debug latency overlay
+  v2/               THE GAME — grid pointing
+    engine.ts         run state and the click handler. No DOM
+    view.ts           canvas renderer + the hit-test geometry
+    calibration.ts    the σ pipeline and grid-size recommendation. Pure
+    scope.ts          pointer-lock magnifier experiment
+  v1/               legacy keyboard game (frozen)
+    engine.ts         run state and the keydown handler
+    view.ts           the falling-lanes renderer
+    reduce.ts         authoritative fold of a keydown log back into a score
+    pacer.ts          retired auditory-pacer experiment
+scripts/analyze.mjs offline cross-run analysis
+```
+
+Tests sit beside the code they cover (`src/v2/view.test.ts`, `src/core/core.test.ts`, …).
 
 TypeScript strict. No runtime dependencies.
 

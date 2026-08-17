@@ -3,8 +3,8 @@
 // size W that every logged Fitts number is derived from, so both are worth pinning down exactly.
 
 import { describe, it, expect } from 'vitest';
-import { fitGridGeometry, cellIndexAt, cellsApart } from './gridview.js';
-import { GRID_SIZES } from './config.js';
+import { fitGridGeometry, cellIndexAt, cellsApart } from './view.js';
+import { GRID_SIZES } from '../core/config.js';
 
 describe('fitGridGeometry', () => {
   it('never overflows the available space, at any offered grid size', () => {

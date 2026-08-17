@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Engine, type KeyInput } from './engine.js';
-import { DEFAULT_CONFIG, CHALLENGE_ABOVE, CHALLENGE_BELOW } from './config.js';
+import { DEFAULT_CONFIG, CHALLENGE_ABOVE, CHALLENGE_BELOW } from '../core/config.js';
 
 const key = (k: string): KeyInput => ({ key: k, repeat: false, ctrlKey: false, metaKey: false, altKey: false });
 

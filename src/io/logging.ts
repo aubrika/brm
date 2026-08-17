@@ -5,7 +5,7 @@
 // a plain static server), probeHealth() reports false and the app falls back to the manual
 // JSON download — never blocking, never retrying, never surfacing a stack trace.
 
-import type { RawEvent, RunLog, Verdict } from './stats.js';
+import type { RawEvent, RunLog, Verdict } from '../core/stats.js';
 
 const CAP = 2048; // generous ceiling for a 60 s run (~120–250 keystrokes); no mid-run realloc
 const PCAP = 4608; // grid pointer-path ceiling: > 60 fps × 60 s samples, no mid-run realloc

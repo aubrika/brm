@@ -2,8 +2,8 @@
 // './stats.js' and resolve to these declarations; Node imports the .js directly and needs
 // no types. The runtime file is stats.js — keep the two in sync by hand (the API is small).
 
-import type { PacerMode } from './pacer.js';
-import type { CalibrationResult } from './calibration.js';
+import type { PacerMode } from '../v1/pacer.js';
+import type { CalibrationResult } from '../v2/calibration.js';
 
 export type Verdict = 'ok' | 'err';
 export type EventType = 'down' | 'up';
