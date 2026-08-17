@@ -43,9 +43,8 @@ function fmtKey(k: string): string {
 // Each key wears its exact per-lane colour from the falling strip (the Okabe-Ito palette, one hue
 // per finger left→right), so a letter's identity carries over from play into the report.
 function coloredKey(colors: Map<string, string>, ch: string): HTMLElement {
-  const base = ch.endsWith('*') ? ch.slice(0, -1) : ch; // a chord glyph 'a*' shares 'a's lane
-  const node = el('code', { class: 'r-di-key', text: fmtKey(base) });
-  node.style.color = colors.get(base) ?? 'var(--rink)';
+  const node = el('code', { class: 'r-di-key', text: fmtKey(ch) });
+  node.style.color = colors.get(ch) ?? 'var(--rink)';
   return node;
 }
 

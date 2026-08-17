@@ -717,7 +717,7 @@ export class App {
 
   // GRID MODE run: a pointing game on a canvas grid. Shares the run loop, HUD, latency proxy, and
   // logging with the keyboard path, but builds a GridEngine + canvas renderer and wires pointer
-  // handlers instead of the keyboard strip. No pacer/tones/chords/challenge here.
+  // handlers instead of the keyboard strip.
   private startGridRun(timed: boolean, immediate = false): void {
     this.mode = 'run';
     this.root.replaceChildren();

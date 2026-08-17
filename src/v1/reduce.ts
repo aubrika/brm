@@ -4,7 +4,7 @@
 // — its engine counts selections directly, because clicks carry no press/release ambiguity.
 
 import { bitRate, type RunResult } from '../core/bitrate.js';
-import { isSelection, symbolFor, type RawKey, type Outcome } from '../core/alphabet.js';
+import { isSelection, type RawKey, type Outcome } from '../core/alphabet.js';
 
 // Authoritative fold over the raw keydown log. Retry-until-correct: a wrong (in-alphabet)
 // key increments Si and does NOT advance the target; the next keydown is evaluated normally.
@@ -14,10 +14,9 @@ export function reduceLog(
   alphabet: string,
   sequence: readonly string[],
   windowMs: number,
-  chord = false,
 ): RunResult {
   const set = new Set<string>([...alphabet]); // base keys (selection keys); space is not one
-  const n = chord ? set.size * 2 : set.size; // N = symbol count for the bit-rate formula
+  const n = set.size; // N = the alphabet size, the N in log2(N-1)
   let sc = 0;
   let si = 0;
   let index = 0;
@@ -28,7 +27,7 @@ export function reduceLog(
       outcomes.push('ignored');
       continue;
     }
-    const produced = symbolFor(k.key, k.space === true, chord);
+    const produced = k.key;
     const target = index < sequence.length ? sequence[index] : '';
     if (produced === target) {
       sc++;
