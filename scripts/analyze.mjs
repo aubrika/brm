@@ -565,6 +565,73 @@ function gridArmLine(a) {
   return `    ${a.label.padEnd(10)}  TP ${a.throughput.toFixed(2)} b/s · MT=${Math.round(a.interceptMs)}+${Math.round(a.slopeMsPerBit)}·ID (R²${a.r2.toFixed(2)}) · B ${a.meanBps.toFixed(2)} · acc ${(a.meanAccuracy * 100).toFixed(1)}% · ${a.runs} run(s)`;
 }
 
+// ------------------------------------------------- error-sound A/B (grid) ----
+// "Time lost to errors" per run: for each selection (grouped by target index) that had a miss,
+// the time from the FIRST wrong click to the eventual correct click — the same red segment the
+// run tape draws. Summed per run. The hypothesis: an immediate buzzer speeds re-aim, so less time
+// is lost per error (or it distracts and costs more).
+function timeLostToErrors(log) {
+  const { downs } = splitEvents(log);
+  const byIdx = new Map();
+  for (const d of downs) {
+    if (!byIdx.has(d.idx)) byIdx.set(d.idx, []);
+    byIdx.get(d.idx).push(d);
+  }
+  let totalLostMs = 0;
+  let errors = 0;
+  let selectionsWithErrors = 0;
+  for (const ds of byIdx.values()) {
+    const firstErr = ds.find((d) => d.verdict === 'err');
+    const ok = ds.find((d) => d.verdict === 'ok');
+    errors += ds.filter((d) => d.verdict === 'err').length;
+    if (firstErr && ok && ok.t >= firstErr.t) {
+      totalLostMs += ok.t - firstErr.t;
+      selectionsWithErrors++;
+    }
+  }
+  return { totalLostMs, errors, selectionsWithErrors };
+}
+
+function analyzeErrorSound(logs) {
+  const grid = logs.filter((l) => l.grid && l.grid.enabled);
+  if (grid.length === 0) return null;
+  const groups = { on: [], off: [], unlabeled: 0 };
+  for (const l of grid) {
+    const f = l.grid.errorSound;
+    if (f === true) groups.on.push(l);
+    else if (f === false) groups.off.push(l);
+    else groups.unlabeled++;
+  }
+  const summarize = (ls) => {
+    let lost = 0;
+    let errors = 0;
+    const fractions = [];
+    const perError = [];
+    for (const l of ls) {
+      const t = timeLostToErrors(l);
+      lost += t.totalLostMs;
+      errors += t.errors;
+      const runMs = (l.summary.elapsedS || 60) * 1000;
+      if (runMs > 0) fractions.push(t.totalLostMs / runMs);
+      if (t.errors > 0) perError.push(t.totalLostMs / t.errors);
+    }
+    return {
+      runs: ls.length,
+      errors,
+      pooledMsPerError: errors > 0 ? lost / errors : 0, // pooled: total lost / total errors
+      meanMsPerError: mean(perError), // per-run mean (runs with ≥1 error)
+      meanLostFraction: mean(fractions),
+      meanBps: mean(ls.map((l) => l.summary.bitsPerSecond)),
+      meanAccuracy: mean(ls.map((l) => l.summary.accuracy)),
+    };
+  };
+  return { on: summarize(groups.on), off: summarize(groups.off), unlabeled: groups.unlabeled };
+}
+
+function errSoundLine(label, s) {
+  return `    ${label.padEnd(10)} runs ${String(s.runs).padStart(3)} · errors ${String(s.errors).padStart(4)} · lost/error ${Math.round(s.pooledMsPerError).toString().padStart(4)}ms · lost ${(s.meanLostFraction * 100).toFixed(1)}% of run · B ${s.meanBps.toFixed(2)} · acc ${(s.meanAccuracy * 100).toFixed(1)}%`;
+}
+
 function printReport(logs, analysis) {
   const L = [];
   L.push('════════════════════════════════════════════════════════════');
@@ -713,6 +780,21 @@ function printReport(logs, analysis) {
       `    err rate by next-target distance:  near ${(gr.adjacency.nearErrRate * 100).toFixed(1)}% (n=${gr.adjacency.nearN})  vs  far ${(gr.adjacency.farErrRate * 100).toFixed(1)}% (n=${gr.adjacency.farN})`,
     );
   }
+  L.push('');
+
+  const es = analysis.errorSound;
+  L.push('  [12] Error-sound A/B (grid) — time lost to errors (first miss → eventual hit)');
+  if (!es) {
+    L.push('    no grid runs yet');
+  } else {
+    L.push(errSoundLine('buzzer ON', es.on));
+    L.push(errSoundLine('buzzer OFF', es.off));
+    if (es.on.errors > 0 && es.off.errors > 0) {
+      const d = es.on.pooledMsPerError - es.off.pooledMsPerError;
+      L.push(`    difference ${d <= 0 ? '' : '+'}${Math.round(d)}ms/error with the buzzer  (negative = the sound sped recovery — the result to watch)`);
+    }
+    if (es.unlabeled > 0) L.push(`    (${es.unlabeled} pre-A/B grid run(s) without the flag, excluded)`);
+  }
   L.push('════════════════════════════════════════════════════════════');
   console.log(L.join('\n'));
 }
@@ -740,6 +822,7 @@ function main() {
     byBuild: analyzeByBuild(logs),
     conditions: analyzeConditions(logs),
     grid: analyzeGrid(logs),
+    errorSound: analyzeErrorSound(logs),
   };
   if (args.compare) {
     console.log('════════════════════════════════════════════════════════════');
