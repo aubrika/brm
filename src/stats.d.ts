@@ -3,6 +3,7 @@
 // no types. The runtime file is stats.js — keep the two in sync by hand (the API is small).
 
 import type { PacerMode } from './pacer.js';
+import type { CalibrationResult } from './calibration.js';
 
 export type Verdict = 'ok' | 'err';
 export type EventType = 'down' | 'up';
@@ -130,6 +131,7 @@ export interface RunLog {
   tones: TonesLog;
   grid?: GridLog; // present only on GRID MODE runs
   scope?: ScopeLog; // present only on SCOPE MODE runs (a grid variant)
+  calibration?: CalibrationResult; // grid mode: the session's calibration (attached to every run)
   pointerPath?: Array<[number, number, number]>; // GRID/SCOPE: [t, x, y] field-local (virtual) samples
 }
 
