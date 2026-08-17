@@ -17,6 +17,7 @@ export interface GameConfig {
   ghost: boolean; // show the next target (T+1) as a ghost cell + connector
   crosshair: boolean; // full-field locator hairlines through the target cell
   hoverPulse: boolean; // pulse a white border while the pointer is inside the target cell
+  abGhost: boolean; // arm the ghost A/B: each scored run's `ghost` is assigned by core/ab.ts
 
   // ---- SCOPE MODE (experiment; grid variant — see bitrate-scope-mode-spec.md) ----
   // A very fine grid whose cells are below comfortable clicking size, plus a hold-to-magnify
@@ -75,6 +76,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   ghost: true,
   crosshair: true,
   hoverPulse: true,
+  abGhost: false, // opt-in: half of scored runs lose the ghost, so the default game stays whole
   scope: false,
   scopeGridSize: 256, // 256×256 = 65,536 cells (~16 bits/selection); ~3.5px cells at 900px
   magnification: 8, // scoped cells appear ~28px, matching the 32×32 baseline feel

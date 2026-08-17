@@ -3,6 +3,7 @@
 // no types. The runtime file is stats.js — keep the two in sync by hand (the API is small).
 
 import type { CalibrationResult } from '../v2/calibration.js';
+import type { AbAssignment } from './ab.js';
 
 export type Verdict = 'ok' | 'err';
 export type EventType = 'down' | 'up';
@@ -109,6 +110,10 @@ export interface RunLog {
   scope?: ScopeLog; // present only on SCOPE MODE runs (a grid variant)
   calibration?: CalibrationResult; // grid mode: the session's calibration (attached to every run)
   pointerPath?: Array<[number, number, number]>; // GRID/SCOPE: [t, x, y] field-local (virtual) samples
+  /** A/B arm, when the run was assigned one by the harness (core/ab.ts). Recording block+position
+   *  rather than just the arm is what lets the analyzer pair runs EXACTLY — pairing by timestamp
+   *  would silently mis-pair the moment a run is abandoned or the browser is reloaded mid-pair. */
+  ab?: AbAssignment;
 }
 
 export interface FingerInfo {

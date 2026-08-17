@@ -46,6 +46,9 @@ code { font-family: var(--mono); }
 .field-input:focus { border-color: var(--accent); }
 .field-input[type="number"] { min-width: 90px; width: 110px; }
 .field-hint { font-size: 12px; color: var(--muted); max-width: 220px; line-height: 1.4; }
+/* Sized to sit on the same baseline as the grid-size select beside it, so the two fields read as
+   one row rather than a control and an afterthought. */
+.field-check { width: 20px; height: 20px; margin: 12px 0 10px; accent-color: var(--accent); }
 .toggles { gap: 10px; padding-top: 22px; }
 .toggle { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 15px; cursor: pointer; }
 .toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
@@ -199,6 +202,9 @@ code { font-family: var(--mono); }
 .rate .unit { font-size: 20px; color: var(--muted); font-weight: 400; }
 .stats { font-family: var(--mono); font-size: 15px; color: var(--muted); letter-spacing: 0.03em; }
 .practice-tag { font-family: var(--mono); font-size: 13px; color: var(--accent); letter-spacing: 0.1em; }
+/* A/B arm, named on the run screen: a missing ghost must read as the experiment, not a bug.
+   Muted, not accent — it is a label about the run, and must not compete with the play field. */
+.ab-tag { font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.1em; }
 
 .consent { max-width: 620px; color: var(--muted); font-size: 12px; line-height: 1.5; margin: 2px 0 0; }
 

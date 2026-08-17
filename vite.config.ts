@@ -45,6 +45,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    // scripts/ is covered too: the analyzer's paired t-test is the one place in this project where
+    // a wrong number would look right, so it is pinned to the published t-table.
+    include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs'],
   },
 });

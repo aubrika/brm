@@ -237,6 +237,21 @@ describe('renderReport', () => {
     expect(r.querySelector('.r-hero-num')?.textContent).toBeTruthy();
   });
 
+  it('names the A/B arm on the hero line, and says nothing when there is no arm', () => {
+    // Two reports from the same A/B differ only in the ghost. Without the arm on the screen they
+    // are indistinguishable, and a saved run cannot be attributed to a condition after the fact.
+    const plain = root();
+    render(plain, synthGridLog(32, 60, 8), [], info, cb);
+    expect(plain.querySelector('.r-hero-util')?.textContent).not.toContain('ghost');
+
+    const tagged = root();
+    const log = synthGridLog(32, 60, 8);
+    log.ab = { experiment: 'ghost', arm: 'off', block: 2, position: 1 };
+    log.grid!.ghost = false;
+    render(tagged, log, [], info, cb);
+    expect(tagged.querySelector('.r-hero-util')?.textContent).toContain('ghost off');
+  });
+
   it('states the grid size and pointer type in the Movement panel', () => {
     const r = root();
     render(r, synthGridLog(32, 60, 8), [], info, cb);

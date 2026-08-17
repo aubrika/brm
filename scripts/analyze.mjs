@@ -2,7 +2,7 @@
 // prints a text report, and writes logs/analysis.json for further work (trivially loadable
 // in pandas). Run from the repo root:
 //
-//   node scripts/analyze.mjs [--machine calvin] [--scored-only]
+//   node scripts/analyze.mjs [--machine calvin] [--scored-only] [--logs DIR]
 //
 // It shares src/core/stats.js with the in-browser report screen, so the offline numbers and the
 // on-screen numbers are computed by the exact same functions and cannot drift. Each of the
@@ -25,19 +25,23 @@ import {
 
 const SCHEMA = 3;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const LOGS_DIR = path.resolve(HERE, '..', 'logs');
+const DEFAULT_LOGS_DIR = path.resolve(HERE, '..', 'logs');
 
 // ---------------------------------------------------------------- loading ----
 function parseArgs(argv) {
-  const args = { machine: null, scoredOnly: false };
+  // --logs points at an alternative directory: a set downloaded from another machine, or the
+  // synthetic sets used to check this script's own statistics against a known answer.
+  const args = { machine: null, scoredOnly: false, logsDir: DEFAULT_LOGS_DIR };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--machine') args.machine = argv[++i];
     else if (argv[i] === '--scored-only') args.scoredOnly = true;
+    else if (argv[i] === '--logs') args.logsDir = path.resolve(argv[++i]);
   }
   return args;
 }
 
 function loadLogs(args) {
+  const LOGS_DIR = args.logsDir;
   if (!existsSync(LOGS_DIR)) return [];
   const files = readdirSync(LOGS_DIR).filter((f) => f.endsWith('.json') && f !== 'analysis.json');
   const logs = [];
@@ -453,6 +457,200 @@ function analyzeGrid(logs) {
   };
 }
 
+// ------------------------------------------- the ghost A/B (paired analysis) ----
+// Runs carrying `ab.experiment === 'ghost'` were assigned an arm by the in-app harness (src/core/
+// ab.ts) in randomised pairs: each pair holds one ghost-on run and one ghost-off run. Pairing is by
+// the logged block index, never by timestamp — an abandoned run or a reload would silently mis-pair
+// otherwise, and a mis-paired difference is worse than no difference at all.
+//
+// The comparison is WITHIN pair. A player's bit rate drifts across a session by more than the ghost
+// could plausibly be worth, so an unpaired mean-vs-mean would mostly measure the order the arms
+// happened to fall in. Differencing inside a pair cancels that drift.
+
+// Regularised incomplete beta, by the standard continued fraction — the only piece needed for an
+// exact t p-value. Without it this script could only report point estimates, which invites reading
+// a difference into what is noise.
+function logGamma(x) {
+  const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+  let y = x;
+  let tmp = x + 5.5;
+  tmp -= (x + 0.5) * Math.log(tmp);
+  let ser = 1.000000000190015;
+  for (let j = 0; j < 6; j++) ser += c[j] / ++y;
+  return -tmp + Math.log((2.5066282746310005 * ser) / x);
+}
+
+function betacf(a, b, x) {
+  const TINY = 1e-30;
+  const qab = a + b;
+  const qap = a + 1;
+  const qam = a - 1;
+  let c = 1;
+  let d = 1 - (qab * x) / qap;
+  if (Math.abs(d) < TINY) d = TINY;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m <= 200; m++) {
+    const m2 = 2 * m;
+    let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < TINY) d = TINY;
+    c = 1 + aa / c;
+    if (Math.abs(c) < TINY) c = TINY;
+    d = 1 / d;
+    h *= d * c;
+    aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < TINY) d = TINY;
+    c = 1 + aa / c;
+    if (Math.abs(c) < TINY) c = TINY;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < 3e-7) break;
+  }
+  return h;
+}
+
+function betainc(a, b, x) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const front = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+  return x < (a + 1) / (a + b + 2) ? (front * betacf(a, b, x)) / a : 1 - (front * betacf(b, a, 1 - x)) / b;
+}
+
+/** Two-sided p for Student's t. */
+function tTwoSided(t, df) {
+  if (!Number.isFinite(t) || df <= 0) return 1;
+  return betainc(df / 2, 0.5, df / (df + t * t));
+}
+
+/** Upper-tail t quantile (p > 0.5), by bisection on the two-sided tail. */
+function tQuantile(p, df) {
+  const target = 2 * (1 - p);
+  let lo = 0;
+  let hi = 1000;
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    if (tTwoSided(mid, df) > target) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+const tCrit95 = (df) => tQuantile(0.975, df);
+
+/** Paired t on a list of within-pair differences, plus the effect this many pairs could actually
+ *  have detected — an experiment that reports "no difference" without stating its own resolution
+ *  is claiming more than it measured. MDE is the 80%-power, α=.05 two-sided difference. */
+function pairedTest(diffs) {
+  const n = diffs.length;
+  if (n < 2) return { n, mean: n ? diffs[0] : 0, sd: NaN, t: NaN, p: NaN, lo: NaN, hi: NaN, mde: NaN };
+  const m = mean(diffs);
+  const sd = Math.sqrt(diffs.reduce((s, d) => s + (d - m) * (d - m), 0) / (n - 1));
+  const se = sd / Math.sqrt(n);
+  const t = se > 0 ? m / se : 0;
+  const crit = tCrit95(n - 1);
+  return {
+    n,
+    mean: m,
+    sd,
+    t,
+    p: se > 0 ? tTwoSided(Math.abs(t), n - 1) : 1,
+    lo: m - crit * se,
+    hi: m + crit * se,
+    // (t_{.975} + t_{.80})·se. The textbook (z_{.975} + z_{.80}) = 2.802 is the LARGE-sample form
+    // and is badly optimistic here: at 8 pairs it claims 80% power where a Monte-Carlo check of
+    // this very function gives 67%. At these sample sizes the t quantiles are the whole story.
+    mde: (tQuantile(0.975, n - 1) + tQuantile(0.8, n - 1)) * se,
+  };
+}
+
+/** Per-run outcome measures. meanCycleMs is the mean movement time between correct selections —
+ *  a per-selection quantity, so it carries far more information than the single bits/s number, and
+ *  it is what the ghost is supposed to move. */
+function armRunMetrics(l) {
+  const f = gridFitts(l);
+  const s = l.summary;
+  return {
+    file: l.__file,
+    bps: s.bitsPerSecond,
+    accuracy: s.accuracy,
+    errRate: s.sc + s.si > 0 ? s.si / (s.sc + s.si) : 0,
+    cycleMs: f && f.meanMt > 0 ? f.meanMt : NaN,
+    meanId: f ? f.meanId : NaN,
+    selections: s.sc,
+  };
+}
+
+function analyzeGhostAb(logs) {
+  const eligible = logs.filter(
+    (l) => l.ab && l.ab.experiment === 'ghost' && l.grid && l.grid.enabled && !(l.scope && l.scope.enabled) && l.meta.mode === 'scored' && (l.grid.depth ?? 1) === 1,
+  );
+  if (eligible.length === 0) return { pairs: [], runs: 0, dropped: [] };
+
+  const byBlock = new Map();
+  for (const l of eligible) {
+    const k = l.ab.block;
+    if (!byBlock.has(k)) byBlock.set(k, []);
+    byBlock.get(k).push(l);
+  }
+
+  // A pair only counts if it is exactly one arm each AND both runs were played on the same grid.
+  // Changing grid size mid-pair changes N and the target width together, which would show up as a
+  // ghost effect; such a pair is dropped and said so, not quietly averaged in.
+  const pairs = [];
+  const dropped = [];
+  for (const [block, ls] of [...byBlock.entries()].sort((a, b) => a[0] - b[0])) {
+    const on = ls.filter((l) => l.ab.arm === 'on');
+    const off = ls.filter((l) => l.ab.arm === 'off');
+    if (on.length !== 1 || off.length !== 1) {
+      dropped.push({ block, why: `incomplete (${on.length} on, ${off.length} off)` });
+      continue;
+    }
+    if (on[0].grid.gridSize !== off[0].grid.gridSize) {
+      dropped.push({ block, why: `grid size changed mid-pair (${on[0].grid.gridSize} vs ${off[0].grid.gridSize})` });
+      continue;
+    }
+    pairs.push({ block, gridSize: on[0].grid.gridSize, on: armRunMetrics(on[0]), off: armRunMetrics(off[0]) });
+  }
+
+  const diffs = (key) => pairs.map((p) => p.on[key] - p.off[key]).filter((v) => Number.isFinite(v));
+  const armMean = (arm, key) => mean(pairs.map((p) => p[arm][key]).filter((v) => Number.isFinite(v)));
+
+  // Mechanism check. The ghost can only help by letting you plan the next movement early, so its
+  // benefit should live in the movement time. And in the OFF arm, where T+1 is invisible, error rate
+  // must NOT depend on how close T+1 happens to be — if it does, something other than the ghost is
+  // driving these numbers and the whole comparison is suspect.
+  const adjacency = { on: { near: { err: 0, total: 0 }, far: { err: 0, total: 0 } }, off: { near: { err: 0, total: 0 }, far: { err: 0, total: 0 } } };
+  for (const l of eligible) {
+    const s = ghostMisclickStats(l);
+    const a = adjacency[l.ab.arm];
+    a.near.err += s.byAdj.near.err;
+    a.near.total += s.byAdj.near.total;
+    a.far.err += s.byAdj.far.err;
+    a.far.total += s.byAdj.far.total;
+  }
+
+  return {
+    runs: eligible.length,
+    pairs,
+    dropped,
+    gridSizes: [...new Set(pairs.map((p) => p.gridSize))],
+    means: {
+      on: { bps: armMean('on', 'bps'), cycleMs: armMean('on', 'cycleMs'), errRate: armMean('on', 'errRate'), meanId: armMean('on', 'meanId') },
+      off: { bps: armMean('off', 'bps'), cycleMs: armMean('off', 'cycleMs'), errRate: armMean('off', 'errRate'), meanId: armMean('off', 'meanId') },
+    },
+    tests: {
+      bps: pairedTest(diffs('bps')),
+      cycleMs: pairedTest(diffs('cycleMs')),
+      errRate: pairedTest(diffs('errRate')),
+      meanId: pairedTest(diffs('meanId')), // a randomisation check: the draw should be equal on both arms
+    },
+    adjacency,
+  };
+}
+
 function gridArmLine(a) {
   return `    ${a.label.padEnd(10)}  TP ${a.throughput.toFixed(2)} b/s · MT=${Math.round(a.interceptMs)}+${Math.round(a.slopeMsPerBit)}·ID (R²${a.r2.toFixed(2)}) · B ${a.meanBps.toFixed(2)} · acc ${(a.meanAccuracy * 100).toFixed(1)}% · ${a.runs} run(s)`;
 }
@@ -548,7 +746,7 @@ function printReport(logs, analysis) {
   L.push('');
 
   const gr = analysis.grid;
-  L.push('  [11] GRID MODE (pointing) — Fitts throughput, dwell, ghost A/B');
+  L.push('  [11] GRID MODE (pointing) — Fitts throughput, dwell, next-target adjacency');
   if (!gr) {
     L.push('    no grid runs yet');
   } else {
@@ -556,7 +754,7 @@ function printReport(logs, analysis) {
     L.push(`    overall  ${gridArmLine(gr.overall).trim()}`);
     L.push('    by pointer type:');
     for (const a of gr.byPointer) L.push(gridArmLine(a));
-    L.push('    ghost A/B (cycle time + accuracy, ghost on vs off):');
+    L.push('    ghost on/off, pooled and UNPAIRED (descriptive only — the test is [12]):');
     L.push(gridArmLine(gr.ghost.on));
     L.push(gridArmLine(gr.ghost.off));
     if (gr.dwell.count > 0) {
@@ -568,6 +766,52 @@ function printReport(logs, analysis) {
     L.push(
       `    err rate by next-target distance:  near ${(gr.adjacency.nearErrRate * 100).toFixed(1)}% (n=${gr.adjacency.nearN})  vs  far ${(gr.adjacency.farErrRate * 100).toFixed(1)}% (n=${gr.adjacency.farN})`,
     );
+  }
+  L.push('');
+
+  const ab = analysis.ghostAb;
+  L.push('  [12] GHOST A/B — does the next-target preview raise bit rate? (paired, within-block)');
+  if (!ab || ab.runs === 0) {
+    L.push('    no A/B-tagged runs. Arm "A/B the lookahead ghost" on the config screen, then play');
+    L.push('    scored runs in pairs — the harness assigns one ghost-on and one ghost-off per pair.');
+  } else if (ab.pairs.length === 0) {
+    L.push(`    ${ab.runs} tagged run(s) but no complete pair yet — play the other half of the pair.`);
+  } else {
+    const sizes = ab.gridSizes.length === 1 ? `${ab.gridSizes[0]}×${ab.gridSizes[0]}` : ab.gridSizes.map((s) => `${s}²`).join(', ');
+    L.push(`    ${ab.pairs.length} complete pair(s) · ${ab.runs} tagged run(s) · grid ${sizes}`);
+    for (const d of ab.dropped) L.push(`    ! pair ${d.block + 1} dropped: ${d.why}`);
+    L.push('    pair    ghost on              ghost off             Δ (on − off)');
+    for (const p of ab.pairs) {
+      const d = p.on.bps - p.off.bps;
+      L.push(
+        `    ${String(p.block + 1).padStart(4)}    ${p.on.bps.toFixed(3).padStart(7)} b/s          ${p.off.bps.toFixed(3).padStart(7)} b/s          ${(d >= 0 ? '+' : '') + d.toFixed(3)}`,
+      );
+    }
+    const line = (label, test, on, off, fmt, unit) => {
+      if (!Number.isFinite(test.p)) return `    ${label.padEnd(16)} ${fmt(on)} vs ${fmt(off)} — need ≥2 pairs to test`;
+      const sign = test.mean >= 0 ? '+' : '';
+      return (
+        `    ${label.padEnd(16)} on ${fmt(on)}  off ${fmt(off)}  Δ ${sign}${fmt(test.mean)}${unit}` +
+        `  95% CI [${fmt(test.lo)}, ${fmt(test.hi)}]  p=${test.p.toFixed(3)}`
+      );
+    };
+    const b3 = (v) => v.toFixed(3);
+    const ms0 = (v) => (Number.isFinite(v) ? Math.round(v).toString() : '—');
+    const pct = (v) => (Number.isFinite(v) ? (v * 100).toFixed(2) : '—');
+    L.push('');
+    L.push(line('bits/s', ab.tests.bps, ab.means.on.bps, ab.means.off.bps, b3, ''));
+    L.push(line('cycle time', ab.tests.cycleMs, ab.means.on.cycleMs, ab.means.off.cycleMs, ms0, 'ms'));
+    L.push(line('error rate %', ab.tests.errRate, ab.means.on.errRate, ab.means.off.errRate, pct, '%'));
+    L.push(`    randomisation check: mean ID on ${ab.means.on.meanId.toFixed(3)} vs off ${ab.means.off.meanId.toFixed(3)} bits (p=${ab.tests.meanId.p.toFixed(3)}) — should be ~equal`);
+    if (Number.isFinite(ab.tests.bps.mde)) {
+      L.push(`    resolution: ${ab.pairs.length} pairs can detect ≥ ${ab.tests.bps.mde.toFixed(2)} bits/s at 80% power.`);
+      L.push('    A null result here means "smaller than that", never "zero".');
+    }
+    const near = (a) => (a.near.total > 0 ? (100 * a.near.err) / a.near.total : NaN);
+    const far = (a) => (a.far.total > 0 ? (100 * a.far.err) / a.far.total : NaN);
+    L.push('    mechanism check — error rate when T+1 is near vs far:');
+    L.push(`      ghost on   near ${pct(near(ab.adjacency.on) / 100)}%  far ${pct(far(ab.adjacency.on) / 100)}%`);
+    L.push(`      ghost off  near ${pct(near(ab.adjacency.off) / 100)}%  far ${pct(far(ab.adjacency.off) / 100)}%   (off should show NO gap — T+1 is invisible)`);
   }
   L.push('════════════════════════════════════════════════════════════');
   console.log(L.join('\n'));
@@ -593,10 +837,16 @@ function main() {
     digraphs: analyzeDigraphs(logs),
     byBuild: analyzeByBuild(logs),
     grid: analyzeGrid(logs),
+    ghostAb: analyzeGhostAb(logs),
   };
   printReport(logs, analysis);
-  writeFileSync(path.join(LOGS_DIR, 'analysis.json'), JSON.stringify(analysis, null, 2));
-  console.log(`\nWrote ${path.join('logs', 'analysis.json')}`);
+  writeFileSync(path.join(args.logsDir, 'analysis.json'), JSON.stringify(analysis, null, 2));
+  console.log(`\nWrote ${path.join(args.logsDir, 'analysis.json')}`);
 }
 
-main();
+// Only run when invoked as a script. The statistics above are exported so scripts/stats.test.mjs
+// can check them against published t-table values — a wrong p-value here would not fail loudly,
+// it would just quietly produce a confident wrong answer about the ghost.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+
+export { tTwoSided, tQuantile, pairedTest, analyzeGhostAb };

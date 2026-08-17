@@ -65,6 +65,11 @@ Filename: `<ISO timestamp, colons→dashes>_<machine label, slugified>_<first 4 
                    "recommendedGrid": 32, "chosenGrid": 32, "overridden": false,
                    "pointerType": "mouse", "fieldPx": 896, "devicePixelRatio": 2 },
   "pointerPath": [[t, x, y], …],   // field-local pointer samples, ~one per frame
+  // Present only when the A/B harness assigned this run an arm. `block` is the pair index and
+  // `position` is which half of the pair — the analyzer pairs on these, never on timestamps,
+  // so an abandoned run or a mid-pair reload cannot silently mis-pair two conditions.
+  // `grid.ghost` states what was actually drawn and must agree with `arm`.
+  "ab": { "experiment": "ghost", "arm": "off", "block": 3, "position": 1 },
   // `scope` (pointer-lock magnifier experiment) appears only on scope runs.
 
   // `rollovers` is keyboard-only (it counts down/up overlap); it is 0 on grid runs,

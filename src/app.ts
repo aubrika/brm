@@ -18,6 +18,7 @@ import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
 import { loadConfig, saveConfig, GRID_SIZES, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
+import { loadAbState, saveAbState, peek as abPeek, advance as abAdvance, completedPairs, type AbState, type AbAssignment } from './core/ab.js';
 import { validateAlphabet } from './core/alphabet.js';
 import { generateCalibrationScript, computeCalibration, seededRandInt, REFERENCE_GRID, CALIB_CLICKS, type CalibrationResult, type CalibClick } from './v2/calibration.js';
 import type { MachineMeta, RunLog, ScopeActivation } from './core/stats.js';
@@ -99,6 +100,7 @@ interface RunCtx {
   pointerType: string; // GRID: modal pointer type across the run
   ghostAdjacent: number[]; // GRID: per down-event, was the next target within a couple cells
   pointerTypes: string[]; // GRID: per down-event pointer type
+  ab: AbAssignment | null; // GRID: the A/B arm this run was assigned, when the harness is armed
   rafId: number;
   ui: {
     time: HTMLElement;
@@ -119,6 +121,9 @@ export class App {
   // grid calibration: session-scoped; gates the scored run and is attached to every run log.
   private calibration: CalibrationResult | null = null;
   private calib: CalibCtx | null = null; // the in-progress calibration task
+  // Ghost A/B position. Persisted, so a pair survives a page reload; advanced only when a scored
+  // run actually finishes (an abandoned run must not burn an arm and unbalance the pair).
+  private abState: AbState = loadAbState();
 
   // gathered once at startup; awaited (long-settled) when a run finishes
   private machine: MachineMeta | null = null;
@@ -157,6 +162,10 @@ export class App {
         ...(dp === 1 || dp === 2 ? { gridDepth: dp } : {}),
       };
     }
+    // Dev aid: ?ab arms the ghost A/B for this session, so the harness can be driven headlessly
+    // (`?grid=32&auto=scored&secs=6&demo&ab` plays one arm and reports it) without clicking through
+    // the config screen. It only arms the harness; which arm you get is still the harness's call.
+    if (params.has('ab')) this.config = { ...this.config, abGhost: true };
     // Dev aid: ?scope[=128|256]&mag=8 forces SCOPE MODE; &scoped engages the lens after start (for
     // headless capture, where there is no pointer lock to drive it).
     if (params.has('scope')) {
@@ -578,11 +587,25 @@ export class App {
         ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
       ]);
 
+    // The ghost A/B. Off by default so a first-time visitor plays the whole game; while it is on,
+    // the harness overrides `ghost` on every scored run and the config's own value is ignored.
+    const abGhost = el('input', { type: 'checkbox', class: 'field-check', ...(this.config.abGhost ? { checked: true } : {}) }) as HTMLInputElement;
+    abGhost.addEventListener('change', () => {
+      this.config = { ...this.config, abGhost: abGhost.checked };
+      saveConfig(this.config);
+      this.showConfig(); // re-render: the hint must state the arm you are about to play
+    });
+    const next = abPeek(this.abState);
+    const abHint = this.config.abGhost
+      ? `Next scored run: ghost ${next.arm.toUpperCase()} (pair ${next.block + 1}, run ${next.position + 1} of 2) · ${completedPairs(this.abState)} pairs complete`
+      : 'Alternates the next-target preview on and off in randomised pairs, to measure what it is worth.';
+
     const collect = (): GameConfig => ({
       ...DEFAULT_CONFIG,
       grid: true,
       scope: false,
       gridSize: Number(gridSize.value) || 32,
+      abGhost: abGhost.checked,
     });
 
     const calibrate = el('button', { class: 'btn ghost', onclick: () => this.startCalibration(), text: cal ? 'Recalibrate' : 'Calibrate' });
@@ -621,6 +644,7 @@ export class App {
         status,
         el('div', { class: 'config-grid' }, [
           field(cal ? 'Grid size (change)' : 'Grid size', gridSize, 'More cells = more bits per correct click, but smaller targets.'),
+          field('A/B the lookahead ghost', abGhost, abHint),
         ]),
         el('div', { class: 'field-note', text: cal ? 'Duration is locked to 60 s for scored runs.' : 'The scored run unlocks after calibration. Duration is locked to 60 s.' }),
         el('div', { class: 'buttons' }, [calibrate, practice, scored]),
@@ -704,6 +728,7 @@ export class App {
       pointerType: '',
       ghostAdjacent: [],
       pointerTypes: [],
+      ab: null,
       rafId: 0,
       ui: { time, rate, stats, countdown, stripRoot },
     };
@@ -723,7 +748,12 @@ export class App {
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock(); // the Start-button click is the unlocking gesture
 
-    const engine = new GridEngine(this.config, timed);
+    // A/B: when the harness is armed, IT decides whether this run shows the ghost — not the config.
+    // Scored runs only: practice runs would consume arms without contributing a comparable score.
+    const ab = timed && this.config.abGhost ? abPeek(this.abState) : null;
+    const runConfig = ab ? { ...this.config, ghost: ab.arm === 'on' } : this.config;
+
+    const engine = new GridEngine(runConfig, timed);
     engine.onCorrect = () => this.audio.bloop(); // hit: rising bloop (+ particle burst in the renderer)
     // no wrong-cell buzzer — the red flash (drawn by the renderer) is the only miss feedback
     const stripRoot = el('div', { class: 'strip-root grid-root' });
@@ -737,6 +767,9 @@ export class App {
       el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
       el('div', { class: 'readout' }, [rate, stats]),
       ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+      // Name the arm on screen. The ghost's absence is otherwise indistinguishable from a bug, and
+      // a player who thinks the game is broken does not play the run you are trying to measure.
+      ...(ab ? [el('div', { class: 'ab-tag', text: `A/B · ghost ${ab.arm} · pair ${ab.block + 1}` })] : []),
     ]);
     this.root.append(screen);
 
@@ -790,6 +823,7 @@ export class App {
       pointerType: '',
       ghostAdjacent: [],
       pointerTypes: [],
+      ab,
       rafId: 0,
       ui: { time, rate, stats, countdown, stripRoot },
     };
@@ -857,6 +891,7 @@ export class App {
       pointerType: 'mouse',
       ghostAdjacent: [],
       pointerTypes: [],
+      ab: null,
       rafId: 0,
       ui: { time, rate, stats, countdown, stripRoot, scopeOverlay },
     };
@@ -1086,7 +1121,13 @@ export class App {
     const scopeLog = rc.scope ? this.buildScopeLog(rc) : undefined;
     const pointerPath = pointing ? rc.recorder.buildPointerPath() : undefined;
     const calibration = rc.grid && this.calibration ? this.calibration : undefined; // session calibration
-    void this.completeRun(rc, result, gridLog, pointerPath, scopeLog, calibration);
+    // Consume the arm only now, on a run that actually completed and will be logged. Advancing at
+    // run START would let an abandoned run eat one half of a pair and leave the block lopsided.
+    if (rc.ab) {
+      this.abState = abAdvance(this.abState);
+      saveAbState(this.abState);
+    }
+    void this.completeRun(rc, result, gridLog, pointerPath, scopeLog, calibration, rc.ab ?? undefined);
   }
 
   // Assemble the GRID MODE section of the log. The Fitts difficulty of every selection depends on
@@ -1101,9 +1142,11 @@ export class App {
       fieldPx: v ? v.fieldPx : 0,
       cellPx: v ? v.cellPx : 0,
       devicePixelRatio: v ? v.dpr : 1,
-      ghost: this.config.ghost,
-      crosshair: this.config.crosshair,
-      hoverPulse: this.config.hoverPulse,
+      // Read the ENGINE's config, not the app's: under the A/B harness the run's ghost setting is
+      // the assigned arm, which may differ from what is saved in the config.
+      ghost: rc.engine.config.ghost,
+      crosshair: rc.engine.config.crosshair,
+      hoverPulse: rc.engine.config.hoverPulse,
       pointerType: rc.pointerType || 'mouse',
       ghostAdjacent: rc.ghostAdjacent,
       pointerTypes: rc.pointerTypes,
@@ -1132,6 +1175,7 @@ export class App {
     pointerPath?: RunLog['pointerPath'],
     scope?: RunLog['scope'],
     calibration?: RunLog['calibration'],
+    ab?: RunLog['ab'],
   ): Promise<void> {
     const machine = this.machine ?? (await this.machinePromise);
     const log = buildReport(rc.engine, result, {
@@ -1144,6 +1188,7 @@ export class App {
       pointerPath,
       scope,
       calibration,
+      ab,
     });
     this.run = null;
 

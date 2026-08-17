@@ -65,11 +65,37 @@ with its verdict and timestamp, the pointer path, the calibration, and the build
 `B` is independently recomputable from it — nothing on screen is unverifiable.
 
 ```
-node scripts/analyze.mjs
+node scripts/analyze.mjs [--scored-only] [--machine NAME] [--logs DIR]
 ```
 
-Section `[11]` covers grid mode: Fitts throughput, verify-dwell, the ghost A/B and a
-mouse-vs-trackpad split. See `logs/README.md` for the log format.
+Section `[11]` covers grid mode: Fitts throughput, verify-dwell, and a mouse-vs-trackpad split.
+Section `[12]` is the ghost A/B (below). See `logs/README.md` for the log format.
+
+## Experiment: is the lookahead ghost worth anything?
+
+Grid mode has always outlined the **next** target in grey and drawn a connector to it, on the
+assumption that letting you plan the next movement while finishing this one would pay. That was
+never measured, so there is a harness for it: tick **A/B the lookahead ghost** on the config
+screen and the game assigns each scored run an arm — half with the ghost, half without.
+
+Arms come in **randomised pairs**: every pair holds one ghost-on run and one ghost-off run, in a
+random order. A player's bit rate drifts across a session by more than the ghost could plausibly
+be worth, so the comparison is made *within* a pair, where that drift cancels. Free coin-flipping
+would not do — across the handful of pairs anyone will actually sit through, a streak long enough
+to swamp the effect is common. The arm, its pair index and its position are written into each log,
+so pairing at analysis time is exact rather than inferred from timestamps.
+
+The analyzer reports the paired difference with a 95 % CI and an exact t p-value, plus two guards
+against reading too much into it:
+
+- **Its own resolution.** With the scatter the pairs actually showed, the smallest difference
+  those pairs could detect at 80 % power. A null result means "smaller than that", never "zero".
+- **A mechanism check.** Error rate is split by whether the *next* target happened to fall near
+  or far. In the ghost-off arm, where the next target is invisible, that gap must vanish — if it
+  does not, something other than the ghost is driving the numbers.
+
+Roughly 8–12 pairs (16–24 minutes of play) puts the resolution near a few percent of the ~13 bits/s
+baseline.
 
 ## Structure
 
@@ -83,6 +109,7 @@ src/
     alphabet.ts       keyboard alphabet / symbol helpers (v1-facing)
     stats.js|.d.ts    shared run statistics — used by the report screen AND the analyzer
     config.ts         GameConfig + persistence
+    ab.ts             the A/B harness: randomised blocks of two, persisted across runs
   io/               everything that crosses a boundary
     logging.ts        the hot-path run recorder, and POSTing a finished log
     report.ts         assembles the one JSON artifact a run produces
@@ -100,7 +127,6 @@ src/
     engine.ts         run state and the keydown handler
     view.ts           the falling-lanes renderer
     reduce.ts         authoritative fold of a keydown log back into a score
-    pacer.ts          retired auditory-pacer experiment
 scripts/analyze.mjs offline cross-run analysis
 ```
 

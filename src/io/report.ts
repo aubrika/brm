@@ -24,6 +24,7 @@ export interface BuildOpts {
   pointerPath?: RunLog['pointerPath']; // GRID / SCOPE MODE
   scope?: RunLog['scope']; // SCOPE MODE only
   calibration?: RunLog['calibration']; // grid mode session calibration
+  ab?: RunLog['ab']; // A/B arm, when the harness assigned one
 }
 
 // A grid run has no keyboard alphabet/finger structure, so buildReport accepts either engine and
@@ -99,6 +100,7 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
     ...(opts.scope ? { scope: opts.scope } : {}),
     ...(opts.calibration ? { calibration: opts.calibration } : {}),
     ...(opts.pointerPath ? { pointerPath: opts.pointerPath } : {}),
+    ...(opts.ab ? { ab: opts.ab } : {}),
   };
 }
 

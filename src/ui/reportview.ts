@@ -63,10 +63,14 @@ function heroSection(log: RunLog): AnimatedPanel {
   const { bitsPerSecond, n, sc, si, elapsedS } = log.summary;
   const scoreNode = el('div', { class: 'r-hero-num', text: fmtScore(bitsPerSecond) });
 
+  // Under the A/B harness the run's condition is part of what the number means, so it belongs on
+  // the same line as N and the counts — otherwise two reports differing only by arm look identical.
+  const ab = log.ab ? ` · ${log.ab.experiment} ${log.ab.arm}` : '';
+
   const node = el('div', { class: 'r-hero' }, [
     scoreNode,
     el('div', { class: 'r-hero-unit', text: 'bits per second' }),
-    el('div', { class: 'r-hero-util', text: `N ${n} · Sc ${sc} · Si ${si} · ${elapsedS.toFixed(1)} s` }),
+    el('div', { class: 'r-hero-util', text: `N ${n} · Sc ${sc} · Si ${si} · ${elapsedS.toFixed(1)} s${ab}` }),
   ]);
 
   const animate = (): void => {
