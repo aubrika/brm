@@ -87,7 +87,16 @@ function upperBound(arr, x) {
 
 // -------------------------------------------------------------- analyses ----
 // 1. IKI by transition type, per machine (over consecutive correct pairs).
+// Keyboard (v1) analyses only apply to keyboard runs. A GRID run has no alphabet, fingers or
+// digraphs — its logs omit those config fields entirely — so filter them out rather than deriving a
+// finger map from nothing. (Older grid logs carried a fictitious 'asdfjkl;' alphabet; the
+// `mode` discriminator catches those too.)
+function keyboardLogs(logs) {
+  return logs.filter((l) => l.meta?.config?.mode !== 'grid' && !l.grid?.enabled && l.meta?.config?.alphabet);
+}
+
 function analyzeTransitions(logs) {
+  logs = keyboardLogs(logs);
   const byMachine = new Map();
   for (const log of logs) {
     const label = log.meta.machine.label || '(unlabeled)';
@@ -158,6 +167,7 @@ function analyzePostError(logs) {
 
 // 4. Error confusion matrix, aggregated target × pressed.
 function analyzeConfusion(logs) {
+  logs = keyboardLogs(logs);
   const counts = new Map();
   let total = 0;
   const alphabets = new Set();
@@ -204,6 +214,9 @@ function analyzeHistogram(logs, binMs = 25, maxMs = 1000) {
 // hand/finger relationship — so the commonalities among the slowest vs fastest transitions
 // (e.g. "the slow ones are all cross-hand") are visible and trackable across runs.
 function analyzeDigraphs(logs, minCount = 5) {
+  logs = keyboardLogs(logs);
+  const empty = { alphabet: null, alphabetsPresent: [], minCount, slowest: [], fastest: [], byKind: {}, slowestProfile: null, fastestProfile: null };
+  if (logs.length === 0) return empty; // grid-only log set: no digraphs to rank
   // classification uses the most common alphabet across the logs (usually the only one)
   const alphaCounts = new Map();
   for (const log of logs) alphaCounts.set(log.meta.config.alphabet, (alphaCounts.get(log.meta.config.alphabet) ?? 0) + 1);

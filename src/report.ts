@@ -40,22 +40,33 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
   const elapsedS = result.tSeconds;
   const net = Math.max(result.sc - result.si, 0);
 
-  const config: RunConfig = {
-    alphabet: engine.config.alphabet,
-    n: engine.n,
-    leftFingers: engine.config.leftFingers,
-    rightFingers: engine.config.rightFingers,
-    topRow: engine.config.topRow, // recorded so the report can colour top-row keys by their lane
-    leftTopRow: engine.config.leftTopRow,
-    rightTopRow: engine.config.rightTopRow,
-    chords: engine.config.chords,
-    lookahead: engine.config.lookahead,
-    lanes: engine.config.lanes,
-    chord: engine.config.chord,
-    sound: engine.config.sound,
-    errorFeedback: engine.config.errorFeedback,
-    durationMs: engine.config.durationMs,
-  };
+  // State only what was actually played. A grid run has no alphabet, no fingers, no falling lanes —
+  // stamping those defaults into the log described a keyboard game that never ran.
+  const isGrid = !!opts.grid;
+  const config: RunConfig = isGrid
+    ? {
+        mode: 'grid',
+        n: engine.n,
+        durationMs: engine.config.durationMs,
+        sound: engine.config.sound,
+      }
+    : {
+        mode: 'keyboard',
+        n: engine.n,
+        durationMs: engine.config.durationMs,
+        sound: engine.config.sound,
+        alphabet: engine.config.alphabet,
+        leftFingers: engine.config.leftFingers,
+        rightFingers: engine.config.rightFingers,
+        topRow: engine.config.topRow, // lets the report colour top-row keys by their lane
+        leftTopRow: engine.config.leftTopRow,
+        rightTopRow: engine.config.rightTopRow,
+        chords: engine.config.chords,
+        lookahead: engine.config.lookahead,
+        lanes: engine.config.lanes,
+        chord: engine.config.chord,
+        errorFeedback: engine.config.errorFeedback,
+      };
 
   // build stamp (Vite `define`); `typeof` guard keeps it safe if ever run outside the bundle
   const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';

@@ -138,6 +138,54 @@ function synthLog(selections: number, errEvery: number): RunLog {
   };
 }
 
+// GRID (v2) fixture — the branch every live run actually takes. `synthLog` above builds a keyboard
+// (v1) log; without a `grid` section renderReport renders the legacy panels instead, so the report
+// screen users see was previously untested.
+function synthGridLog(gridSize: number, selections: number, errEvery: number): RunLog {
+  const N = gridSize * gridSize;
+  const seq: string[] = [];
+  const events: RawEvent[] = [];
+  let t = 300, idx = 0, sc = 0, si = 0;
+  for (let i = 0; i < selections; i++) {
+    const cell = (i * 137 + 11) % N;
+    seq.push(String(cell));
+    if (errEvery > 0 && i % errEvery === errEvery - 1) {
+      events.push([t, 'down', String((cell + 1) % N), idx, 'err']);
+      si++;
+      t += 220;
+    }
+    t += 520 + (i % 5) * 40;
+    events.push([t, 'down', String(cell), idx, 'ok']);
+    sc++;
+    idx++;
+  }
+  const bps = (Math.log2(N - 1) * Math.max(sc - si, 0)) / 60;
+  return {
+    schemaVersion: 3,
+    meta: {
+      appVersion: '1.0.0', commit: 'testsha', runId: 'grid-run-0001',
+      startedAt: '2026-08-16T10:00:00.000Z', mode: 'scored',
+      machine: { installId: 'u_test', label: '', ua: 'x', platform: 'x', hardwareConcurrency: 8, estimatedRefreshHz: 120, timeOriginPrecisionMs: 0.1 },
+      config: { mode: 'grid', n: N, durationMs: 60000, sound: true },
+    },
+    sequence: seq.slice(0, idx + 1),
+    eventColumns: ['t', 'type', 'key', 'idx', 'verdict'],
+    events,
+    latencySamples: [],
+    summary: {
+      bitsPerSecond: bps, n: N, sc, si, elapsedS: 60,
+      accuracy: sc / (sc + si), grossKeysPerSec: (sc + si) / 60, netSelectionsPerSec: Math.max(sc - si, 0) / 60,
+      medianIkiMs: 560, rollovers: 0, droppedFrames: 0, outOfAlphabet: 0,
+    },
+    pacer: { enabled: false },
+    tones: { enabled: false, scale: 'pentatonic', baseHz: 523.25, handCoding: 'timbre+pan', voiceStealEvents: 0 },
+    grid: {
+      enabled: true, gridSize, depth: 1, fieldPx: gridSize * 20, cellPx: 20, devicePixelRatio: 2,
+      ghost: true, crosshair: true, hoverPulse: true, pointerType: 'mouse',
+    },
+  };
+}
+
 const noop = (): void => {};
 const cb = { onRunAgain: noop, onConfig: noop, onDownload: noop };
 const info: LogInfo = { available: true, path: 'logs/test.json' };
@@ -178,6 +226,36 @@ describe('renderReport', () => {
     const firstRun = root();
     render(firstRun, synthLog(150, 10), [], info, cb);
     expect(firstRun.querySelector('.r-spark-svg')).toBeNull();
+  });
+
+  // ---- GRID (v2) — the branch every live run takes -------------------------
+  it('renders the grid report: Movement panel, no keyboard finger panels', () => {
+    const r = root();
+    expect(() => render(r, synthGridLog(32, 60, 8), [], info, cb)).not.toThrow();
+    const titles = r.querySelectorAll('.r-sec-title').map((e) => e.textContent);
+    expect(titles).toContain('Movement');
+    // finger/lane analysis is meaningless for pointing and must be suppressed
+    expect(titles.some((t) => t.includes('transitions'))).toBe(false);
+    expect(titles.some((t) => t.startsWith('Misses'))).toBe(false);
+    expect(r.querySelectorAll('.r-di-row').length).toBe(0);
+    expect(r.querySelector('.r-hero-num')?.textContent).toBeTruthy();
+  });
+
+  it('states the grid size and pointer type in the Movement panel', () => {
+    const r = root();
+    render(r, synthGridLog(32, 60, 8), [], info, cb);
+    const text = r.querySelectorAll('.r-trans-ms').map((e) => e.textContent);
+    expect(text).toContain('32\u00d732');
+    expect(text).toContain('mouse');
+  });
+
+  it('renders run-tape tooltips as (x, y) cell coordinates, not raw indices', () => {
+    const r = root();
+    render(r, synthGridLog(32, 40, 0), [], info, cb);
+    const labels = r.querySelectorAll('.r-tick').map((e) => e.getAttribute('aria-label') ?? '');
+    expect(labels.length).toBeGreaterThan(5);
+    // every tooltip should carry a coordinate pair like "(11, 4)"
+    expect(labels.every((l) => /\(\d+, \d+\)/.test(l))).toBe(true);
   });
 
   it('falls back to the download message when logging is unavailable', () => {

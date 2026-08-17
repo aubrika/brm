@@ -288,7 +288,7 @@ function histogramSection(log: RunLog, gridMode = false): HTMLElement {
   // Mean interval split by transition class — the concrete cost structure of the run, in place of
   // a one-line pace summary. Cross-hand transitions dominate and run slowest; a same-key repeat is
   // the cheapest. A class with no samples shows a dash rather than a fake 0 ms.
-  const tm = transitionMeans(stats.downs, log.meta.config.alphabet);
+  const tm = transitionMeans(stats.downs, log.meta.config.alphabet ?? '');
   const cell = (label: string, m: { mean: number; count: number }): HTMLElement =>
     h('div', { class: 'r-trans-cell' }, [
       h('span', { class: 'r-trans-label', text: label }),
@@ -325,7 +325,8 @@ function digraphList(colors: Map<string, string>, items: ReturnType<typeof digra
 }
 function transitionsColumn(log: RunLog): HTMLElement {
   const downs = reportStats(log).downs;
-  const colors = laneColors(log.meta.config);
+  const cfg = log.meta.config; // keyboard (v1) runs only — grid runs never reach here
+  const colors = laneColors({ leftFingers: cfg.leftFingers ?? '', rightFingers: cfg.rightFingers ?? '', topRow: cfg.topRow, leftTopRow: cfg.leftTopRow, rightTopRow: cfg.rightTopRow });
   const di = digraphStats(downs, 2);
   if (di.length === 0) {
     return section('Transitions', h('p', { class: 'r-empty', text: 'Not enough repeated transitions yet.' }));
@@ -380,7 +381,7 @@ function gridSection(log: RunLog): HTMLElement {
 function missesSection(log: RunLog): HTMLElement | null {
   const si = log.summary.si;
   if (si < 5) return null; // below this a confusion display is noise rendered as a grid
-  const conf = confusion(reportStats(log).downs, log.sequence, log.meta.config.alphabet);
+  const conf = confusion(reportStats(log).downs, log.sequence, log.meta.config.alphabet ?? '');
 
   let body: Node;
   if (si >= 25) {
@@ -409,7 +410,7 @@ function missesSection(log: RunLog): HTMLElement | null {
 }
 
 function confusionMatrix(log: RunLog, conf: ReturnType<typeof confusion>): HTMLElement {
-  const chars = [...log.meta.config.alphabet];
+  const chars = [...(log.meta.config.alphabet ?? '')];
   const grid = new Map<string, number>();
   for (const p of conf.pairs) grid.set(`${p.target} ${p.pressed}`, p.count);
   const table = h('table', { class: 'r-matrix' });

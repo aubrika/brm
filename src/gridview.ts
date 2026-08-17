@@ -23,6 +23,33 @@ const REPEAT_FLASH_MS = 200; // white confirm-flash when the next target repeats
 const PULSE_HZ = 2;
 const GHOST_ADJACENT = 2; // Chebyshev distance flagged as "next target is close" (logged, not suppressed)
 
+// ---- pure geometry (no DOM) -------------------------------------------------
+// Extracted so the load-bearing arithmetic is unit-testable: cellIndexAt decides correct-vs-error
+// on EVERY click, and fitGridGeometry fixes the cell size W that every logged Fitts number depends
+// on. See gridview.test.ts.
+
+/** Largest integer-cell square fitting `availPx`. Integer cellPx keeps gridlines crisp.
+ *  The floor is 1px, not 2: the play field is clipped by its container, so a field wider than the
+ *  space would push cells off-screen where they cannot be clicked but can still be TARGETS — an
+ *  unwinnable run. Cells too small to aim at are merely hard; cells you cannot reach are broken. */
+export function fitGridGeometry(availPx: number, gridSize: number): { cellPx: number; fieldPx: number } {
+  const cellPx = Math.max(1, Math.floor(availPx / gridSize));
+  return { cellPx, fieldPx: cellPx * gridSize };
+}
+
+/** Field-local px → cell index, or -1 outside the grid. Pure arithmetic; never per-cell DOM. */
+export function cellIndexAt(x: number, y: number, cellPx: number, gridSize: number): number {
+  const col = Math.floor(x / cellPx);
+  const row = Math.floor(y / cellPx);
+  if (col < 0 || col >= gridSize || row < 0 || row >= gridSize) return -1;
+  return row * gridSize + col;
+}
+
+/** Chebyshev distance between two cells, in cells. */
+export function cellsApart(a: number, b: number, gridSize: number): number {
+  return Math.max(Math.abs((a % gridSize) - (b % gridSize)), Math.abs(Math.floor(a / gridSize) - Math.floor(b / gridSize)));
+}
+
 export class GridRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
@@ -64,8 +91,9 @@ export class GridRenderer {
     const avail = Math.max(64, Math.min(w, h) - MARGIN * 2);
     // integer cell px keeps gridlines crisp; min 2px so large grids (64/128) still fit the field
     // instead of overflowing it (floor keeps fieldPx ≤ avail).
-    this.cellPx = Math.max(2, Math.floor(avail / this.gridSize));
-    this.fieldPx = this.cellPx * this.gridSize;
+    const geom = fitGridGeometry(avail, this.gridSize);
+    this.cellPx = geom.cellPx;
+    this.fieldPx = geom.fieldPx;
     this.dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
     this.canvas.style.width = `${this.fieldPx}px`;
     this.canvas.style.height = `${this.fieldPx}px`;
@@ -78,10 +106,7 @@ export class GridRenderer {
   // (floor(x / cellPx)); never per-cell DOM hit targets.
   cellAt(clientX: number, clientY: number): number {
     const r = this.canvas.getBoundingClientRect();
-    const col = Math.floor((clientX - r.left) / this.cellPx);
-    const row = Math.floor((clientY - r.top) / this.cellPx);
-    if (col < 0 || col >= this.gridSize || row < 0 || row >= this.gridSize) return -1;
-    return row * this.gridSize + col;
+    return cellIndexAt(clientX - r.left, clientY - r.top, this.cellPx, this.gridSize);
   }
 
   // Field-local coordinates of a client point (for path sampling). Not clamped — the analyzer sees
@@ -113,7 +138,7 @@ export class GridRenderer {
     const t = this.engine.target();
     const g = this.engine.nextTarget();
     if (t < 0 || g < 0) return false;
-    return Math.max(Math.abs(this.col(t) - this.col(g)), Math.abs(this.row(t) - this.row(g))) <= GHOST_ADJACENT;
+    return cellsApart(t, g, this.gridSize) <= GHOST_ADJACENT;
   }
 
   render(nowMs: number): void {

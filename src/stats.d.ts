@@ -13,21 +13,28 @@ export type TransitionKind = 'sameFinger' | 'sameHand' | 'crossHand';
 /** One raw event, array-encoded: [t, type, key, idx, verdict]. */
 export type RawEvent = [number, EventType, string, number, Verdict | null];
 
+/** The run's configuration, as actually played. `mode` discriminates: a GRID run carries only the
+ *  fields that mean something for pointing (the grid geometry lives in `RunLog.grid`), and a
+ *  KEYBOARD (v1) run carries the alphabet/finger fields. Emitting keyboard fields on a grid run
+ *  would describe a game that did not happen — the log is the research artifact, so it states only
+ *  what is true. Fields are optional because which ones appear depends on `mode`. */
 export interface RunConfig {
-  alphabet: string;
-  n: number;
-  leftFingers: string;
-  rightFingers: string;
-  topRow?: boolean; // optional: absent on logs written before this was recorded
+  mode?: 'grid' | 'keyboard'; // absent on logs written before this discriminator existed
+  n: number; // alphabet size / cell count — the N in log2(N-1)
+  durationMs: number;
+  sound: boolean;
+  // ---- keyboard (v1) only ----
+  alphabet?: string;
+  leftFingers?: string;
+  rightFingers?: string;
+  topRow?: boolean;
   leftTopRow?: string;
   rightTopRow?: string;
-  chords: boolean;
-  lookahead: number;
-  lanes: boolean;
-  chord: boolean;
-  sound: boolean;
-  errorFeedback: 'none' | 'flash' | 'shake' | 'flash+shake';
-  durationMs: number;
+  chords?: boolean;
+  lookahead?: number;
+  lanes?: boolean;
+  chord?: boolean;
+  errorFeedback?: 'none' | 'flash' | 'shake' | 'flash+shake';
 }
 
 export interface MachineMeta {

@@ -29,6 +29,11 @@ const appCommit = (() => {
 // dist/ from anywhere (e.g. `python3 -m http.server` inside dist/) with no Node at all.
 // The runLogPlugin adds POST /api/log + friends under `npm run dev`/`preview`; a plain
 // static server simply lacks it and the client falls back to the JSON download.
+// Which app this build is. 'v2' (default) is the delivered game: GRID MODE + calibration. 'v1' is
+// the legacy falling-lanes keyboard game, kept only as a demonstrable artifact of how the design
+// arrived at a grid alphabet — built to dist/v1 and served at /brm/v1. See `npm run build:v1`.
+const appVariant = process.env.BRM_VARIANT === 'v1' ? 'v1' : 'v2';
+
 export default defineConfig({
   base: './',
   plugins: [runLogPlugin()],
@@ -36,6 +41,7 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
     __APP_COMMIT__: JSON.stringify(appCommit),
+    __APP_VARIANT__: JSON.stringify(appVariant),
   },
   test: {
     environment: 'node',

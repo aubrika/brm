@@ -19,8 +19,8 @@ import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './
 import { probeMachine } from './machine.js';
 import { renderReport, type LogInfo } from './reportview.js';
 import { loadConfig, saveConfig, laneAudio, GRID_SIZES, DEFAULT_CONFIG, CHALLENGE_SEED_HZ, CHALLENGE_LEAD_BEATS, type GameConfig } from './config.js';
-import { symbolFor } from './scoring.js';
-import { generateCalibrationScript, computeCalibration, looksLikeTrackpad, seededRandInt, REFERENCE_GRID, CALIB_CLICKS, type CalibrationResult, type CalibClick } from './calibration.js';
+import { symbolFor, validateAlphabet } from './scoring.js';
+import { generateCalibrationScript, computeCalibration, seededRandInt, REFERENCE_GRID, CALIB_CLICKS, type CalibrationResult, type CalibClick } from './calibration.js';
 import type { MachineMeta, RunLog, ScopeActivation } from './stats.js';
 
 type Props = Record<string, string | number | boolean | EventListener>;
@@ -50,6 +50,12 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps frame was skipped
+
+// Which app this bundle is (Vite `define`). 'v2' — the delivered game: GRID MODE + calibration.
+// 'v1' — the legacy falling-lanes keyboard game, deployed at /brm/v1 purely so the design story
+// (why the alphabet became a grid) can be demonstrated. v1 is frozen: home rows only, N = 8, no
+// top row / chords / challenge / audio experiments. All ongoing work targets v2.
+const VARIANT: 'v1' | 'v2' = (typeof __APP_VARIANT__ !== 'undefined' && __APP_VARIANT__ === 'v1' ? 'v1' : 'v2');
 
 // The in-progress calibration task: a GridEngine on the 24×24 reference grid (driven manually, not
 // scored) + the game renderer, plus the captured endpoints.
@@ -128,6 +134,9 @@ export class App {
   constructor(private readonly root: HTMLElement) {
     const params = new URLSearchParams(location.search);
     this.latency = new LatencyOverlay(params.has('debug'));
+    // v1 and v2 are served from the same origin and so share localStorage; a saved v2 config would
+    // otherwise start v1 in grid mode. v1 is the keyboard game, always.
+    if (VARIANT === 'v1') this.config = { ...this.config, grid: false, scope: false, topRow: false, chords: false, challenge: false };
 
     this.machinePromise = probeMachine().then((m) => (this.machine = m));
     void probeHealth().then((ok) => (this.loggingAvailable = ok));
@@ -434,7 +443,8 @@ export class App {
   // via the scripted targets (any click advances — the miss is data), not its scoring.
   private startCalibration(): void {
     this.mode = 'calibrate';
-    this.calibration = null; // recalibrating replaces any prior result
+    // NOTE: any existing calibration is deliberately kept until a new one succeeds — cancelling a
+    // recalibration (Esc) must not strip a valid result and re-lock the scored run.
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock();
 
@@ -534,12 +544,72 @@ export class App {
     this.showConfig();
   }
 
+  // ------------------------------------------------------ v1 legacy config ----
+  // The original falling-lanes keyboard game, frozen. Only the two home rows are configurable
+  // (N = 8); there is no calibration gate, no grid, and none of the retired experiments. This
+  // exists to demonstrate the design lineage that led to the grid alphabet — see README.
+  private showLegacyConfig(msg?: string): void {
+    const keyInput = (value: string): HTMLInputElement =>
+      el('input', { type: 'text', class: 'field-input mono', value, spellcheck: false, autocomplete: 'off', autocapitalize: 'off' }) as HTMLInputElement;
+    const leftFingers = keyInput(this.config.leftFingers || 'asdf');
+    const rightFingers = keyInput(this.config.rightFingers || 'jkl;');
+    const err = el('div', { class: 'field-error' });
+
+    const field = (label: string, control: Node, hint?: string): HTMLElement =>
+      el('label', { class: 'field' }, [
+        el('span', { class: 'field-label', text: label }),
+        control,
+        ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
+      ]);
+
+    const collect = (): GameConfig | null => {
+      const parts = { leftFingers: leftFingers.value, rightFingers: rightFingers.value };
+      const v = validateAlphabet(parts.leftFingers + parts.rightFingers);
+      if (!v.ok) {
+        err.textContent = v.error;
+        return null;
+      }
+      err.textContent = '';
+      return { ...DEFAULT_CONFIG, ...parts, grid: false, scope: false, alphabet: v.alphabet, topRow: false, leftTopRow: '', rightTopRow: '' };
+    };
+    const start = (timed: boolean) => (): void => {
+      const c = collect();
+      if (!c) return;
+      this.commit(c);
+      this.startRun(timed);
+    };
+
+    this.root.append(
+      el('div', { class: 'screen config' }, [
+        el('h1', { class: 'title', text: 'Bit-Rate Maximizer — v1' }),
+        el('p', { class: 'subtitle', text: 'The original keyboard version: type the highlighted key as it falls down its finger’s lane. Correct keys add bits; errors subtract. Kept as a demo of where the design started — the current version is the grid game.' }),
+        ...(msg ? [el('div', { class: 'field-error', text: msg })] : []),
+        el('div', { class: 'config-grid' }, [
+          field('Left hand', leftFingers, 'Keys the left hand types, outside-in.'),
+          field('Right hand', rightFingers, 'Keys the right hand types, inside-out.'),
+        ]),
+        err,
+        el('div', { class: 'field-note', text: 'N = 8 (one key per finger). Duration is locked to 60 s for scored runs.' }),
+        el('div', { class: 'buttons' }, [
+          el('button', { class: 'btn ghost', onclick: start(false), text: 'Practice' }),
+          el('button', { class: 'btn primary', onclick: start(true), text: 'Start scored run' }),
+        ]),
+        el('p', { class: 'consent', text: 'Runs are saved locally and never transmitted anywhere.' }),
+      ]),
+    );
+    leftFingers.focus();
+  }
+
   // --------------------------------------------------------------- config ----
   private showConfig(msg?: string): void {
     this.mode = 'config';
     this.run = null;
     this.calib = null;
     this.root.replaceChildren();
+    if (VARIANT === 'v1') {
+      this.showLegacyConfig(msg);
+      return;
+    }
 
     const cal = this.calibration;
     // Grid size options: the config sizes plus the calibrator's snap sizes, so both a recommendation
@@ -557,6 +627,7 @@ export class App {
         this.calibration.chosenGrid = this.config.gridSize; // auto-set, override allowed — both logged
         this.calibration.overridden = this.calibration.chosenGrid !== this.calibration.recommendedGrid;
       }
+      this.showConfig(); // re-render: the headline must state the grid you will actually play
     });
 
     const field = (label: string, control: Node, hint?: string): HTMLElement =>
@@ -583,15 +654,21 @@ export class App {
     });
 
     // The calibration result (or the prompt to run it).
+    // Reads chosenGrid (not recommendedGrid) so an override is reflected, and re-renders on change.
+    // Only σ is surfaced: the Fitts throughput from 20 clicks has an R² around 0.05, so showing it
+    // would dress noise up as a measurement (it stays in the log for offline work).
     const status = cal
       ? el('div', { class: 'calib-status' }, [
           el('p', { class: 'calib-result' }, [
-            document.createTextNode('Grid set to '),
-            el('strong', { text: `${cal.recommendedGrid}×${cal.recommendedGrid}` }),
-            document.createTextNode(' — sized so the cells fit your aim on this device.'),
+            document.createTextNode(cal.overridden ? 'Grid set to ' : 'Grid set to '),
+            el('strong', { text: `${cal.chosenGrid}×${cal.chosenGrid}` }),
+            document.createTextNode(
+              cal.overridden
+                ? ` — your choice (calibration suggested ${cal.recommendedGrid}×${cal.recommendedGrid}).`
+                : ' — sized so the cells fit your aim on this device.',
+            ),
           ]),
-          ...(looksLikeTrackpad(cal) ? [el('p', { class: 'field-hint', text: 'Looks like a trackpad — a mouse will likely score higher on this mode.' })] : []),
-          el('p', { class: 'field-hint', text: `measured scatter σ ≈ ${cal.sigmaUsed}px · throughput ≈ ${cal.impliedThroughput.toFixed(1)} bits/s` }),
+          el('p', { class: 'field-hint', text: `measured scatter σ ≈ ${cal.sigmaUsed}px on a ${cal.referenceGrid}×${cal.referenceGrid} reference grid` }),
         ])
       : el('p', { class: 'subtitle', text: 'Calibrate first (~15 s) to size the grid to your aim on this device — it doubles as warm-up. Practice is available anytime.' });
 
