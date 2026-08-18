@@ -663,6 +663,94 @@ function analyzeGhostAb(logs) {
   };
 }
 
+// ------------------------------------------- grid size sweep + scatter law ----
+// What does grid resolution actually cost and buy? Bits per selection rise as log2(N) while cells
+// shrink as 1/√N, so the score should sit on a plateau until targets get small enough to fall off
+// an accuracy cliff. This measures where that plateau is, and — the part the calibration depends
+// on — whether endpoint scatter is a fixed property of the hand or a function of the target.
+
+/** Endpoint scatter for one run, reconstructed from the pointer path.
+ *  Every click is measured against the cell it was AIMING at (sequence[idx]), hits AND misses.
+ *  Using hits alone would truncate the distribution at the cell edge and force σ/cellPx ≤ 0.289
+ *  by construction — which looks exactly like the proportionality this is testing for. */
+function endpointScatter(log) {
+  const g = log.grid?.gridSize;
+  const cellPx = log.grid?.cellPx;
+  const path = log.pointerPath;
+  if (!g || !cellPx || !path?.length) return null;
+  const { downs } = splitEvents(log);
+  const dxs = [];
+  const dys = [];
+  let pi = 0;
+  for (const d of downs) {
+    const aim = Number(log.sequence[d.idx]);
+    if (!Number.isFinite(aim)) continue;
+    while (pi + 1 < path.length && path[pi + 1][0] <= d.t) pi++;
+    let best = pi;
+    for (let j = Math.max(0, pi - 2); j < Math.min(path.length, pi + 3); j++) {
+      if (Math.abs(path[j][0] - d.t) < Math.abs(path[best][0] - d.t)) best = j;
+    }
+    if (Math.abs(path[best][0] - d.t) > 25) continue; // no sample close enough in time to be the endpoint
+    const dx = path[best][1] - ((aim % g) + 0.5) * cellPx;
+    const dy = path[best][2] - (Math.floor(aim / g) + 0.5) * cellPx;
+    if (Math.hypot(dx, dy) > 4 * cellPx) continue; // gross lapse, as the calibration rejects too
+    dxs.push(dx);
+    dys.push(dy);
+  }
+  if (dxs.length < 20) return null;
+  const sd = (v) => {
+    const m = mean(v);
+    return Math.sqrt(v.reduce((s, x) => s + (x - m) * (x - m), 0) / (v.length - 1));
+  };
+  return { sigma: Math.sqrt((sd(dxs) ** 2 + sd(dys) ** 2) / 2), n: dxs.length, cellPx };
+}
+
+function analyzeGridSizes(logs) {
+  const scored = logs.filter((l) => l.grid?.enabled && !l.scope?.enabled && l.meta.mode === 'scored' && (l.grid.depth ?? 1) === 1);
+  if (!scored.length) return null;
+  const by = new Map();
+  for (const l of scored) {
+    const g = l.grid.gridSize;
+    if (!by.has(g)) by.set(g, { g, bps: [], cyc: [], sigmas: [], sc: 0, si: 0, cellPx: [], depths: new Set() });
+    const b = by.get(g);
+    b.bps.push(l.summary.bitsPerSecond);
+    b.sc += l.summary.sc;
+    b.si += l.summary.si;
+    b.cellPx.push(l.grid.cellPx);
+    b.depths.add(l.grid.lookahead ?? (l.grid.ghost ? 1 : 0));
+    const f = gridFitts(l);
+    if (f?.meanMt > 0) b.cyc.push(f.meanMt);
+    const s = endpointScatter(l);
+    if (s) b.sigmas.push(s.sigma);
+  }
+  const rows = [...by.values()]
+    .sort((a, b) => a.g - b.g)
+    .map((b) => {
+      const total = b.sc + b.si;
+      const sigma = b.sigmas.length ? mean(b.sigmas) : NaN;
+      const cellPx = mean(b.cellPx);
+      return {
+        grid: b.g,
+        runs: b.bps.length,
+        cellPx,
+        bitsPerSelection: Math.log2(b.g * b.g - 1),
+        meanBps: mean(b.bps),
+        sdBps: b.bps.length > 1 ? Math.sqrt(b.bps.reduce((s, v) => s + (v - mean(b.bps)) ** 2, 0) / (b.bps.length - 1)) : NaN,
+        errRate: total > 0 ? b.si / total : NaN,
+        meanCycleMs: b.cyc.length ? mean(b.cyc) : NaN,
+        sigmaPx: sigma,
+        sigmaOverCell: sigma / cellPx,
+        depths: [...b.depths].sort(),
+      };
+    });
+  // Is σ proportional to the cell? Regress log σ on log cellPx: slope 1 = strictly proportional
+  // (scatter is a fixed FRACTION of the target), slope 0 = a fixed px scatter independent of it.
+  // The calibration's model is slope 0; anything near 1 makes its central equation degenerate.
+  const fit = rows.filter((r) => Number.isFinite(r.sigmaPx) && r.sigmaPx > 0);
+  const law = fit.length >= 3 ? olsFit(fit.map((r) => Math.log(r.cellPx)), fit.map((r) => Math.log(r.sigmaPx))) : null;
+  return { rows, law, ratio: fit.length ? mean(fit.map((r) => r.sigmaOverCell)) : NaN };
+}
+
 function gridArmLine(a) {
   return `    ${a.label.padEnd(10)}  TP ${a.throughput.toFixed(2)} b/s · MT=${Math.round(a.interceptMs)}+${Math.round(a.slopeMsPerBit)}·ID (R²${a.r2.toFixed(2)}) · B ${a.meanBps.toFixed(2)} · acc ${(a.meanAccuracy * 100).toFixed(1)}% · ${a.runs} run(s)`;
 }
@@ -835,6 +923,34 @@ function printReport(logs, analysis) {
     L.push(`      ghost on   near ${pct(near(ab.adjacency.on) / 100)}%  far ${pct(far(ab.adjacency.on) / 100)}%`);
     L.push(`      ghost off  near ${pct(near(ab.adjacency.off) / 100)}%  far ${pct(far(ab.adjacency.off) / 100)}%   (off should show NO gap — T+1 is invisible)`);
   }
+  L.push('');
+
+  const gs = analysis.gridSizes;
+  L.push('  [13] GRID SIZE SWEEP — what resolution costs and buys (scored, depth-1 geometry)');
+  if (!gs) {
+    L.push('    no scored grid runs yet');
+  } else {
+    L.push('    grid   cellPx  runs   bits/sel   bits/s          err     cycle    sigma  sigma/cell  look');
+    for (const r of gs.rows) {
+      const sd = Number.isFinite(r.sdBps) ? '±' + r.sdBps.toFixed(2) : '     ';
+      const sig = Number.isFinite(r.sigmaPx) ? r.sigmaPx.toFixed(1).padStart(6) : '     —';
+      const ratio = Number.isFinite(r.sigmaOverCell) ? r.sigmaOverCell.toFixed(3).padStart(10) : '         —';
+      L.push(
+        `    ${String(r.grid).padStart(4)}²  ${String(Math.round(r.cellPx)).padStart(6)}  ${String(r.runs).padStart(4)}   ` +
+          `${r.bitsPerSelection.toFixed(2).padStart(7)}   ${r.meanBps.toFixed(3).padStart(6)} ${sd}  ` +
+          `${(100 * r.errRate).toFixed(2).padStart(5)}%  ${String(Math.round(r.meanCycleMs)).padStart(5)}ms  ${sig}  ${ratio}  ${r.depths.join(',')}`,
+      );
+    }
+    if (gs.law) {
+      // The calibration assumes scatter is a fixed px property of the hand (slope 0). A slope near 1
+      // means it is a fixed FRACTION of the target instead, which makes the calibration's central
+      // equation cellPx = 4.133·σ true at every grid size — i.e. it has no unique solution.
+      L.push('');
+      L.push(`    scatter law:  log σ = ${gs.law.intercept.toFixed(2)} + ${gs.law.slope.toFixed(3)}·log cellPx   (R² ${gs.law.r2.toFixed(3)}, ${gs.rows.filter((r) => Number.isFinite(r.sigmaPx)).length} grid sizes)`);
+      L.push(`    mean σ/cellPx = ${gs.ratio.toFixed(3)}   →  We = 4.133σ = ${(4.133 * gs.ratio).toFixed(2)}·cellPx`);
+      L.push('    slope 0 = fixed scatter (what the calibration assumes); slope 1 = scatter scales with the target.');
+    }
+  }
   L.push('════════════════════════════════════════════════════════════');
   console.log(L.join('\n'));
 }
@@ -860,6 +976,7 @@ function main() {
     byBuild: analyzeByBuild(logs),
     grid: analyzeGrid(logs),
     ghostAb: analyzeGhostAb(logs),
+    gridSizes: analyzeGridSizes(logs),
   };
   printReport(logs, analysis);
   writeFileSync(path.join(args.logsDir, 'analysis.json'), JSON.stringify(analysis, null, 2));

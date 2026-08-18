@@ -20,7 +20,8 @@ import { renderReport, type LogInfo } from './ui/reportview.js';
 import { loadConfig, saveConfig, GRID_SIZES, LOOKAHEAD_DEPTHS, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
 import { loadAbState, saveAbState, peek as abPeek, advance as abAdvance, completedPairs, type AbState, type AbAssignment } from './core/ab.js';
 import { validateAlphabet } from './core/alphabet.js';
-import { generateCalibrationScript, computeCalibration, seededRandInt, REFERENCE_GRID, CALIB_CLICKS, type CalibrationResult, type CalibClick } from './v2/calibration.js';
+import { type CalibrationResult } from './v2/calibration.js';
+import { CalibrationTask } from './v2/calibration-task.js';
 import type { MachineMeta, RunLog, ScopeActivation } from './core/stats.js';
 
 type Props = Record<string, string | number | boolean | EventListener>;
@@ -56,21 +57,6 @@ const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps 
 // (why the alphabet became a grid) can be demonstrated. v1 is frozen: home rows only, N = 8, no
 // top row / chords / challenge / audio experiments. All ongoing work targets v2.
 const VARIANT: 'v1' | 'v2' = (typeof __APP_VARIANT__ !== 'undefined' && __APP_VARIANT__ === 'v1' ? 'v1' : 'v2');
-
-// The in-progress calibration task: a GridEngine on the 24×24 reference grid (driven manually, not
-// scored) + the game renderer, plus the captured endpoints.
-interface CalibCtx {
-  engine: GridEngine;
-  view: GridRenderer;
-  clicks: CalibClick[];
-  script: number[];
-  startMs: number;
-  lastClickMs: number;
-  pointerType: string;
-  cleanup: AbortController;
-  rafId: number;
-  counter: HTMLElement;
-}
 
 interface RunCtx {
   engine: Engine | GridEngine; // GridEngine in GRID/SCOPE MODE; all expose the loop-facing surface
@@ -120,7 +106,7 @@ export class App {
   private run: RunCtx | null = null;
   // grid calibration: session-scoped; gates the scored run and is attached to every run log.
   private calibration: CalibrationResult | null = null;
-  private calib: CalibCtx | null = null; // the in-progress calibration task
+  private calib: CalibrationTask | null = null; // the in-progress calibration task
   // Ghost A/B position. Persisted, so a pair survives a page reload; advanced only when a scored
   // run actually finishes (an abandoned run must not burn an arm and unbalance the pair).
   private abState: AbState = loadAbState();
@@ -145,7 +131,7 @@ export class App {
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('resize', () => {
       this.run?.strip.resize();
-      this.calib?.view.resize();
+      this.calib?.resize();
     });
     this.showConfig();
 
@@ -202,28 +188,8 @@ export class App {
     // Dev aid: ?calibrate[&demo] opens the calibration task (demo auto-clicks the targets with scatter).
     if (params.has('calibrate')) {
       this.startCalibration();
-      if (params.has('demo')) this.startCalibDemo();
+      if (params.has('demo')) this.calib?.startDemo();
     }
-  }
-
-  // Dev-only: auto-click each calibration target (centre + sub-cell scatter), driving the real
-  // pointerdown path so the σ pipeline runs end-to-end headlessly.
-  private startCalibDemo(): void {
-    const tick = (): void => {
-      const c = this.calib;
-      if (!c) return; // finished
-      const target = c.engine.target();
-      const cp = c.view.cellPx;
-      const r = c.view.element.getBoundingClientRect();
-      const col = target % REFERENCE_GRID;
-      const row = Math.floor(target / REFERENCE_GRID);
-      const noise = (): number => (Math.random() - 0.5) * cp * 0.6;
-      const opts = { clientX: r.left + (col + 0.5) * cp + noise(), clientY: r.top + (row + 0.5) * cp + noise(), bubbles: true, pointerType: 'mouse' } as PointerEventInit;
-      c.view.element.dispatchEvent(new PointerEvent('pointermove', opts));
-      c.view.element.dispatchEvent(new PointerEvent('pointerdown', opts));
-      window.setTimeout(tick, 60);
-    };
-    window.setTimeout(tick, 200);
   }
 
   // Dev-only demo driver for GRID MODE: dispatches a real pointerdown at the current target's
@@ -393,109 +359,34 @@ export class App {
   };
 
   // ---------------------------------------------------------- calibration ----
-  // The required pre-run calibration (grid mode): ~20 clicks on a 24×24 reference grid, on the real
-  // game surface, measuring endpoint scatter to size the scored grid. Drives a GridEngine's sequence
-  // via the scripted targets (any click advances — the miss is data), not its scoring.
+  // The required pre-run calibration (grid mode). Everything about it — the screen, the click
+  // capture, and the σ → grid-size algorithm — lives in v2/calibration-task.ts and v2/calibration.ts.
+  // What stays here is only the screen routing: when to open it, and what to do with the result.
   private startCalibration(): void {
     this.mode = 'calibrate';
     // NOTE: any existing calibration is deliberately kept until a new one succeeds — cancelling a
     // recalibration (Esc) must not strip a valid result and re-lock the scored run.
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock();
-
-    const script = generateCalibrationScript(REFERENCE_GRID, CALIB_CLICKS);
-    const fallback = seededRandInt(0x1234abcd);
-    let k = 0;
-    const src = (n: number): number => (k < script.length ? script[k++] : fallback(n));
-    const engine = new GridEngine({ ...this.config, gridSize: REFERENCE_GRID, gridDepth: 1, lookaheadDepth: 0 }, false, src);
-    engine.start(performance.now());
-
-    const stripRoot = el('div', { class: 'strip-root grid-root' });
-    const instruction = el('div', { class: 'calib-instruction', text: 'Click each highlighted cell as quickly as you comfortably can.' });
-    const counter = el('div', { class: 'stats', text: `calibrating: 0 / ${CALIB_CLICKS}` });
-    this.root.append(
-      el('div', { class: 'screen run' }, [
-        instruction,
-        el('div', { class: 'strip-wrap' }, [stripRoot]),
-        el('div', { class: 'readout' }, [counter]),
-        el('div', { class: 'practice-tag', text: 'CALIBRATION · Esc to cancel' }),
-      ]),
-    );
-
-    const view = new GridRenderer(engine, stripRoot);
-    view.element.style.cursor = 'crosshair';
-    const now = performance.now();
-    const c: CalibCtx = { engine, view, clicks: [], script, startMs: now, lastClickMs: now, pointerType: 'mouse', cleanup: new AbortController(), rafId: 0, counter };
-    this.calib = c;
-    const sig = c.cleanup.signal;
-    view.element.addEventListener('pointerdown', this.onCalibDown, { signal: sig });
-    view.element.addEventListener('pointermove', this.onCalibMove, { signal: sig });
-    const loop = (): void => {
-      c.view.render(performance.now());
-      c.rafId = requestAnimationFrame(loop);
-    };
-    c.rafId = requestAnimationFrame(loop);
-  }
-
-  private onCalibMove = (e: PointerEvent): void => {
-    const c = this.calib;
-    if (!c) return;
-    c.view.hoverCell = c.view.cellAt(e.clientX, e.clientY);
-  };
-
-  private onCalibDown = (e: PointerEvent): void => {
-    const c = this.calib;
-    if (!c || e.ctrlKey || e.metaKey || e.altKey) return;
-    e.preventDefault();
-    const now = performance.now();
-    const p = c.view.localPoint(e.clientX, e.clientY);
-    const target = c.engine.target();
-    const cp = c.view.cellPx;
-    const cx = ((target % REFERENCE_GRID) + 0.5) * cp;
-    const cy = (Math.floor(target / REFERENCE_GRID) + 0.5) * cp;
-    c.clicks.push({
-      t: Math.round(now - c.startMs),
-      targetCell: target,
-      dx: Math.round((p.x - cx) * 10) / 10,
-      dy: Math.round((p.y - cy) * 10) / 10,
-      mtMs: Math.round(now - c.lastClickMs),
+    this.calib = new CalibrationTask(this.root, this.config, {
+      onDone: (result) => {
+        this.calib = null;
+        this.calibration = result;
+        this.config = { ...this.config, gridSize: result.recommendedGrid };
+        saveConfig(this.config);
+        this.showConfig();
+      },
+      onFailed: (message) => {
+        this.calib = null;
+        this.showConfig(message);
+      },
+      onClick: () => this.audio.bloop(),
     });
-    c.lastClickMs = now;
-    c.pointerType = e.pointerType || c.pointerType;
-    // feedback: bloop + particle burst at the clicked cell (calibration IS the game — primes the player)
-    const clicked = c.view.cellAt(e.clientX, e.clientY);
-    c.engine.lastCorrectCell = clicked >= 0 ? clicked : target;
-    c.engine.lastCorrectMs = now;
-    this.audio.bloop();
-    c.engine.index++; // any click advances — the miss is data, not a penalty
-    c.counter.textContent = `calibrating: ${c.clicks.length} / ${CALIB_CLICKS}`;
-    if (c.clicks.length >= CALIB_CLICKS) this.finishCalibration();
-  };
-
-  private finishCalibration(): void {
-    const c = this.calib;
-    if (!c) return;
-    cancelAnimationFrame(c.rafId);
-    c.cleanup.abort();
-    const result = computeCalibration(c.clicks, { fieldPx: c.view.fieldPx, referenceGrid: REFERENCE_GRID, devicePixelRatio: c.view.dpr, pointerType: c.pointerType });
-    this.calib = null;
-    if (!result) {
-      this.showConfig('Not enough clean clicks to size the grid — please calibrate again.');
-      return;
-    }
-    this.calibration = result;
-    this.config = { ...this.config, gridSize: result.recommendedGrid };
-    saveConfig(this.config);
-    this.showConfig();
   }
 
   private abortCalibration(): void {
-    const c = this.calib;
-    if (c) {
-      cancelAnimationFrame(c.rafId);
-      c.cleanup.abort();
-      this.calib = null;
-    }
+    this.calib?.abort();
+    this.calib = null;
     this.showConfig();
   }
 

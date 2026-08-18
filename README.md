@@ -39,9 +39,63 @@ costs a few percent; one step too fine falls off the accuracy cliff at double co
 
 **Known limits of the calibration.** σ from ~14 surviving endpoints has roughly 20 % standard
 error, and the snap ladder steps by ~1.33×, so repeat calibrations of the same hand land one step
-apart about a third of the time. Treat the recommendation as a neighbourhood, not a precise fit.
+apart about a third of the time. Treat the recommendation as a neighbourhood, not a precise fit —
+and see [what it actually measures](#calibration-what-it-actually-measures), which is a stronger
+caveat than this one.
 The per-player Fitts profile (slope, intercept, throughput) is logged but **not shown** — at 20
 clicks across a narrow difficulty range its R² is ~0.05, which is noise, not a measurement.
+
+## Calibration: what it actually measures
+
+The scored run is gated behind a ~15 second calibration whose job is to pick a grid size. The
+algorithm is written out step by step at the top of `src/v2/calibration.ts`; the short version is
+that it measures endpoint scatter σ, converts it to an ISO 9241 effective width `We = 4.133·σ`, and
+solves `g = fieldPx / We` for the grid whose cells are one effective width across.
+
+**That solve is degenerate, and the run logs show why.** Reconstructing endpoint scatter from the
+scored-run pointer paths — every click, hit and miss, measured against the cell it aimed at
+(`node scripts/analyze.mjs`, section `[13]`):
+
+| grid | cell | runs | bits/s | err | cycle | σ | σ/cell |
+|---|---|---|---|---|---|---|---|
+| 8² | 222 px | 1 | 9.066 | 6.67 % | 601 ms | 54.5 px | 0.245 |
+| 12² | 148 px | 1 | 11.217 | 6.48 % | 591 ms | 36.9 px | 0.249 |
+| 16² | 110 px | 38 | 11.795 | 4.74 % | 655 ms | 24.9 px | 0.225 |
+| 24² | 74 px | 6 | 13.369 | 5.88 % | 644 ms | 17.2 px | 0.233 |
+| 32² | 55 px | 6 | 12.998 | 2.82 % | 749 ms | 11.7 px | 0.213 |
+| 64² | 27 px | 2 | 12.400 | 3.73 % | 937 ms | 5.7 px | 0.210 |
+
+```
+log σ = -1.85 + 1.084 · log cellPx        R² = 0.998, six grid sizes, 8× range of cell size
+```
+
+**Scatter is a fixed fraction of the target, not a fixed property of the hand.** σ ≈ 0.23·cellPx
+whether the cell is 222 px or 27 px. The calibration's model is the slope-0 case — σ fixed, cellPx
+free — and the measured slope is 1.08.
+
+Substituting the real relationship into the solve collapses it:
+
+```
+g_raw = fieldPx / (4.133 · 0.23 · fieldPx/g) · 0.85  =  g · 0.9
+```
+
+The procedure is a **mirror**: it hands back the grid it was calibrated on, times a constant. Since
+that is always `REFERENCE_GRID = 24`, the recommendation is pinned near 22 — which snaps down to
+16. Everything that moves it off 16 is noise in the σ estimate, and there is plenty: six
+calibrations of the same hand on the same machine gave `g_raw` from 14.4 to 27.4 and recommended
+12, 16, 16, 16, 16 and 24.
+
+**Why it has not been replaced.** Its output barely matters. Measured bit rate is flat within noise
+from 16² to 64² (12.4–13.0 bits/s) — the plateau the design predicts — and the accuracy cliff is
+somewhere past 64², since 128² gives 9.7 and 256² gives 7.1. The calibration lands in the right
+neighbourhood by accident of its reference grid, and any value in that neighbourhood scores the
+same. It also still earns its keep as a warm-up and as a way to record the machine's geometry.
+
+**What would actually be worth measuring** is the cliff edge, not the effective width: sweep grid
+size within a session and find where the score starts falling. Note also that error rate *falls*
+from 4.74 % at 16² to 2.82 % at 32² while cycle time rises 605 → 749 ms — the player is picking a
+speed/accuracy operating point per grid size, which is rational under a rule where errors cost
+double, and is another thing a single fixed σ cannot express.
 
 ## Run it locally
 
@@ -69,7 +123,8 @@ node scripts/analyze.mjs [--scored-only] [--machine NAME] [--logs DIR]
 ```
 
 Section `[11]` covers grid mode: Fitts throughput, verify-dwell, and a mouse-vs-trackpad split.
-Section `[12]` is the ghost A/B (below). See `logs/README.md` for the log format.
+Section `[12]` is the ghost A/B, and `[13]` the grid-size sweep and the scatter law the calibration
+depends on (both below). See `logs/README.md` for the log format.
 
 ## Experiment: is the lookahead ghost worth anything?
 
@@ -113,17 +168,40 @@ pair, flat), and the pairs alternate which arm leads, so it is neither warm-up n
 mechanism check's one odd-looking number — ghost-off showing 2.86 % errors when the next target
 was near vs 4.84 % far, where there should be no gap at all — is 2 errors out of 70 clicks.
 
-The ghost stays on by default, and **Lookahead** is now a config value (0, 1 or 2). Depth 2 adds
-T+2 behind T+1, drawn dimmer, so the preview reads as an ordered chain rather than two equal
-targets — untested as of this writing.
+### Depth 2: real, and about a sixth as valuable
 
-**A comparability warning about depth 2.** The depth-2 work also *brightened* T+1 (it was
-`#6B7789` at 1.5 px, now `#AEBACE` at 2 px). So depth-1 runs recorded before that build were
-played with a dimmer preview than depth-1 runs after it, and comparing new depth-2 runs against
-the 13 depth-1 runs above would confound lookahead depth with ghost brightness. Group by
-`meta.commit`, or — better — collect fresh depth-1 runs paired against depth-2 ones. Section
-`[11]`'s per-depth breakdown is labelled as config groups, not randomised arms, for this reason:
-it shows what was played under each setting and licenses no causal claim.
+**Lookahead** is a config value (0, 1 or 2). Depth 2 adds T+2 behind T+1, drawn dimmer, so the
+preview reads as an ordered chain rather than two equal targets.
+
+7 depth-2 runs at 16×16 against the 18 depth-1 runs at the same size:
+
+|  | depth 2 (n = 7) | depth 1 (n = 18) | Δ | 95 % CI | p |
+|---|---|---|---|---|---|
+| bits/s | 13.038 ± 0.53 | 12.576 ± 0.55 | +0.462 | [−0.06, 0.99] | 0.078 |
+| **cycle time** | 584 ± 19 ms | 605 ± 21 ms | **−21 ms** | [−40, −1.6] | 0.036 |
+| accuracy | 95.6 % | 95.1 % | +0.5 % | [−1.3, +2.3] | 0.56 |
+
+Against only the same-night depth-1 runs (36 minutes earlier, same sitting): +0.534 bits/s
+(p = 0.052) and −26 ms (p = 0.013).
+
+**The first preview bought −153 ms; the second buys −21 to −26 ms — about one sixth as much.**
+That is what you would expect if T+2 is mostly too far ahead to plan against and half-stale by the
+time you arrive. Cycle time clears significance and bits/s does not because cycle time is the
+lower-variance measure (sd 3 % of its mean, vs 4.4 % for bits/s, which also absorbs error-rate
+noise); this comparison resolves 0.73 bits/s at 80 % power and observed 0.46, so the bits/s result
+is under-powered rather than null. Accuracy is flat, so again the gain is clean time.
+
+**Weaker evidence than the depth-1 result, in three ways.** It is unpaired and across sessions,
+though the same-night subset mitigates that. The depth-2 block trends −0.086 bits/s per run
+(end-of-session fatigue), which biases *against* depth 2 — so +0.46 is the conservative estimate.
+And the depth-2 build also *brightened* T+1 (`#6B7789` at 1.5 px → `#AEBACE` at 2 px), so what was
+measured is "depth 2 with a bright T+1" versus "depth 1 with a dim T+1"; some unknown share of the
+21 ms could be the brighter outline. There are no depth-1 runs on the current build, so the
+brightness question cannot be settled from the existing data — it was judged too small to be worth
+the runs. Section `[11]`'s per-depth breakdown is labelled config groups, not randomised arms, for
+the same reason: only `[12]` licenses a causal claim.
+
+The ghost stays on by default at depth 1.
 
 ### How the harness works
 
@@ -176,7 +254,8 @@ src/
   v2/               THE GAME — grid pointing
     engine.ts         run state and the click handler. No DOM
     view.ts           canvas renderer + the hit-test geometry
-    calibration.ts    the σ pipeline and grid-size recommendation. Pure
+    calibration.ts    the grid-size algorithm, written out step by step. Pure, no DOM
+    calibration-task.ts  the calibration screen + click capture that feeds it
     scope.ts          pointer-lock magnifier experiment
   v1/               legacy keyboard game (frozen)
     engine.ts         run state and the keydown handler

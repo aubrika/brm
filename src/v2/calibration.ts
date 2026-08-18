@@ -1,15 +1,59 @@
-// Grid calibration (see bitrate-calibration-spec.md). ~20 clicks on a 24×24 reference grid measure
-// the player's endpoint scatter σ (px on this machine/device), from which we size the scored grid
-// so its cells contain that scatter. This module is the pure part: the seeded target script and the
-// σ → recommended-grid math. Click capture + rendering live in app.ts (on the real game surface).
+// Grid calibration — the pure half (no DOM). The interactive task that feeds it is in
+// calibration-task.ts; between the two files there is no calibration code anywhere else.
+//
+// ═══ THE ALGORITHM, IN FULL ═══════════════════════════════════════════════════
+// Input: ~20 click endpoints on a fixed 24×24 reference grid, each recorded as an offset (dx, dy)
+// from the target cell's centre in CSS px, plus the movement time that preceded it.
+//
+//   1. DISCARD the first WARMUP_DISCARD clicks. The hand is still finding the surface.
+//   2. REJECT endpoints further than 2 cells from centre — an attention lapse, not aim.
+//   3. REJECT the slowest 10% by movement time. Hesitation inflates scatter.
+//        (If fewer than MIN_SURVIVING survive 1–3, return null and ask for a recalibration.)
+//   4. σ = RMS of the per-axis standard deviations: σ = sqrt((σx² + σy²) / 2).
+//   5. We = 4.133·σ — the ISO 9241 effective target width, i.e. the width a target would need
+//      for 96 % of clicks with this scatter to land inside it (±2.066σ of a Gaussian).
+//   6. g_raw = (fieldPx / We) · 0.85 — how many cells of width We span the field, then a
+//      cold-start factor biasing toward coarser cells.
+//   7. Clamp so cells stay at least cellFloor px (a cell too small to see is not a target).
+//   8. SNAP DOWN to the nearest entry of SNAP_GRIDS. Below the smallest → the smallest.
+//
+// Rounding coarse at 6 and 8 was deliberate: B(g) was assumed to be a plateau ending in a cliff,
+// so a step too coarse costs a few percent while a step too fine falls off the accuracy cliff at
+// double cost per error.
+//
+// ═══ WHAT THE MEASURED DATA SAYS ABOUT THIS ══════════════════════════════════
+// Steps 5–6 assume σ is a FIXED property of hand and device, so that "the grid whose cells contain
+// your scatter" names one particular grid. Reconstructing endpoint scatter from the scored-run
+// pointer paths (every click, hit and miss, against the cell it aimed at) says otherwise:
+//
+//     cell 222px → σ 54.5px    cell 74px → σ 17.2px
+//     cell 148px → σ 36.9px    cell 55px → σ 11.7px
+//     cell 111px → σ 24.9px    cell 27px → σ  5.7px
+//
+// σ ≈ 0.22·cellPx across a 10× range of cell sizes: scatter is proportional to the target, not
+// fixed against it. Substitute that into step 6 and it collapses:
+//
+//     g_raw = fieldPx / (4.133 · 0.22 · fieldPx/g) · 0.85 = g · 0.935
+//
+// The procedure is a MIRROR. It hands back the grid it was calibrated on, times a constant — and
+// since that is always REFERENCE_GRID, the answer is pinned near 0.935 · 24 ≈ 22.4, which snaps
+// down to 16. It is not measuring the player at all; everything that moves the recommendation off
+// 16 is noise in the σ estimate. Six calibrations of the same hand on the same machine produced
+// g_raw from 14.4 to 27.4 and recommendations of 12, 16, 16, 16, 16 and 24.
+//
+// It survives as-is because it lands in the right neighbourhood and its output barely matters:
+// measured bit rate is flat within noise from 16² to 64² (12.4–13.0 bits/s). See README
+// "Calibration: what it actually measures" before changing any constant here.
 
 export const REFERENCE_GRID = 24; // the task's fixed grid, regardless of what's recommended
 export const CALIB_CLICKS = 20; // total clicks
 export const WARMUP_DISCARD = 4; // first N discarded as warm-up
-const SNAP_GRIDS = [12, 16, 24, 32, 48, 64] as const; // recommendation snaps DOWN to one of these
-const EFFECTIVE_WIDTH_COEF = 4.133; // ISO 9241 effective width We = 4.133·σ
-const COLD_START = 0.85; // scatter widens under scoring pressure; round toward coarser
+export const SNAP_GRIDS = [12, 16, 24, 32, 48, 64] as const; // recommendation snaps DOWN to one of these
+export const EFFECTIVE_WIDTH_COEF = 4.133; // ISO 9241 effective width We = 4.133·σ
+export const COLD_START = 0.85; // scatter widens under scoring pressure; round toward coarser
 const MIN_SURVIVING = 12; // fewer surviving samples → prompt to recalibrate
+const MAX_ENDPOINT_CELLS = 2; // step 2: reject endpoints beyond this many cells from centre
+const SLOWEST_FRACTION_CUT = 0.1; // step 3: reject this fraction, slowest movement times first
 
 export interface CalibClick {
   t: number; // run-relative ms
@@ -113,6 +157,59 @@ function snapDown(g: number): number {
   return best; // below 12 → 12
 }
 
+// ---- the algorithm, one exported step at a time ------------------------------
+// Each step is its own function so it can be read, tested and argued with in isolation. The
+// numbering matches the block comment at the top of this file.
+
+/** Steps 1–3: warm-up discard, then the two rejections. Null when too little survives. */
+export function surviveRejection(rawClicks: CalibClick[], cellPx: number): CalibClick[] | null {
+  const measured = rawClicks.slice(WARMUP_DISCARD); // 1
+  const byDistance = measured.filter((c) => Math.hypot(c.dx, c.dy) <= MAX_ENDPOINT_CELLS * cellPx); // 2
+  const byTime = [...byDistance].sort((a, b) => a.mtMs - b.mtMs); // 3
+  const keep = Math.max(1, Math.floor(byTime.length * (1 - SLOWEST_FRACTION_CUT)));
+  const slowCut = byTime.length ? byTime[keep - 1].mtMs : Infinity;
+  const surviving = byDistance.filter((c) => c.mtMs <= slowCut);
+  return surviving.length < MIN_SURVIVING ? null : surviving;
+}
+
+export interface Scatter {
+  sigmaX: number;
+  sigmaY: number;
+  sigmaUsed: number;
+  effectiveWidthPx: number;
+}
+
+/** Steps 4–5: per-axis σ, pooled, then the ISO effective width. */
+export function estimateScatter(clicks: CalibClick[]): Scatter {
+  const sigmaX = std(clicks.map((c) => c.dx));
+  const sigmaY = std(clicks.map((c) => c.dy));
+  // Pool both axes (RMS) rather than max(σx,σy). With ~14 endpoints per axis, max() is the larger of
+  // two noisy estimates and runs ~9% high (measured over 4000 simulated calibrations), which
+  // silently biased every recommendation one notch coarser on top of the deliberate COLD_START.
+  const sigmaUsed = Math.sqrt((sigmaX * sigmaX + sigmaY * sigmaY) / 2);
+  return { sigmaX, sigmaY, sigmaUsed, effectiveWidthPx: EFFECTIVE_WIDTH_COEF * sigmaUsed };
+}
+
+export interface GridRecommendation {
+  raw: number; // step 6, before any clamping — the unrounded solve
+  cellFloorPx: number; // step 7's floor
+  clamped: number; // after the floor
+  grid: number; // step 8, the value actually recommended
+}
+
+/** Steps 6–8: solve for the grid whose cells are one effective width across, bias coarse, floor the
+ *  cell size, snap down to the ladder. Every intermediate is returned so a surprising
+ *  recommendation can be traced to the step that produced it rather than re-derived by hand. */
+export function recommendGrid(effectiveWidthPx: number, fieldPx: number, devicePixelRatio: number): GridRecommendation {
+  const raw = effectiveWidthPx > 0 ? (fieldPx / effectiveWidthPx) * COLD_START : SNAP_GRIDS[SNAP_GRIDS.length - 1];
+  // A cell must survive being drawn: at least 10 CSS px, and at least 6 device px so gridlines and
+  // the 2px outlines do not eat the whole target.
+  const cellFloorPx = Math.max(10, 6 * devicePixelRatio);
+  const clamped = Math.min(raw, fieldPx / cellFloorPx);
+  // SNAP_GRIDS tops out at 64, so "an absurdly good calibration caps at 64" needs no separate clamp.
+  return { raw, cellFloorPx, clamped, grid: snapDown(clamped) };
+}
+
 export interface CalibComputeOpts {
   fieldPx: number;
   referenceGrid: number;
@@ -124,24 +221,14 @@ export interface CalibComputeOpts {
 // caller then prompts to recalibrate).
 export function computeCalibration(rawClicks: CalibClick[], opts: CalibComputeOpts): CalibrationResult | null {
   const cellPx = opts.fieldPx / opts.referenceGrid;
-  const measured = rawClicks.slice(WARMUP_DISCARD);
 
-  // Rejection for the SCATTER estimate: drop endpoints > 2 cells from centre (attention lapses),
-  // then the slowest 10% by movement time (hesitations inflate scatter).
-  const byDist = measured.filter((c) => Math.hypot(c.dx, c.dy) <= 2 * cellPx);
-  const sortedMt = [...byDist].sort((a, b) => a.mtMs - b.mtMs);
-  const keep = Math.max(1, Math.floor(sortedMt.length * 0.9));
-  const slowCut = sortedMt.length ? sortedMt[keep - 1].mtMs : Infinity;
-  const surviving = byDist.filter((c) => c.mtMs <= slowCut);
-  if (surviving.length < MIN_SURVIVING) return null;
-
-  const sigmaX = std(surviving.map((c) => c.dx));
-  const sigmaY = std(surviving.map((c) => c.dy));
-  // Pool both axes (RMS) rather than max(σx,σy). With ~14 endpoints per axis, max() is the larger of
-  // two noisy estimates and runs ~9% high (measured over 4000 simulated calibrations), which
-  // silently biased every recommendation one notch coarser on top of the deliberate COLD_START.
-  const sigmaUsed = Math.sqrt((sigmaX * sigmaX + sigmaY * sigmaY) / 2);
-  const effectiveWidthPx = EFFECTIVE_WIDTH_COEF * sigmaUsed;
+  // steps 1–3
+  const surviving = surviveRejection(rawClicks, cellPx);
+  if (!surviving) return null;
+  // steps 4–5
+  const { sigmaX, sigmaY, sigmaUsed, effectiveWidthPx } = estimateScatter(surviving);
+  // The distance-filtered set is needed again below for the Fitts fit, without the slow-MT cut.
+  const byDist = rawClicks.slice(WARMUP_DISCARD).filter((c) => Math.hypot(c.dx, c.dy) <= MAX_ENDPOINT_CELLS * cellPx);
 
   // Fitts profile: D = previous target centre → this one, W = cellPx. Fitted over the
   // DISTANCE-filtered set only — the slow-MT cut above exists to clean the scatter estimate, but it
@@ -166,13 +253,8 @@ export function computeCalibration(rawClicks: CalibClick[], opts: CalibComputeOp
   // non-positive slope is an absent measurement — reporting it as "0 bits/s" reads like a result.
   const impliedThroughput = fittsB > 0 ? 1 / fittsB : null;
 
-  // recommendation: fieldPx / We, cold-start factor, cell-size floor, snap down; cap at 64
-  let gRaw = effectiveWidthPx > 0 ? (opts.fieldPx / effectiveWidthPx) * COLD_START : 64;
-  const cellFloor = Math.max(10, 3 * opts.devicePixelRatio * 2);
-  gRaw = Math.min(gRaw, opts.fieldPx / cellFloor);
-  // SNAP_GRIDS tops out at 64, so the spec's "absurdly good calibration → cap at 64" rule is
-  // already implied by the snap; no separate clamp is needed.
-  const recommendedGrid = snapDown(gRaw);
+  // steps 6–8
+  const { grid: recommendedGrid } = recommendGrid(effectiveWidthPx, opts.fieldPx, opts.devicePixelRatio);
 
   return {
     referenceGrid: opts.referenceGrid,
