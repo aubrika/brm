@@ -78,6 +78,45 @@ assumption that letting you plan the next movement while finishing this one woul
 never measured, so there is a harness for it: tick **A/B the lookahead ghost** on the config
 screen and the game assigns each scored run an arm — half with the ghost, half without.
 
+### Result: it is worth about a quarter of the score
+
+**13 paired runs, 16×16 grid, one player, one session** (`node scripts/analyze.mjs`, section `[12]`):
+
+|  | ghost on | ghost off | Δ (on − off) | 95 % CI | p |
+|---|---|---|---|---|---|
+| **bits/s** | 12.504 | 10.044 | **+2.460** | [2.03, 2.89] | 3 × 10⁻⁸ |
+| cycle time | 610 ms | 763 ms | **−153 ms** | [−169, −136] | 1 × 10⁻¹⁰ |
+| error rate | 4.60 % | 4.69 % | −0.09 % | [−1.9, +1.7] | 0.92 |
+
+The ghost is worth **+2.46 bits/s — roughly a quarter of the no-ghost score**, and four times the
+0.60 bits/s these 13 pairs could resolve. Every one of the 13 pairs came out positive, so a sign
+test — which assumes nothing at all about the distribution — gives p = 2.4 × 10⁻⁴ on its own. The
+parametric and assumption-free tests agree.
+
+**The whole gain is speed.** 153 ms saved per selection with error rate flat to within a tenth of
+a percent: not a speed/accuracy trade laundered into the score, just less time per selection. Mean
+index of difficulty matched across arms (3.082 vs 3.102, p = 0.51), so the ghost arm was not handed
+easier targets. 153 ms is about one visual-search-plus-motor-planning cycle, which is what a
+preview should remove — without it you pay that latency serially on every single selection.
+Fitting Fitts per arm puts the difference in the intercept (669 ms off vs 376 ms on) rather than
+the slope, i.e. a fixed overhead rather than a distance cost; but R² is 0.02 and 0.12, so those
+fits are too weak to lean on. The 153 ms needs no fit.
+
+**What this does not license.** One player, one session, one device — n = 1 organism. Only at
+16×16: a roughly fixed ~150 ms saving is a larger *fraction* of a short cycle than a long one, so
+the gain is probably smaller at 32×32 (partly offset by each selection being worth 10 bits instead
+of 8) — untested. And `ghost` gates both the grey outline and the connector line, so this measures
+the whole lookahead package, not the outline alone.
+
+Two checks that came back clean: the effect does not drift across the session (+0.05 bits/s per
+pair, flat), and the pairs alternate which arm leads, so it is neither warm-up nor order. The
+mechanism check's one odd-looking number — ghost-off showing 2.86 % errors when the next target
+was near vs 4.84 % far, where there should be no gap at all — is 2 errors out of 70 clicks.
+
+The ghost stays on by default.
+
+### How the harness works
+
 Arms come in **randomised pairs**: every pair holds one ghost-on run and one ghost-off run, in a
 random order. A player's bit rate drifts across a session by more than the ghost could plausibly
 be worth, so the comparison is made *within* a pair, where that drift cancels. Free coin-flipping
@@ -95,7 +134,13 @@ against reading too much into it:
   does not, something other than the ghost is driving the numbers.
 
 Roughly 8–12 pairs (16–24 minutes of play) puts the resolution near a few percent of the ~13 bits/s
-baseline.
+baseline — the run above reached 0.60 bits/s at 13 pairs.
+
+The power calculation uses `(t₀.₉₇₅ + t₀.₈₀)·se`, not the textbook `(z₀.₉₇₅ + z₀.₈₀) = 2.802·se`.
+At these sample sizes the normal form is badly optimistic: a Monte-Carlo of the function itself put
+its true power at 8 pairs at 67 %, not the 80 % it claimed. `scripts/stats.test.mjs` pins the t
+machinery to the published table and the pairing rules to hand-built logs — a wrong p-value is the
+one number in this project that would look right while being wrong.
 
 ## Structure
 
