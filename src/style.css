@@ -246,6 +246,18 @@ code { font-family: var(--mono); }
 .r-tape { width: 100%; }
 .r-tape-plot { position: relative; width: 100%; }
 .r-tape-svg { width: 100%; height: clamp(150px, 27vh, 320px); display: block; }
+/* Momentary rate: B on a sliding window against the clock. The null band is the quietest thing on
+   the panel — it is context, not data — and only stretches that escape it get a colour. */
+.r-mom { position: relative; }
+.r-mom-svg { width: 100%; height: clamp(120px, 16vh, 168px); display: block; overflow: visible; }
+.r-mom-band { fill: var(--rpanel); stroke: var(--hair); stroke-width: 0.75; }
+.r-mom-zero { stroke: var(--hair); stroke-width: 1; }
+.r-mom-ref { stroke: var(--slate); stroke-width: 1.2; stroke-dasharray: 4 4; }
+.r-mom-strokes polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.r-mom-line { stroke: var(--rink); }
+.r-mom-hot { stroke: var(--amber); }   /* a real peak — faster than this run's own shuffle */
+.r-mom-cold { stroke: var(--rerr); }   /* a real valley */
+
 .r-errdot { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--rerr); transform: translate(-50%, -50%); pointer-events: none; }
 .r-tick { outline: none; cursor: default; }
 .r-seg-base { fill: var(--rink); }

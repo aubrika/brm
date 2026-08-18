@@ -252,6 +252,25 @@ describe('renderReport', () => {
     expect(tagged.querySelector('.r-hero-util')?.textContent).toContain('ghost off');
   });
 
+  it('charts the momentary rate, with a null band and a reading', () => {
+    const r = root();
+    render(r, synthGridLog(32, 60, 8), [], info, cb);
+    const titles = r.querySelectorAll('.r-sec-title').map((e) => e.textContent);
+    expect(titles).toContain('Momentary rate');
+    // the band is the honesty device — a curve without it invites reading noise as structure
+    expect(r.querySelectorAll('.r-mom-band').length).toBe(1);
+    expect(r.querySelectorAll('.r-mom-ref').length).toBe(1); // the run's final score, for reference
+    const strokes = r.querySelectorAll('.r-mom-line').length + r.querySelectorAll('.r-mom-hot').length + r.querySelectorAll('.r-mom-cold').length;
+    expect(strokes).toBeGreaterThan(0);
+  });
+
+  it('suppresses the momentary chart when the run is too short to window', () => {
+    // Under ~20 selections an 8 s window is mostly empty and the curve is a rumour.
+    const r = root();
+    render(r, synthGridLog(32, 8, 0), [], info, cb);
+    expect(r.querySelectorAll('.r-sec-title').map((e) => e.textContent)).not.toContain('Momentary rate');
+  });
+
   it('states the grid size and pointer type in the Movement panel', () => {
     const r = root();
     render(r, synthGridLog(32, 60, 8), [], info, cb);

@@ -3,6 +3,8 @@ import { bitRate } from './bitrate.js';
 import { makeRandInt, generateSequence, type Uint32Source } from './sequence.js';
 import { validateAlphabet, isSelection, type RawKey } from './alphabet.js';
 import { reduceLog } from '../v1/reduce.js';
+import { momentaryRate, momentaryBand } from './stats.js';
+import type { RunLog, RawEvent } from './stats.js';
 
 // A deterministic 32-bit word source (mulberry32) so the statistical tests are reproducible
 // — they exercise OUR rejection-sampling / modulo pipeline for uniformity, given a uniform
@@ -206,3 +208,106 @@ describe('end-to-end bit rate from a scripted log', () => {
   });
 });
 
+
+// ------------------------------------------------- momentary rate + band ----
+// The chart under "The run" is the only place in the report that makes an inferential claim —
+// "this peak is real, that one is noise" — so the window arithmetic and the null band both get
+// pinned. A band that is too tight would dress noise up as a finding.
+
+/** A run at a chosen rate: one correct selection every `gapMs`, plus optional misses. */
+function paceLog(gapMs: number, durationS = 60, n = 256, missEvery = 0): RunLog {
+  const events: RawEvent[] = [];
+  const seq: string[] = [];
+  let t = 0;
+  let i = 0;
+  let sc = 0;
+  let si = 0;
+  while (t + gapMs <= durationS * 1000) {
+    t += gapMs;
+    if (missEvery > 0 && i % missEvery === missEvery - 1) {
+      events.push([t, 'down', '99', i, 'err']);
+      si++;
+    } else {
+      events.push([t, 'down', String(i % n), i, 'ok']);
+      seq.push(String(i % n));
+      sc++;
+    }
+    i++;
+  }
+  return {
+    schemaVersion: 3,
+    meta: { appVersion: '1', commit: 'c', runId: 'r', startedAt: '2026-01-01T00:00:00Z', mode: 'scored',
+      machine: { installId: 'u', label: '', ua: '', platform: '', hardwareConcurrency: 1, estimatedRefreshHz: 60, timeOriginPrecisionMs: 0.1 },
+      config: { mode: 'grid', n, durationMs: durationS * 1000, sound: false } },
+    sequence: seq, eventColumns: ['t', 'type', 'key', 'idx', 'verdict'], events, latencySamples: [],
+    summary: { bitsPerSecond: 0, n, sc, si, elapsedS: durationS, accuracy: sc / (sc + si),
+      grossKeysPerSec: 0, netSelectionsPerSec: 0, medianIkiMs: gapMs, rollovers: 0, droppedFrames: 0, outOfAlphabet: 0 },
+  } as RunLog;
+}
+
+describe('momentaryRate', () => {
+  it('recovers a constant pace as a flat line at the right height', () => {
+    // one selection every 500 ms at N=256 → log2(255) bits every 0.5 s ≈ 15.99 bits/s
+    const { samples } = momentaryRate(paceLog(500));
+    const expected = Math.log2(255) / 0.5;
+    const mid = samples.filter((s) => s.t > 10_000 && s.t < 50_000); // away from the clipped edges
+    for (const s of mid) expect(s.bps).toBeCloseTo(expected, 1);
+  });
+
+  it('follows a change of pace rather than averaging it away', () => {
+    // fast for 30 s, then half speed — the cumulative HUD number would barely move here
+    const fast = paceLog(400, 30).events;
+    const slow = paceLog(800, 30).events.map(([t, ...rest]) => [(t as number) + 30_000, ...rest] as RawEvent);
+    const log = paceLog(400, 60);
+    log.events = [...fast, ...slow];
+    const { samples } = momentaryRate(log);
+    const at = (s: number): number => samples.find((x) => x.t === s * 1000)!.bps;
+    expect(at(15)).toBeGreaterThan(at(50) * 1.7); // the second half really is about half the rate
+  });
+
+  it('goes negative where misses outnumber hits, instead of clamping to zero', () => {
+    // every other click is a miss → net zero; two in three → negative
+    const { samples } = momentaryRate(paceLog(400, 60, 256, 2));
+    const mid = samples.filter((s) => s.t > 10_000 && s.t < 50_000);
+    expect(Math.min(...mid.map((s) => s.bps))).toBeLessThanOrEqual(0.01);
+  });
+
+  it('sums to the run score over the whole window', () => {
+    // a flat run's windowed rate should agree with log2(N-1)·(Sc-Si)/t computed directly
+    const log = paceLog(600);
+    const { samples } = momentaryRate(log, 60_000);
+    const direct = (Math.log2(255) * (log.summary.sc - log.summary.si)) / 60;
+    expect(samples[Math.floor(samples.length / 2)].bps).toBeCloseTo(direct, 1);
+  });
+});
+
+describe('momentaryBand', () => {
+  it('is deterministic, so a log renders the same envelope every time', () => {
+    const log = paceLog(500);
+    expect(JSON.stringify(momentaryBand(log))).toBe(JSON.stringify(momentaryBand(log)));
+  });
+
+  it('brackets a genuinely constant run — no false peaks', () => {
+    const log = paceLog(500);
+    const { samples } = momentaryRate(log);
+    const band = momentaryBand(log)!;
+    const outside = samples.filter((s, i) => s.bps > band[i].hi || s.bps < band[i].lo);
+    // a metronome has no time structure to find; a couple of edge samples may graze the envelope
+    expect(outside.length).toBeLessThan(samples.length * 0.1);
+  });
+
+  it('flags a real change of pace as outside the band', () => {
+    const fast = paceLog(350, 30).events;
+    const slow = paceLog(900, 30).events.map(([t, ...rest]) => [(t as number) + 30_000, ...rest] as RawEvent);
+    const log = paceLog(350, 60);
+    log.events = [...fast, ...slow];
+    const { samples } = momentaryRate(log);
+    const band = momentaryBand(log)!;
+    const outside = samples.filter((s, i) => s.bps > band[i].hi || s.bps < band[i].lo);
+    expect(outside.length).toBeGreaterThan(samples.length * 0.2); // the shift is unmissable
+  });
+
+  it('declines to draw a band from too few events', () => {
+    expect(momentaryBand(paceLog(6000, 60))).toBeNull(); // ~10 selections
+  });
+});

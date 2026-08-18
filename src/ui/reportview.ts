@@ -11,8 +11,8 @@
 // returns plain data; the build half turns that data into DOM and does nothing else. Panels
 // prefixed v1 apply only to the legacy keyboard game, v2 only to the grid game.
 
-import type { RunLog, DownEvent, Histogram } from '../core/stats.js';
-import { reportStats, digraphStats, transitionMeans, confusion, ikiList, quantile, gridFitts } from '../core/stats.js';
+import type { RunLog, DownEvent, Histogram, MomentSample } from '../core/stats.js';
+import { reportStats, digraphStats, transitionMeans, confusion, ikiList, quantile, gridFitts, momentaryRate, momentaryBand } from '../core/stats.js';
 import { laneColors } from '../core/config.js';
 import type { IndexRow } from '../io/logging.js';
 import { el, svgEl, section, prefersReducedMotion, animateOver } from './dom.js';
@@ -270,6 +270,155 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): AnimatedPanel {
     ticks.style.clipPath = 'inset(0 100% 0 0)';
     animateOver(TAPE.revealMs, (p) => {
       ticks.style.clipPath = p < 1 ? `inset(0 ${(100 * (1 - p)).toFixed(2)}% 0 0)` : 'none';
+    });
+  };
+  return { node, animate };
+}
+
+
+// ------------------------------------------------- momentary rate over time ----
+// The run tape next door plots one bar per SELECTION; this plots B against the CLOCK. They answer
+// different questions: the tape shows which selections were slow, this shows whether the run had
+// stretches — a fast opening, a slump at 40 s — that no per-selection view makes visible.
+//
+// It is deliberately not the HUD's number. That one is cumulative (B since t=0, recomputed every
+// frame), so it converges within a few seconds and a bad ten seconds late in the run barely moves
+// it. This is B over a sliding window, which is the thing that actually has peaks and valleys.
+//
+// The grey band is the honesty device. A window holding ~13 selections is a small sample, so a
+// wobbly line is guaranteed whether or not anything really happened. The band is what THIS run
+// looks like with its own gaps and misses shuffled into a random order: same speed, same accuracy,
+// no time structure. Inside the band is noise. Only excursions outside it are evidence.
+
+const MOMENT = { width: 1000, height: 150, padTop: 10, padBottom: 20, revealMs: 700 };
+const MOMENT_MIN_SELECTIONS = 20; // below this the window is mostly empty and the chart is a rumour
+
+interface MomentPoint {
+  x: number;
+  y: number;
+  yLo: number;
+  yHi: number;
+  bps: number;
+  outside: -1 | 0 | 1;
+}
+
+interface MomentChart {
+  points: MomentPoint[];
+  windowS: number;
+  durationS: number;
+  yOfValue: (v: number) => number;
+  finalBps: number;
+  peak: MomentSample;
+  valley: MomentSample;
+  excursions: number;
+}
+
+function computeMomentary(log: RunLog): MomentChart | null {
+  if (log.summary.sc + log.summary.si < MOMENT_MIN_SELECTIONS) return null;
+  const { windowMs, samples } = momentaryRate(log);
+  if (samples.length < 4) return null;
+  const band = momentaryBand(log);
+  const durationMs = samples[samples.length - 1].t || 1;
+
+  const values = samples.map((s) => s.bps);
+  const lows = band ? band.map((b) => b.lo) : values;
+  const highs = band ? band.map((b) => b.hi) : values;
+  const min = Math.min(0, ...values, ...lows);
+  const max = Math.max(...values, ...highs, log.summary.bitsPerSecond);
+  const span = max - min || 1;
+  const plotH = MOMENT.height - MOMENT.padTop - MOMENT.padBottom;
+  const yOfValue = (v: number): number => MOMENT.padTop + plotH * (1 - (v - min) / span);
+
+  let peak = samples[0];
+  let valley = samples[0];
+  let excursions = 0;
+  const points = samples.map((s, i) => {
+    const lo = band ? band[i].lo : s.bps;
+    const hi = band ? band[i].hi : s.bps;
+    const outside: -1 | 0 | 1 = band ? (s.bps > hi ? 1 : s.bps < lo ? -1 : 0) : 0;
+    if (outside !== 0) excursions++;
+    if (s.bps > peak.bps) peak = s;
+    if (s.bps < valley.bps) valley = s;
+    return { x: (s.t / durationMs) * MOMENT.width, y: yOfValue(s.bps), yLo: yOfValue(lo), yHi: yOfValue(hi), bps: s.bps, outside };
+  });
+
+  return {
+    points,
+    windowS: windowMs / 1000,
+    durationS: Math.round(durationMs / 1000),
+    yOfValue,
+    finalBps: log.summary.bitsPerSecond,
+    peak,
+    valley,
+    excursions,
+  };
+}
+
+/** Contiguous runs of points sharing the same in/out-of-band state, so an excursion can be drawn
+ *  as its own stroke. Segments overlap by one point, otherwise the recoloured stretch would be
+ *  separated from the line it belongs to by a visible gap. */
+function bandSegments(points: MomentPoint[]): Array<{ outside: -1 | 0 | 1; pts: MomentPoint[] }> {
+  const out: Array<{ outside: -1 | 0 | 1; pts: MomentPoint[] }> = [];
+  for (const p of points) {
+    const last = out[out.length - 1];
+    if (last && last.outside === p.outside) last.pts.push(p);
+    else {
+      if (last) last.pts.push(p); // bridge the join
+      out.push({ outside: p.outside, pts: [p] });
+    }
+  }
+  return out;
+}
+
+const polyline = (pts: MomentPoint[], key: 'y'): string => pts.map((p) => `${p.x.toFixed(1)},${p[key].toFixed(1)}`).join(' ');
+
+function momentumSection(log: RunLog): AnimatedPanel | null {
+  const chart = computeMomentary(log);
+  if (!chart) return null;
+  const { points, yOfValue } = chart;
+
+  // The null band, as one closed area: highs left-to-right, then lows back again.
+  const area = `M ${points.map((p) => `${p.x.toFixed(1)},${p.yHi.toFixed(1)}`).join(' L ')} L ${[...points].reverse().map((p) => `${p.x.toFixed(1)},${p.yLo.toFixed(1)}`).join(' L ')} Z`;
+
+  const kids: SVGElement[] = [svgEl('path', { class: 'r-mom-band', d: area })];
+  const zeroY = yOfValue(0);
+  if (zeroY > MOMENT.padTop && zeroY < MOMENT.height - MOMENT.padBottom) {
+    kids.push(svgEl('line', { class: 'r-mom-zero', x1: '0', y1: String(zeroY), x2: String(MOMENT.width), y2: String(zeroY) }));
+  }
+  const refY = yOfValue(chart.finalBps);
+  kids.push(svgEl('line', { class: 'r-mom-ref', x1: '0', y1: String(refY), x2: String(MOMENT.width), y2: String(refY) }));
+
+  const stroke = svgEl('g', { class: 'r-mom-strokes' });
+  for (const seg of bandSegments(points)) {
+    const cls = seg.outside === 1 ? 'r-mom-hot' : seg.outside === -1 ? 'r-mom-cold' : 'r-mom-line';
+    stroke.append(svgEl('polyline', { class: cls, points: polyline(seg.pts, 'y') }));
+  }
+  kids.push(stroke);
+
+  const svg = svgEl('svg', { class: 'r-mom-svg', viewBox: `0 0 ${MOMENT.width} ${MOMENT.height}`, preserveAspectRatio: 'none' }, kids);
+
+  const reading = chart.excursions === 0
+    ? `Nothing here leaves the band, so the wobble is sampling noise: the run held one pace throughout. Peak ${chart.peak.bps.toFixed(1)}, low ${chart.valley.bps.toFixed(1)}.`
+    : `Peak ${chart.peak.bps.toFixed(1)} bits/s at ${Math.round(chart.peak.t / 1000)}s · low ${chart.valley.bps.toFixed(1)} at ${Math.round(chart.valley.t / 1000)}s. The coloured stretches are outside the band — those are real changes of pace, not noise.`;
+
+  const node = section(
+    'Momentary rate',
+    el('div', { class: 'r-mom' }, [
+      svg,
+      el('div', { class: 'r-tape-axis' }, [el('span', { text: '0s' }), el('span', { text: `${chart.durationS}s` })]),
+    ]),
+    el('p', {
+      class: 'r-tape-tip',
+      text: `B over a sliding ${chart.windowS}s window, against the clock — not the cumulative number the HUD shows. Dashed line = the run's final score. The grey band is this run's own selections in random order: inside it is noise, outside it is a real peak or valley.`,
+    }),
+    el('p', { class: 'r-read', text: reading }),
+  );
+
+  const animate = (): void => {
+    if (prefersReducedMotion()) return;
+    stroke.style.clipPath = 'inset(0 100% 0 0)';
+    animateOver(MOMENT.revealMs, (p) => {
+      stroke.style.clipPath = p < 1 ? `inset(0 ${(100 * (1 - p)).toFixed(2)}% 0 0)` : 'none';
     });
   };
   return { node, animate };
@@ -580,6 +729,7 @@ export function renderReport(
 
   const hero = heroSection(log);
   const tape = runTapeSection(log, downs);
+  const momentum = momentumSection(log);
 
   // A grid run gets pointing-appropriate panels: the interval distribution + movement stats, in
   // place of the keyboard finger/lane transitions and miss-confusion (both meaningless here).
@@ -589,7 +739,9 @@ export function renderReport(
   ]);
 
   const runAgain = actionButton('btn primary', 'Run again', cb.onRunAgain);
-  const panels: Node[] = [hero.node, tape.node, twoCol];
+  const panels: Node[] = [hero.node, tape.node];
+  if (momentum) panels.push(momentum.node);
+  panels.push(twoCol);
   const misses = isGrid ? null : missesSection(log);
   if (misses) panels.push(misses);
   const machine = machineSection(log, indexRows);
@@ -610,6 +762,7 @@ export function renderReport(
 
   hero.animate();
   tape.animate();
+  momentum?.animate();
   // Enter restarts (every extra click between runs costs practice data) — but preventScroll so
   // mount doesn't jump the view down to the button; the reader lands on their score.
   runAgain.focus({ preventScroll: true });
