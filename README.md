@@ -113,7 +113,17 @@ pair, flat), and the pairs alternate which arm leads, so it is neither warm-up n
 mechanism check's one odd-looking number — ghost-off showing 2.86 % errors when the next target
 was near vs 4.84 % far, where there should be no gap at all — is 2 errors out of 70 clicks.
 
-The ghost stays on by default.
+The ghost stays on by default, and **Lookahead** is now a config value (0, 1 or 2). Depth 2 adds
+T+2 behind T+1, drawn dimmer, so the preview reads as an ordered chain rather than two equal
+targets — untested as of this writing.
+
+**A comparability warning about depth 2.** The depth-2 work also *brightened* T+1 (it was
+`#6B7789` at 1.5 px, now `#AEBACE` at 2 px). So depth-1 runs recorded before that build were
+played with a dimmer preview than depth-1 runs after it, and comparing new depth-2 runs against
+the 13 depth-1 runs above would confound lookahead depth with ghost brightness. Group by
+`meta.commit`, or — better — collect fresh depth-1 runs paired against depth-2 ones. Section
+`[11]`'s per-depth breakdown is labelled as config groups, not randomised arms, for this reason:
+it shows what was played under each setting and licenses no causal claim.
 
 ### How the harness works
 

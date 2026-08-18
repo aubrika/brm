@@ -14,7 +14,11 @@ export interface GameConfig {
   grid: boolean; // GRID MODE on
   gridSize: number; // cells per side; a layer has gridSize² cells
   gridDepth: number; // stacked "transparent" grids per selection (1 | 2); N = (gridSize²)^depth
-  ghost: boolean; // show the next target (T+1) as a ghost cell + connector
+  // How many upcoming targets are previewed (0 | 1 | 2). 1 outlines T+1 in grey and draws a
+  // connector to it; 2 adds T+2 behind it, dimmer, so the preview reads as an ordered chain rather
+  // than two equal targets. Measured worth: depth 1 is +2.46 bits/s over depth 0 (see README).
+  // Not to be confused with `gridDepth`, which stacks layers WITHIN one selection.
+  lookaheadDepth: number;
   crosshair: boolean; // full-field locator hairlines through the target cell
   hoverPulse: boolean; // pulse a white border while the pointer is inside the target cell
   abGhost: boolean; // arm the ghost A/B: each scored run's `ghost` is assigned by core/ab.ts
@@ -73,7 +77,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   grid: true, // grid is the singular default mode
   gridSize: 32, // 32×32 = 1024 cells; the geometry whose Fitts ceiling is ~2× device throughput
   gridDepth: 1, // one layer per selection; 2 stacks an orange+blue pair (N = 1024²)
-  ghost: true,
+  lookaheadDepth: 1, // T+1 previewed; measured at +2.46 bits/s over no preview
   crosshair: true,
   hoverPulse: true,
   abGhost: false, // opt-in: half of scored runs lose the ghost, so the default game stays whole
@@ -87,9 +91,10 @@ export const DEFAULT_CONFIG: GameConfig = {
   sound: true,
 };
 
-const STORAGE_KEY = 'brm.config.v20'; // retired-experiment fields removed
+const STORAGE_KEY = 'brm.config.v21'; // ghost:boolean → lookaheadDepth:0|1|2
 
 export const GRID_SIZES = [8, 16, 24, 32, 64, 128] as const; // cells per side offered on the config screen
+export const LOOKAHEAD_DEPTHS = [0, 1, 2] as const; // upcoming targets previewed
 export const SCOPE_GRID_SIZES = [128, 256] as const; // fine grid sizes for scope mode
 export const MAGNIFICATIONS = [4, 8, 12] as const; // lens zoom factors for scope mode
 

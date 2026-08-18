@@ -46,6 +46,22 @@ describe('GridEngine (depth 1)', () => {
     expect(e.sc).toBe(2);
   });
 
+  it('exposes each lookahead target, and runs out at the end of the sequence', () => {
+    const e = new GridEngine(cfg(16), true, seqRand([3, 10, 7, 2]));
+    e.start(0);
+    expect(e.lookaheadTarget(0)).toBe(3); // 0 steps ahead is the current target
+    expect(e.lookaheadTarget(1)).toBe(10);
+    expect(e.lookaheadTarget(2)).toBe(7);
+    expect(e.nextTarget()).toBe(e.lookaheadTarget(1)); // the ghost is just lookahead 1
+
+    e.handleClick(3, 100);
+    expect(e.lookaheadTarget(1)).toBe(7); // the whole chain shifts with the index
+    expect(e.lookaheadTarget(2)).toBe(2);
+
+    // Past the end there is nothing to preview; the renderer must get -1, not a stale cell.
+    expect(e.lookaheadTarget(e.sequence.length)).toBe(-1);
+  });
+
   it('allows a repeated target (i.i.d. sampling with replacement)', () => {
     const e = new GridEngine(cfg(16), true, seqRand([5, 5, 9])); // same cell twice in a row
     e.start(0);

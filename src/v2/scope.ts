@@ -131,7 +131,7 @@ export class ScopeRenderer {
       ctx.stroke();
     }
     // ghost connector + gray halo (next target)
-    if (cfg.ghost && ghost >= 0 && target >= 0) {
+    if (cfg.lookaheadDepth > 0 && ghost >= 0 && target >= 0) {
       ctx.strokeStyle = 'rgba(107,119,137,0.85)';
       ctx.lineWidth = 1;
       ctx.beginPath();

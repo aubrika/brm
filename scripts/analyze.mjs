@@ -428,6 +428,15 @@ function analyzeGrid(logs) {
   }
   const ghostOn = grid.filter((l) => l.grid.ghost);
   const ghostOff = grid.filter((l) => !l.grid.ghost);
+  // Runs grouped by how many upcoming targets were previewed. Logs written before lookahead depth
+  // existed carry only the boolean, so fall back to it. Grouped by (depth, gridSize) because the
+  // two are not comparable across grid sizes and pooling them would invent a difference.
+  const byLookahead = {};
+  for (const l of grid) {
+    const d = l.grid.lookahead ?? (l.grid.ghost ? 1 : 0);
+    const key = `depth ${d} @ ${l.grid.gridSize}²`;
+    (byLookahead[key] ??= []).push(l);
+  }
   const dwellAll = grid.flatMap(dwellTimes);
   let ghostHits = 0;
   let errs = 0;
@@ -446,6 +455,9 @@ function analyzeGrid(logs) {
     overall: aggregateGrid('all', grid),
     byPointer: Object.entries(byType).map(([t, ls]) => aggregateGrid(t, ls)),
     ghost: { on: aggregateGrid('ghost on', ghostOn), off: aggregateGrid('ghost off', ghostOff) },
+    byLookahead: Object.entries(byLookahead)
+      .map(([label, ls]) => ({ ...aggregateGrid(label, ls), bpsList: ls.map((l) => l.summary.bitsPerSecond) }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
     dwell: { count: dwellAll.length, medianMs: median(dwellAll), meanMs: mean(dwellAll) },
     ghostMisclicks: { ghostHits, errs, share: errs > 0 ? ghostHits / errs : 0 },
     adjacency: {
@@ -757,6 +769,16 @@ function printReport(logs, analysis) {
     L.push('    ghost on/off, pooled and UNPAIRED (descriptive only — the test is [12]):');
     L.push(gridArmLine(gr.ghost.on));
     L.push(gridArmLine(gr.ghost.off));
+    // Lookahead depth is a config choice, not a randomised arm, so these groups are whatever runs
+    // happened to be played under each setting — different sessions, different warm-up, different
+    // hands. Read the spread, not the gap between the means; only [12] licenses a causal claim.
+    L.push('    by lookahead depth (config groups, NOT randomised — mean ± sd of bits/s):');
+    for (const a of gr.byLookahead) {
+      const m = mean(a.bpsList);
+      const sd = a.bpsList.length > 1 ? Math.sqrt(a.bpsList.reduce((s2, v) => s2 + (v - m) * (v - m), 0) / (a.bpsList.length - 1)) : NaN;
+      const spread = Number.isFinite(sd) ? ` ± ${sd.toFixed(2)}` : '';
+      L.push(`      ${a.label.padEnd(18)} ${m.toFixed(3)}${spread} bits/s · cycle ${Math.round(a.meanCycleMs)}ms · acc ${(a.meanAccuracy * 100).toFixed(1)}% · ${a.runs} run(s)`);
+    }
     if (gr.dwell.count > 0) {
       L.push(`    verify dwell (hover→click): median ${Math.round(gr.dwell.medianMs)}ms · mean ${Math.round(gr.dwell.meanMs)}ms · n=${gr.dwell.count}`);
     } else {

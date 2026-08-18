@@ -17,7 +17,7 @@ import { buildReport, downloadReport } from './io/report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './io/logging.js';
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
-import { loadConfig, saveConfig, GRID_SIZES, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
+import { loadConfig, saveConfig, GRID_SIZES, LOOKAHEAD_DEPTHS, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
 import { loadAbState, saveAbState, peek as abPeek, advance as abAdvance, completedPairs, type AbState, type AbAssignment } from './core/ab.js';
 import { validateAlphabet } from './core/alphabet.js';
 import { generateCalibrationScript, computeCalibration, seededRandInt, REFERENCE_GRID, CALIB_CLICKS, type CalibrationResult, type CalibClick } from './v2/calibration.js';
@@ -166,6 +166,11 @@ export class App {
     // (`?grid=32&auto=scored&secs=6&demo&ab` plays one arm and reports it) without clicking through
     // the config screen. It only arms the harness; which arm you get is still the harness's call.
     if (params.has('ab')) this.config = { ...this.config, abGhost: true };
+    // Dev aid: ?look=0|1|2 forces the lookahead depth for this session (headless capture).
+    if (params.has('look')) {
+      const d = Number(params.get('look'));
+      if ((LOOKAHEAD_DEPTHS as readonly number[]).includes(d)) this.config = { ...this.config, lookaheadDepth: d };
+    }
     // Dev aid: ?scope[=128|256]&mag=8 forces SCOPE MODE; &scoped engages the lens after start (for
     // headless capture, where there is no pointer lock to drive it).
     if (params.has('scope')) {
@@ -402,7 +407,7 @@ export class App {
     const fallback = seededRandInt(0x1234abcd);
     let k = 0;
     const src = (n: number): number => (k < script.length ? script[k++] : fallback(n));
-    const engine = new GridEngine({ ...this.config, gridSize: REFERENCE_GRID, gridDepth: 1, ghost: false }, false, src);
+    const engine = new GridEngine({ ...this.config, gridSize: REFERENCE_GRID, gridDepth: 1, lookaheadDepth: 0 }, false, src);
     engine.start(performance.now());
 
     const stripRoot = el('div', { class: 'strip-root grid-root' });
@@ -587,8 +592,22 @@ export class App {
         ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
       ]);
 
+    // Lookahead depth. Disabled while the A/B is armed, because there the harness — not this
+    // control — decides the depth (1 vs 0), and a select that silently does nothing is worse than
+    // one that is visibly unavailable.
+    const LOOKAHEAD_LABELS = ['0 · no preview', '1 · next target', '2 · next two'];
+    const lookahead = el('select', { class: 'field-input mono', ...(this.config.abGhost ? { disabled: true } : {}) },
+      (LOOKAHEAD_DEPTHS as readonly number[]).map((d) =>
+        el('option', { value: String(d), ...(this.config.lookaheadDepth === d ? { selected: true } : {}), text: LOOKAHEAD_LABELS[d] }),
+      ),
+    ) as HTMLSelectElement;
+    lookahead.addEventListener('change', () => {
+      this.config = { ...this.config, lookaheadDepth: Number(lookahead.value) || 0 };
+      saveConfig(this.config);
+    });
+
     // The ghost A/B. Off by default so a first-time visitor plays the whole game; while it is on,
-    // the harness overrides `ghost` on every scored run and the config's own value is ignored.
+    // the harness overrides the lookahead depth on every scored run and the config's value is idle.
     const abGhost = el('input', { type: 'checkbox', class: 'field-check', ...(this.config.abGhost ? { checked: true } : {}) }) as HTMLInputElement;
     abGhost.addEventListener('change', () => {
       this.config = { ...this.config, abGhost: abGhost.checked };
@@ -605,6 +624,7 @@ export class App {
       grid: true,
       scope: false,
       gridSize: Number(gridSize.value) || 32,
+      lookaheadDepth: Number(lookahead.value) || 0,
       abGhost: abGhost.checked,
     });
 
@@ -644,6 +664,7 @@ export class App {
         status,
         el('div', { class: 'config-grid' }, [
           field(cal ? 'Grid size (change)' : 'Grid size', gridSize, 'More cells = more bits per correct click, but smaller targets.'),
+          field('Lookahead', lookahead, this.config.abGhost ? 'Set by the A/B while it is armed.' : 'How many upcoming targets are outlined. Previewing one is worth about +2.5 bits/s.'),
           field('A/B the lookahead ghost', abGhost, abHint),
         ]),
         el('div', { class: 'field-note', text: cal ? 'Duration is locked to 60 s for scored runs.' : 'The scored run unlocks after calibration. Duration is locked to 60 s.' }),
@@ -751,7 +772,7 @@ export class App {
     // A/B: when the harness is armed, IT decides whether this run shows the ghost — not the config.
     // Scored runs only: practice runs would consume arms without contributing a comparable score.
     const ab = timed && this.config.abGhost ? abPeek(this.abState) : null;
-    const runConfig = ab ? { ...this.config, ghost: ab.arm === 'on' } : this.config;
+    const runConfig = ab ? { ...this.config, lookaheadDepth: ab.arm === 'on' ? 1 : 0 } : this.config;
 
     const engine = new GridEngine(runConfig, timed);
     engine.onCorrect = () => this.audio.bloop(); // hit: rising bloop (+ particle burst in the renderer)
@@ -1142,9 +1163,11 @@ export class App {
       fieldPx: v ? v.fieldPx : 0,
       cellPx: v ? v.cellPx : 0,
       devicePixelRatio: v ? v.dpr : 1,
-      // Read the ENGINE's config, not the app's: under the A/B harness the run's ghost setting is
-      // the assigned arm, which may differ from what is saved in the config.
-      ghost: rc.engine.config.ghost,
+      // Read the ENGINE's config, not the app's: under the A/B harness the run's preview setting
+      // is the assigned arm, which may differ from what is saved in the config.
+      // `ghost` is kept as the derived boolean the analyzer and every pre-existing log speak.
+      ghost: rc.engine.config.lookaheadDepth > 0,
+      lookahead: rc.engine.config.lookaheadDepth,
       crosshair: rc.engine.config.crosshair,
       hoverPulse: rc.engine.config.hoverPulse,
       pointerType: rc.pointerType || 'mouse',

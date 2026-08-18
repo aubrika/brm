@@ -65,7 +65,8 @@ export interface GridLog {
   fieldPx: number; // play-field side in CSS px
   cellPx: number; // target width W (px) — the Fitts term
   devicePixelRatio: number;
-  ghost: boolean;
+  ghost: boolean; // any preview at all (= lookahead > 0). Kept so pre-lookahead logs stay readable
+  lookahead?: number; // upcoming targets previewed: 0 | 1 | 2 (absent on logs written before this)
   crosshair: boolean;
   hoverPulse: boolean;
   pointerType: string; // modal pointer type across the run ('mouse' | 'touch' | 'pen')

@@ -17,7 +17,15 @@ const MARGIN = 20; // px inset from the smaller viewport dimension
 // colourblind-safe pair. crosshair tints are the same hues at low alpha.
 const LAYER_COLORS = ['#E69F00', '#3B82F6'];
 const LAYER_CROSSHAIR = ['rgba(230, 159, 0, 0.32)', 'rgba(59, 130, 246, 0.34)'];
-const GHOST_GRAY = '#6B7789';
+// Lookahead ramp, indexed by how far ahead the target is (0 = T+1, 1 = T+2). Brightness falls with
+// distance so the chain reads as ORDERED at a glance — two equally bright outlines would just look
+// like two targets and put the "which one first?" decision back on the player, which is the cost
+// the preview exists to remove. T+2 stays clearly dimmer than T+1 and both stay well below the
+// orange fill, so neither competes with the cell you must click now.
+const LOOKAHEAD_BORDER = ['#AEBACE', '#69748A'];
+const LOOKAHEAD_BORDER_PX = [2, 1.25];
+const LOOKAHEAD_LINE = ['rgba(174, 186, 206, 0.95)', 'rgba(105, 116, 138, 0.55)'];
+const LOOKAHEAD_LINE_PX = [1.5, 1];
 const FLASH_MS = 140; // wrong-cell flash duration
 const REPEAT_FLASH_MS = 200; // white confirm-flash when the next target repeats the same cell
 const PULSE_HZ = 2;
@@ -48,6 +56,20 @@ export function cellIndexAt(x: number, y: number, cellPx: number, gridSize: numb
 /** Chebyshev distance between two cells, in cells. */
 export function cellsApart(a: number, b: number, gridSize: number): number {
   return Math.max(Math.abs((a % gridSize) - (b % gridSize)), Math.abs(Math.floor(a / gridSize) - Math.floor(b / gridSize)));
+}
+
+/** Which lookahead outlines to actually draw. The i.i.d. sequence repeats a cell every 1/N
+ *  selections, and at lookahead depth 2 it can also put T+2 on T+1. Stacking a second outline on a
+ *  cell that already carries one — or on the orange target — reads as an extra target rather than
+ *  a repeat, so only the FIRST (brightest) claim on a cell is drawn. Pure so the repeat case,
+ *  which is otherwise a once-per-hundred-selections visual bug, is testable. */
+export function visibleLookahead(target: number, cells: number[]): boolean[] {
+  const claimed = new Set<number>([target]);
+  return cells.map((c) => {
+    if (c < 0 || claimed.has(c)) return false;
+    claimed.add(c);
+    return true;
+  });
 }
 
 export class GridRenderer {
@@ -162,8 +184,17 @@ export class GridRenderer {
     ctx.stroke();
 
     const target = this.engine.target(); // the ACTIVE cell — the one to click now
-    const ghost = this.engine.nextTarget(); // next selection's first (orange) cell
     const active = this.engine.subIndex; // active layer
+    // The previewed chain: T+1, then T+2 if lookahead depth is 2. Clamped to the 0..2 the config
+    // offers, and truncated at the end of the sequence (lookaheadTarget returns -1 there).
+    const depth = Math.max(0, Math.min(LOOKAHEAD_BORDER.length, Math.round(cfg.lookaheadDepth ?? 0)));
+    const lookahead: number[] = [];
+    for (let k = 1; k <= depth; k++) {
+      const cell = this.engine.lookaheadTarget(k);
+      if (cell < 0) break;
+      lookahead.push(cell);
+    }
+    const showOutline = visibleLookahead(target, lookahead);
 
     // 2) crosshair locator — full-field hairlines through the ACTIVE target's centre, tinted with
     //    that layer's colour so it reads as belonging to the cell you must click now (§2.1)
@@ -181,36 +212,43 @@ export class GridRenderer {
     }
 
     // 3) connector — traces the actual click path: each still-to-click layer to the next, then on
-    //    to the ghost (the next selection's orange). Depth 2 in the orange phase is orange→blue→
-    //    ghost; once orange is clicked it's just blue→ghost. So the line follows real cursor travel.
-    if (cfg.ghost && ghost >= 0 && target >= 0) {
+    //    through each previewed target in order. Depth 2 in the orange phase is orange→blue→T+1;
+    //    once orange is clicked it's just blue→T+1. So the line follows real cursor travel.
+    //    Segments are drawn one at a time because each carries its own brightness: everything up to
+    //    and including the arrival at T+1 is bright, T+1→T+2 is dim. One polyline could not say
+    //    that, and the fade IS the information — it is what makes the chain read in order.
+    if (lookahead.length > 0 && target >= 0) {
       const pts: Array<[number, number]> = [];
       for (let L = active; L < this.engine.depth; L++) {
         const c = this.engine.layerCell(L);
         if (c >= 0) pts.push([this.centerX(c), this.centerY(c)]);
       }
-      pts.push([this.centerX(ghost), this.centerY(ghost)]);
-      if (pts.length >= 2) {
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = 'rgba(107, 119, 137, 0.85)';
+      const firstLookaheadSeg = pts.length - 1; // index of the segment that ARRIVES at T+1
+      for (const cell of lookahead) pts.push([this.centerX(cell), this.centerY(cell)]);
+      for (let i = 1; i < pts.length; i++) {
+        // segments before T+1 belong to the current selection: draw them at T+1's brightness
+        const step = Math.max(0, i - 1 - firstLookaheadSeg);
+        ctx.lineWidth = LOOKAHEAD_LINE_PX[step] ?? 1;
+        ctx.strokeStyle = LOOKAHEAD_LINE[step] ?? LOOKAHEAD_LINE[LOOKAHEAD_LINE.length - 1];
         ctx.beginPath();
-        ctx.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.moveTo(pts[i - 1][0], pts[i - 1][1]);
+        ctx.lineTo(pts[i][0], pts[i][1]);
         ctx.stroke();
       }
     }
 
-    // 4) ghost border — empty cell, gray outline; always drawn (even adjacent to the target), so it
-    //    never flickers on/off between selections. But NOT when the next target repeats the current
-    //    cell (ghost === target): drawing a ghost box on the same cell as the orange fill is
-    //    redundant and misreads as a stray second target — so skip it (the connector, a zero-length
-    //    segment there, is already invisible).
-    if (cfg.ghost && ghost >= 0 && ghost !== target) {
-      const gx = this.col(ghost) * cp;
-      const gy = this.row(ghost) * cp;
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = GHOST_GRAY;
-      ctx.strokeRect(gx + 1.5, gy + 1.5, cp - 3, cp - 3);
+    // 4) lookahead outlines — empty cells, grey, fading with distance. Always drawn (even adjacent
+    //    to the target), so they never flicker on/off between selections; skipped only where the
+    //    cell already carries an outline or the orange fill (see visibleLookahead). Drawn far-to-
+    //    near so that if two land on neighbouring pixels the brighter T+1 wins the overlap.
+    for (let k = lookahead.length - 1; k >= 0; k--) {
+      if (!showOutline[k]) continue;
+      const gx = this.col(lookahead[k]) * cp;
+      const gy = this.row(lookahead[k]) * cp;
+      const w = LOOKAHEAD_BORDER_PX[k] ?? 1;
+      ctx.lineWidth = w;
+      ctx.strokeStyle = LOOKAHEAD_BORDER[k] ?? LOOKAHEAD_BORDER[LOOKAHEAD_BORDER.length - 1];
+      ctx.strokeRect(gx + w / 2 + 0.5, gy + w / 2 + 0.5, cp - w - 1, cp - w - 1);
     }
 
     // 5) layer fills — every layer still to be clicked is drawn at once in its colour: the active

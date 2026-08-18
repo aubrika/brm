@@ -90,10 +90,16 @@ export class GridEngine {
     return tuple && layer < tuple.length ? tuple[layer] : -1;
   }
 
+  // A lookahead target: the first (orange) cell of the selection `ahead` steps from the current
+  // one; -1 past the end of the sequence. ahead=1 is the ghost, ahead=2 the one behind it.
+  lookaheadTarget(ahead: number): number {
+    const tuple = this.sequence[this.index + ahead];
+    return tuple ? tuple[0] : -1;
+  }
+
   // The ghost: the next selection's first (orange) cell; -1 if none.
   nextTarget(): number {
-    const tuple = this.sequence[this.index + 1];
-    return tuple ? tuple[0] : -1;
+    return this.lookaheadTarget(1);
   }
 
   // Score a pointerdown on `cellIdx` (or -1 for a press outside the field). Synchronous:

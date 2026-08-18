@@ -55,8 +55,12 @@ Filename: `<ISO timestamp, colons→dashes>_<machine label, slugified>_<first 4 
   ],
   "latencySamples": [ { "t": 412.3, "downToPaintMs": 8.2 }, … ],
   // ---- GRID (v2) sections; absent on keyboard runs ----
+  // `lookahead` is how many upcoming targets were previewed (0 | 1 | 2); `ghost` is the derived
+  // boolean (lookahead > 0), kept so logs written before depth existed stay comparable. NOTE: T+1
+  // was drawn dimmer before the depth-2 work, so depth-1 runs either side of that build differ
+  // visually — group by meta.commit before comparing them.
   "grid": { "enabled": true, "gridSize": 32, "depth": 1, "fieldPx": 896, "cellPx": 28,
-            "devicePixelRatio": 2, "ghost": true, "crosshair": true, "hoverPulse": true,
+            "devicePixelRatio": 2, "ghost": true, "lookahead": 1, "crosshair": true, "hoverPulse": true,
             "pointerType": "mouse", "ghostAdjacent": [0,1,…], "pointerTypes": ["mouse",…] },
   "calibration": { "referenceGrid": 24, "clicks": [ {"t":…,"targetCell":…,"dx":…,"dy":…,"mtMs":…} ],
                    "sigmaX": …, "sigmaY": …, "sigmaUsed": …,   // sigmaUsed = RMS of the two axes

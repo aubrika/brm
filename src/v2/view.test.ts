@@ -3,7 +3,7 @@
 // size W that every logged Fitts number is derived from, so both are worth pinning down exactly.
 
 import { describe, it, expect } from 'vitest';
-import { fitGridGeometry, cellIndexAt, cellsApart } from './view.js';
+import { fitGridGeometry, cellIndexAt, cellsApart, visibleLookahead } from './view.js';
 import { GRID_SIZES } from '../core/config.js';
 
 describe('fitGridGeometry', () => {
@@ -68,5 +68,28 @@ describe('cellsApart', () => {
   });
   it('is symmetric', () => {
     expect(cellsApart(5, 700, G)).toBe(cellsApart(700, 5, G));
+  });
+});
+
+describe('visibleLookahead', () => {
+  // The i.i.d. sequence repeats a cell roughly every 1/N selections, and at depth 2 it can also
+  // put T+2 on T+1. Two outlines stacked on one cell reads as two targets, which is exactly the
+  // ambiguity the preview exists to remove — so only the first (brightest) claim survives.
+  it('draws every lookahead when they are all distinct', () => {
+    expect(visibleLookahead(5, [9, 40])).toEqual([true, true]);
+  });
+
+  it('skips a lookahead that lands on the current target', () => {
+    expect(visibleLookahead(5, [5, 40])).toEqual([false, true]); // T+1 repeats the target
+    expect(visibleLookahead(5, [9, 5])).toEqual([true, false]); // T+2 comes back to the target
+  });
+
+  it('skips T+2 when it repeats T+1, keeping the brighter outline', () => {
+    expect(visibleLookahead(5, [9, 9])).toEqual([true, false]);
+  });
+
+  it('handles the end of the sequence and depth 0', () => {
+    expect(visibleLookahead(5, [])).toEqual([]);
+    expect(visibleLookahead(5, [-1])).toEqual([false]);
   });
 });
