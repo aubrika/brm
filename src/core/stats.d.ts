@@ -32,12 +32,20 @@ export interface RunConfig {
 
 export interface MachineMeta {
   installId: string;
-  label: string;
+  label: string; // free-text machine name from the config screen; '' if unset
   ua: string;
   platform: string;
   hardwareConcurrency: number;
   estimatedRefreshHz: number;
   timeOriginPrecisionMs: number;
+  // ---- display geometry (absent on logs written before it was recorded) ----
+  // Cell size in px is what every Fitts number and the scatter law are expressed in, and it comes
+  // from the window, not from the grid setting. Two machines are not comparable without these.
+  screenWidth?: number;
+  screenHeight?: number;
+  windowWidth?: number; // the viewport the play field was actually fitted into
+  windowHeight?: number;
+  devicePixelRatio?: number;
 }
 
 export interface RunSummary {

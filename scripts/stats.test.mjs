@@ -7,7 +7,7 @@
 // to a hand-computable example.
 
 import { describe, it, expect } from 'vitest';
-import { tTwoSided, tQuantile, pairedTest, analyzeGhostAb } from './analyze.mjs';
+import { tTwoSided, tQuantile, pairedTest, analyzeGhostAb, machineKey } from './analyze.mjs';
 
 describe('t distribution', () => {
   // Published two-sided 5% critical values (any statistics table).
@@ -75,11 +75,11 @@ describe('pairedTest', () => {
 // Minimal logs: enough shape for analyzeGhostAb to pair and summarise. gridFitts needs events it
 // does not get here, so the movement-time columns come out NaN — which is exactly the degraded
 // case worth pinning, since a real run that logged no usable moves must not poison the mean.
-function abLog(block, arm, bps, gridSize = 32) {
+function abLog(block, arm, bps, gridSize = 32, machine = 'test') {
   return {
     __file: `sim-${block}-${arm}.json`,
     schemaVersion: 3,
-    meta: { mode: 'scored', startedAt: `2026-08-18T12:0${block}:00Z`, commit: 'test', machine: { label: 'test' }, config: { mode: 'grid', n: gridSize * gridSize, durationMs: 60000, sound: true } },
+    meta: { mode: 'scored', startedAt: `2026-08-18T12:0${block}:00Z`, commit: 'test', machine: { label: machine, installId: 'u_' + machine }, config: { mode: 'grid', n: gridSize * gridSize, durationMs: 60000, sound: true } },
     ab: { experiment: 'ghost', arm, block, position: arm === 'on' ? 0 : 1 },
     grid: { enabled: true, gridSize, depth: 1, cellPx: 55, fieldPx: 55 * gridSize, ghost: arm === 'on', ghostAdjacent: [] },
     sequence: [],
@@ -115,5 +115,35 @@ describe('analyzeGhostAb pairing', () => {
     const practice = abLog(1, 'on', 13.5);
     practice.meta.mode = 'practice';
     expect(analyzeGhostAb([untagged, practice]).runs).toBe(0);
+  });
+});
+
+describe('machineKey', () => {
+  it('prefers the name, falls back to the install id, never pools the unknown', () => {
+    expect(machineKey({ meta: { machine: { label: 'laptop', installId: 'u_x' } } })).toBe('laptop');
+    expect(machineKey({ meta: { machine: { label: '', installId: 'u_x' } } })).toBe('u_x');
+    expect(machineKey({ meta: {} })).toBe('(unknown)');
+  });
+
+  it('separates two displays that share a name-less config', () => {
+    const a = { meta: { machine: { label: '', installId: 'u_desk' } } };
+    const b = { meta: { machine: { label: '', installId: 'u_lap' } } };
+    expect(machineKey(a)).not.toBe(machineKey(b));
+  });
+});
+
+describe('analyzeGhostAb across machines', () => {
+  it('drops a pair whose halves were played on different displays', () => {
+    // Cell size in px is set by the window, so the two halves were not the same experiment —
+    // and the difference would be attributed to the ghost.
+    const r = analyzeGhostAb([abLog(0, 'on', 13.5, 32, 'desktop'), abLog(0, 'off', 9.0, 32, 'laptop')]);
+    expect(r.pairs).toHaveLength(0);
+    expect(r.dropped[0].why).toMatch(/two machines/);
+  });
+
+  it('still pairs normally within one machine', () => {
+    const r = analyzeGhostAb([abLog(0, 'on', 13.5, 32, 'laptop'), abLog(0, 'off', 13.0, 32, 'laptop')]);
+    expect(r.pairs).toHaveLength(1);
+    expect(r.dropped).toHaveLength(0);
   });
 });

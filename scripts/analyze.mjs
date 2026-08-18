@@ -624,6 +624,10 @@ function analyzeGhostAb(logs) {
       dropped.push({ block, why: `grid size changed mid-pair (${on[0].grid.gridSize} vs ${off[0].grid.gridSize})` });
       continue;
     }
+    if (machineKey(on[0]) !== machineKey(off[0])) {
+      dropped.push({ block, why: `played on two machines (${machineKey(on[0])} vs ${machineKey(off[0])})` });
+      continue;
+    }
     pairs.push({ block, gridSize: on[0].grid.gridSize, on: armRunMetrics(on[0]), off: armRunMetrics(off[0]) });
   }
 
@@ -705,9 +709,43 @@ function endpointScatter(log) {
   return { sigma: Math.sqrt((sd(dxs) ** 2 + sd(dys) ** 2) / 2), n: dxs.length, cellPx };
 }
 
+/** How a run's machine is identified for grouping. The name from the config screen when there is
+ *  one, otherwise the random installId — never pooled, because cell size in px is set by the
+ *  window and two displays are simply not the same experiment. */
+export function machineKey(log) {
+  const m = log.meta?.machine ?? {};
+  return m.label || m.installId || '(unknown)';
+}
+
+/** One line describing a machine's display, for the report header. */
+function machineLine(logs) {
+  const m = logs[0].meta.machine;
+  const fields = [...new Set(logs.filter((l) => l.grid?.fieldPx).map((l) => Math.round(l.grid.fieldPx)))].sort((a, b) => a - b);
+  const screen = m.screenWidth ? `${m.screenWidth}×${m.screenHeight}` : 'screen unrecorded';
+  const win = m.windowWidth ? `window ${m.windowWidth}×${m.windowHeight}` : 'window unrecorded';
+  const dpr = m.devicePixelRatio ? ` @${m.devicePixelRatio}x` : '';
+  return `${machineKey(logs[0]).padEnd(12)} ${String(logs.length).padStart(3)} runs · ${screen}${dpr} · ${win} · field ${fields.join('/') || '—'}px · ${m.platform || '?'} · ${m.estimatedRefreshHz || '?'}Hz`;
+}
+
 function analyzeGridSizes(logs) {
   const scored = logs.filter((l) => l.grid?.enabled && !l.scope?.enabled && l.meta.mode === 'scored' && (l.grid.depth ?? 1) === 1);
   if (!scored.length) return null;
+  // Split by machine FIRST. A 700px laptop field and a 1750px desktop field put the same `16²`
+  // setting 2.5× apart in cell size; pooling them fits the scatter law straight through two
+  // different experiments and produces a number that looks like a result and is an artifact.
+  const byMachine = new Map();
+  for (const l of scored) {
+    const k = machineKey(l);
+    if (!byMachine.has(k)) byMachine.set(k, []);
+    byMachine.get(k).push(l);
+  }
+  if (byMachine.size > 1) {
+    return { perMachine: [...byMachine.entries()].map(([key, ls]) => ({ key, ...gridSizeRows(ls) })) };
+  }
+  return { perMachine: [{ key: machineKey(scored[0]), ...gridSizeRows(scored) }] };
+}
+
+function gridSizeRows(scored) {
   const by = new Map();
   for (const l of scored) {
     const g = l.grid.gridSize;
@@ -760,9 +798,16 @@ function printReport(logs, analysis) {
   L.push('════════════════════════════════════════════════════════════');
   L.push('  Bit-Rate Maximizer — cross-run analysis');
   L.push('════════════════════════════════════════════════════════════');
-  const machines = [...new Set(logs.map((l) => l.meta.machine.label || '(unlabeled)'))];
   const dates = logs.map((l) => l.meta.startedAt).sort();
-  L.push(`  runs: ${logs.length}   machines: ${machines.join(', ')}`);
+  L.push(`  runs: ${logs.length}`);
+  const byMachine = new Map();
+  for (const l of logs) {
+    const k = machineKey(l);
+    if (!byMachine.has(k)) byMachine.set(k, []);
+    byMachine.get(k).push(l);
+  }
+  L.push('  machines:');
+  for (const ls of byMachine.values()) L.push('    ' + machineLine(ls));
   if (dates.length) L.push(`  range: ${dates[0]} → ${dates[dates.length - 1]}`);
   L.push('');
   L.push('  bits/s by run (chronological):');
@@ -930,8 +975,10 @@ function printReport(logs, analysis) {
   if (!gs) {
     L.push('    no scored grid runs yet');
   } else {
+    for (const m of gs.perMachine) {
+    if (gs.perMachine.length > 1) L.push(`    ── ${m.key} ──`);
     L.push('    grid   cellPx  runs   bits/sel   bits/s          err     cycle    sigma  sigma/cell  look');
-    for (const r of gs.rows) {
+    for (const r of m.rows) {
       const sd = Number.isFinite(r.sdBps) ? '±' + r.sdBps.toFixed(2) : '     ';
       const sig = Number.isFinite(r.sigmaPx) ? r.sigmaPx.toFixed(1).padStart(6) : '     —';
       const ratio = Number.isFinite(r.sigmaOverCell) ? r.sigmaOverCell.toFixed(3).padStart(10) : '         —';
@@ -941,14 +988,18 @@ function printReport(logs, analysis) {
           `${(100 * r.errRate).toFixed(2).padStart(5)}%  ${String(Math.round(r.meanCycleMs)).padStart(5)}ms  ${sig}  ${ratio}  ${r.depths.join(',')}`,
       );
     }
-    if (gs.law) {
+    if (m.law) {
       // The calibration assumes scatter is a fixed px property of the hand (slope 0). A slope near 1
       // means it is a fixed FRACTION of the target instead, which makes the calibration's central
       // equation cellPx = 4.133·σ true at every grid size — i.e. it has no unique solution.
+      // A slope that FALLS below 1 at the fine end is the device noise floor appearing, which is
+      // where the calibration would start to be a real measurement again.
       L.push('');
-      L.push(`    scatter law:  log σ = ${gs.law.intercept.toFixed(2)} + ${gs.law.slope.toFixed(3)}·log cellPx   (R² ${gs.law.r2.toFixed(3)}, ${gs.rows.filter((r) => Number.isFinite(r.sigmaPx)).length} grid sizes)`);
-      L.push(`    mean σ/cellPx = ${gs.ratio.toFixed(3)}   →  We = 4.133σ = ${(4.133 * gs.ratio).toFixed(2)}·cellPx`);
+      L.push(`    scatter law:  log σ = ${m.law.intercept.toFixed(2)} + ${m.law.slope.toFixed(3)}·log cellPx   (R² ${m.law.r2.toFixed(3)}, ${m.rows.filter((r) => Number.isFinite(r.sigmaPx)).length} grid sizes)`);
+      L.push(`    mean σ/cellPx = ${m.ratio.toFixed(3)}   →  We = 4.133σ = ${(4.133 * m.ratio).toFixed(2)}·cellPx`);
       L.push('    slope 0 = fixed scatter (what the calibration assumes); slope 1 = scatter scales with the target.');
+    }
+    L.push('');
     }
   }
   L.push('════════════════════════════════════════════════════════════');

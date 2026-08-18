@@ -401,6 +401,17 @@ export class App {
     const rightFingers = keyInput(this.config.rightFingers || 'jkl;');
     const err = el('div', { class: 'field-error' });
 
+    // Machine name. Free text, persisted, and stamped into every log's filename and meta. It exists
+    // because cell size in px — the unit every Fitts number and the scatter law live in — is set by
+    // the window, so runs from a laptop and a desktop are not comparable and pooling them would
+    // manufacture results. installId separates browser profiles, but a name is what makes the
+    // separation legible in the analyzer without cross-referencing a token.
+    const label = el('input', { class: 'field-input', type: 'text', maxlength: '24', placeholder: 'e.g. laptop', value: this.config.label }) as HTMLInputElement;
+    label.addEventListener('change', () => {
+      this.config = { ...this.config, label: label.value.trim().slice(0, 24) };
+      saveConfig(this.config);
+    });
+
     const field = (label: string, control: Node, hint?: string): HTMLElement =>
       el('label', { class: 'field' }, [
         el('span', { class: 'field-label', text: label }),
@@ -476,6 +487,17 @@ export class App {
       this.showConfig(); // re-render: the headline must state the grid you will actually play
     });
 
+    // Machine name. Free text, persisted, and stamped into every log's filename and meta. It exists
+    // because cell size in px — the unit every Fitts number and the scatter law live in — is set by
+    // the window, so runs from a laptop and a desktop are not comparable and pooling them would
+    // manufacture results. installId separates browser profiles, but a name is what makes the
+    // separation legible in the analyzer without cross-referencing a token.
+    const label = el('input', { class: 'field-input', type: 'text', maxlength: '24', placeholder: 'e.g. laptop', value: this.config.label }) as HTMLInputElement;
+    label.addEventListener('change', () => {
+      this.config = { ...this.config, label: label.value.trim().slice(0, 24) };
+      saveConfig(this.config);
+    });
+
     const field = (label: string, control: Node, hint?: string): HTMLElement =>
       el('label', { class: 'field' }, [
         el('span', { class: 'field-label', text: label }),
@@ -517,6 +539,7 @@ export class App {
       gridSize: Number(gridSize.value) || 32,
       lookaheadDepth: Number(lookahead.value) || 0,
       abGhost: abGhost.checked,
+      label: label.value.trim().slice(0, 24),
     });
 
     const calibrate = el('button', { class: 'btn ghost', onclick: () => this.startCalibration(), text: cal ? 'Recalibrate' : 'Calibrate' });
@@ -557,6 +580,7 @@ export class App {
           field(cal ? 'Grid size (change)' : 'Grid size', gridSize, 'More cells = more bits per correct click, but smaller targets.'),
           field('Lookahead', lookahead, this.config.abGhost ? 'Set by the A/B while it is armed.' : 'How many upcoming targets are outlined. Previewing one is worth about +2.5 bits/s.'),
           field('A/B the lookahead ghost', abGhost, abHint),
+          field('This machine', label, 'Names the runs from this display. Screen and window size are recorded automatically.'),
         ]),
         el('div', { class: 'field-note', text: cal ? 'Duration is locked to 60 s for scored runs.' : 'The scored run unlocks after calibration. Duration is locked to 60 s.' }),
         el('div', { class: 'buttons' }, [calibrate, practice, scored]),

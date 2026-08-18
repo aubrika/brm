@@ -154,7 +154,15 @@ npm run build        # builds v2 to dist/ and v1 to dist/v1/
 No Node? A prebuilt `dist/` is committed — serve it with anything static.
 
 Runs played under `npm run dev` / `preview` save automatically to `logs/`. On the deployed static
-site there is no backend, so the report screen offers a **Download run log** button instead.
+site there is no backend, so the report screen offers a **Download run log** button instead —
+download them and point the analyzer at wherever they land with `--logs DIR`.
+
+**Playing on more than one display?** Name each one in the **This machine** field on the config
+screen. Screen size, window size and device pixel ratio are recorded automatically. This matters
+more than it sounds: cell size in px descends from the window, so the same `16²` setting is a
+110 px target on a 1750 px field and a 44 px target on a 700 px one. The analyzer groups on that
+name (falling back to the random `installId`) and never pools two displays — sections `[12]` and
+`[13]` would otherwise fit straight through two different experiments.
 
 ## Runs and analysis
 

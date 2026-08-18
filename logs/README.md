@@ -32,10 +32,17 @@ Filename: `<ISO timestamp, colons→dashes>_<machine label, slugified>_<first 4 
     "mode": "scored",              // "scored" | "practice"
     "machine": {
       "installId": "u_…",          // random, persisted in localStorage; not derived
-      "label": "calvin",           // free text from the config screen; "" if unset
+      "label": "laptop",           // free text from the config screen; "" if unset
       "ua": "…", "platform": "…", "hardwareConcurrency": 10,
       "estimatedRefreshHz": 120,   // median of ~30 rAF ticks at startup
-      "timeOriginPrecisionMs": 0.1 // smallest nonzero performance.now() delta (see below)
+      "timeOriginPrecisionMs": 0.1,// smallest nonzero performance.now() delta (see below)
+      // Display geometry. Cell size in px is the unit every Fitts number and the scatter law are
+      // expressed in, and it descends from the WINDOW, not from the grid setting — so runs from two
+      // displays are different experiments. The analyzer groups on label (falling back to installId)
+      // and never pools them. Absent on logs written before this was recorded.
+      "screenWidth": 3840, "screenHeight": 2160,
+      "windowWidth": 1920, "windowHeight": 1800,
+      "devicePixelRatio": 2
     },
     "appVersion": "1.0.0", "commit": "a1b2c3d",  // the build that produced this run
     // `config` states only what was actually played, discriminated by `mode`.
@@ -110,7 +117,7 @@ resolution so the analyzer can flag any machine where rollover timing is near th
 ## Analyzing
 
 ```
-node scripts/analyze.mjs [--machine calvin] [--scored-only]
+node scripts/analyze.mjs [--machine laptop] [--scored-only] [--logs DIR]
 ```
 
 Prints a text report (transition costs, within-run quartiles, post-error slowing by feedback

@@ -61,6 +61,21 @@ function measureRefreshHz(): Promise<number> {
   });
 }
 
+// The display, as the game sees it. Cell size in px — the term every Fitts number and the whole
+// scatter law depend on — is set by the play field, which is set by the window, which is set by
+// the screen. Without these, runs from two machines are not comparable and nothing in the log says
+// so. `screen*` is the physical display, `window*` the viewport the field was actually fitted
+// into; they differ whenever the window is not maximised, and it is the window that matters.
+function probeDisplay(): Pick<MachineMeta, 'screenWidth' | 'screenHeight' | 'windowWidth' | 'windowHeight' | 'devicePixelRatio'> {
+  return {
+    screenWidth: window.screen?.width ?? 0,
+    screenHeight: window.screen?.height ?? 0,
+    windowWidth: window.innerWidth,
+    windowHeight: window.innerHeight,
+    devicePixelRatio: Math.round((window.devicePixelRatio || 1) * 100) / 100,
+  };
+}
+
 // Kick the async refresh measurement immediately; resolve the full record once it lands.
 export function probeMachine(): Promise<MachineMeta> {
   const nav = navigator as Navigator & { platform?: string };
@@ -71,6 +86,7 @@ export function probeMachine(): Promise<MachineMeta> {
     platform: nav.platform ?? 'unknown',
     hardwareConcurrency: nav.hardwareConcurrency ?? 0,
     timeOriginPrecisionMs: measureTimePrecision(),
+    ...probeDisplay(),
   };
   return measureRefreshHz().then((hz) => ({ ...base, estimatedRefreshHz: hz }));
 }
