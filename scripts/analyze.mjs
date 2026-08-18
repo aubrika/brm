@@ -789,6 +789,68 @@ function gridSizeRows(scored) {
   return { rows, law, ratio: fit.length ? mean(fit.map((r) => r.sigmaOverCell)) : NaN };
 }
 
+// -------------------------------------------- [14] calibration v2 validity ----
+// Two questions the knee calibrator has to answer for itself.
+//
+// VALIDITY: does its predicted B_est curve pick the grid that actually scores best? Measured B by
+// grid comes from the sweep; B_est comes from that machine's own calibration. If the predicted
+// argmax lands on the measured plateau, the calibrator is validated for players who cannot be
+// swept — which is everyone but the author.
+//
+// KNEE VISIBILITY: fit each machine's Fitts line on its COARSEST grids and project it forward. The
+// breakdown the whole method is built on shows up as fine-grid points sitting above that line; if
+// they sit on it, there is no knee in the measured range and the recommendation is extrapolating.
+function analyzeCalibrationV2(logs, gridSizes) {
+  const byMachine = new Map();
+  for (const l of logs) {
+    if (!l.calibrationV2) continue;
+    const k = machineKey(l);
+    // One calibration per session, repeated on every run of it — dedupe on the block-A fit.
+    if (!byMachine.has(k)) byMachine.set(k, new Map());
+    const seen = byMachine.get(k);
+    const sig = `${l.calibrationV2.blockA.fittsA}|${l.calibrationV2.blockA.fittsB}|${l.calibrationV2.inflationRatio}`;
+    if (!seen.has(sig)) seen.set(sig, l.calibrationV2);
+  }
+
+  // Knee visibility, from run data alone — available whether or not a v2 calibration exists.
+  const knee = (gridSizes?.perMachine ?? []).map((m) => {
+    const rows = m.rows.filter((r) => Number.isFinite(r.meanCycleMs) && r.runs > 0);
+    if (rows.length < 3) return { key: m.key, rows: [], fit: null };
+    // Fit on the coarsest half; project onto the rest.
+    const sorted = [...rows].sort((a, b) => a.grid - b.grid);
+    const fitOn = sorted.slice(0, Math.max(2, Math.ceil(sorted.length / 2)));
+    const fit = olsFit(fitOn.map((r) => Math.log2(r.grid)), fitOn.map((r) => r.meanCycleMs));
+    return {
+      key: m.key,
+      fit,
+      fittedTo: fitOn.map((r) => r.grid),
+      rows: sorted.map((r) => {
+        const predicted = fit.intercept + fit.slope * Math.log2(r.grid);
+        return { grid: r.grid, observed: r.meanCycleMs, predicted, excess: predicted > 0 ? r.meanCycleMs / predicted - 1 : NaN, runs: r.runs, measuredBps: r.meanBps };
+      }),
+    };
+  });
+
+  const validity = [];
+  for (const [key, cals] of byMachine) {
+    const measured = (gridSizes?.perMachine ?? []).find((m) => m.key === key);
+    for (const v2 of cals.values()) {
+      const est = Object.entries(v2.bEstByCandidate).map(([g, b]) => ({ grid: Number(g), bEst: b })).sort((a, b) => a.grid - b.grid);
+      if (!est.length) continue;
+      const predictedArgmax = est.reduce((best, c) => (c.bEst > best.bEst ? c : best), est[0]).grid;
+      const rows = (measured?.rows ?? []).filter((r) => r.runs > 0);
+      const measuredBest = rows.length ? rows.reduce((best, r) => (r.meanBps > best.meanBps ? r : best), rows[0]) : null;
+      // "On the plateau" = within one standard deviation of the best measured grid, not exactly it:
+      // the plateau is flat and picking its exact argmax from a handful of runs is noise.
+      const onPlateau = measuredBest
+        ? rows.some((r) => r.grid === predictedArgmax && r.meanBps >= measuredBest.meanBps - (measuredBest.sdBps || 0.6))
+        : null;
+      validity.push({ key, method: v2.method, inflationRatio: v2.inflationRatio, predictedArgmax, recommended: v2.recommendedGrid, chosen: v2.chosenGrid, est, measuredBest: measuredBest ? measuredBest.grid : null, onPlateau });
+    }
+  }
+  return { validity, knee };
+}
+
 function gridArmLine(a) {
   return `    ${a.label.padEnd(10)}  TP ${a.throughput.toFixed(2)} b/s · MT=${Math.round(a.interceptMs)}+${Math.round(a.slopeMsPerBit)}·ID (R²${a.r2.toFixed(2)}) · B ${a.meanBps.toFixed(2)} · acc ${(a.meanAccuracy * 100).toFixed(1)}% · ${a.runs} run(s)`;
 }
@@ -1002,6 +1064,43 @@ function printReport(logs, analysis) {
     L.push('');
     }
   }
+  L.push('');
+
+  const cv = analysis.calibrationV2;
+  L.push('  [14] CALIBRATION v2 — is the knee real, and does the calibrator find it?');
+  if (!cv || (!cv.validity.length && !cv.knee.some((k) => k.rows.length))) {
+    L.push('    no v2 calibrations and too few grid sizes played to look for a knee');
+  } else {
+    for (const k of cv.knee) {
+      if (!k.rows.length) continue;
+      L.push(`    ── ${k.key} — cycle time vs the Fitts line fitted on ${k.fittedTo.join('/')}² ──`);
+      L.push('    grid   observed   predicted   excess   measured B   runs');
+      for (const r of k.rows) {
+        const flag = r.excess > 0.15 ? '  ← above the line' : '';
+        L.push(
+          `    ${String(r.grid).padStart(4)}²  ${String(Math.round(r.observed)).padStart(7)}ms  ${String(Math.round(r.predicted)).padStart(8)}ms  ` +
+            `${(100 * r.excess).toFixed(0).padStart(5)}%  ${r.measuredBps.toFixed(2).padStart(10)}  ${String(r.runs).padStart(4)}${flag}`,
+        );
+      }
+      const broke = k.rows.filter((r) => r.excess > 0.15);
+      L.push(broke.length ? `    knee visible from ${broke[0].grid}² up.` : '    no departure in the measured range — the knee, if any, is finer than anything played.');
+      L.push('');
+    }
+    if (!cv.validity.length) {
+      L.push('    no v2 calibrations logged yet — play a scored run after calibrating to populate this.');
+    } else {
+      L.push('    validity — predicted best grid vs measured best:');
+      for (const v of cv.validity) {
+        const curve = v.est.map((e) => `${e.grid}:${e.bEst.toFixed(1)}`).join('  ');
+        L.push(`    ${v.key}  method ${v.method}  r=${v.inflationRatio}`);
+        L.push(`      B_est  ${curve}`);
+        L.push(
+          `      predicted argmax ${v.predictedArgmax}² → recommends ${v.recommended}² (played ${v.chosen}²)` +
+            (v.measuredBest === null ? '  · no sweep on this machine to check against' : `  · measured best ${v.measuredBest}²  ${v.onPlateau ? '✓ on the plateau' : '✗ off the plateau'}`),
+        );
+      }
+    }
+  }
   L.push('════════════════════════════════════════════════════════════');
   console.log(L.join('\n'));
 }
@@ -1028,7 +1127,9 @@ function main() {
     grid: analyzeGrid(logs),
     ghostAb: analyzeGhostAb(logs),
     gridSizes: analyzeGridSizes(logs),
+    calibrationV2: null, // filled below; it reads the grid-size sweep
   };
+  analysis.calibrationV2 = analyzeCalibrationV2(logs, analysis.gridSizes);
   printReport(logs, analysis);
   writeFileSync(path.join(args.logsDir, 'analysis.json'), JSON.stringify(analysis, null, 2));
   console.log(`\nWrote ${path.join(args.logsDir, 'analysis.json')}`);

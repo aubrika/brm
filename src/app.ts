@@ -17,10 +17,11 @@ import { buildReport, downloadReport } from './io/report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './io/logging.js';
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
+import { svgEl } from './ui/dom.js';
 import { loadConfig, saveConfig, GRID_SIZES, LOOKAHEAD_DEPTHS, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
 import { loadAbState, saveAbState, peek as abPeek, advance as abAdvance, completedPairs, type AbState, type AbAssignment } from './core/ab.js';
 import { validateAlphabet } from './core/alphabet.js';
-import { type CalibrationResult } from './v2/calibration.js';
+import { type CalibrationResult, type CalibrationV2, type CandidateEstimate } from './v2/calibration.js';
 import { CalibrationTask } from './v2/calibration-task.js';
 import type { MachineMeta, RunLog, ScopeActivation } from './core/stats.js';
 
@@ -106,6 +107,8 @@ export class App {
   private run: RunCtx | null = null;
   // grid calibration: session-scoped; gates the scored run and is attached to every run log.
   private calibration: CalibrationResult | null = null;
+  private calibrationV2: CalibrationV2 | null = null; // the knee result for the same calibration
+  private calibCandidates: CandidateEstimate[] = []; // B_est curve, for the config-screen expander
   private calib: CalibrationTask | null = null; // the in-progress calibration task
   // Ghost A/B position. Persisted, so a pair survives a page reload; advanced only when a scored
   // run actually finishes (an abandoned run must not burn an arm and unbalance the pair).
@@ -369,10 +372,13 @@ export class App {
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock();
     this.calib = new CalibrationTask(this.root, this.config, {
-      onDone: (result) => {
+      onDone: (result, v2, candidates) => {
         this.calib = null;
         this.calibration = result;
-        this.config = { ...this.config, gridSize: result.recommendedGrid };
+        this.calibrationV2 = v2;
+        this.calibCandidates = candidates;
+        // v2's knee is the recommendation; v1's σ number stays in the log as the fallback record.
+        this.config = { ...this.config, gridSize: v2.recommendedGrid };
         saveConfig(this.config);
         this.showConfig();
       },
@@ -480,9 +486,11 @@ export class App {
     gridSize.addEventListener('change', () => {
       this.config = { ...this.config, gridSize: Number(gridSize.value) || 32 };
       saveConfig(this.config);
-      if (this.calibration) {
-        this.calibration.chosenGrid = this.config.gridSize; // auto-set, override allowed — both logged
-        this.calibration.overridden = this.calibration.chosenGrid !== this.calibration.recommendedGrid;
+      if (this.calibration) this.calibration.chosenGrid = this.config.gridSize;
+      if (this.calibrationV2) {
+        this.calibrationV2.chosenGrid = this.config.gridSize; // auto-set, override allowed — both logged
+        this.calibrationV2.overridden = this.calibrationV2.chosenGrid !== this.calibrationV2.recommendedGrid;
+        if (this.calibration) this.calibration.overridden = this.calibrationV2.overridden;
       }
       this.showConfig(); // re-render: the headline must state the grid you will actually play
     });
@@ -551,24 +559,28 @@ export class App {
       ...(cal ? {} : { disabled: true }),
     });
 
-    // The calibration result (or the prompt to run it).
-    // Reads chosenGrid (not recommendedGrid) so an override is reflected, and re-renders on change.
-    // Only σ is surfaced: the Fitts throughput from 20 clicks has an R² around 0.05, so showing it
-    // would dress noise up as a measurement (it stays in the log for offline work).
+    // The calibration result (or the prompt to run it). One plain line, auto-set with a visible
+    // override, plus an expander showing the estimated-bit-rate curve across candidate grids so an
+    // override is an informed choice rather than a guess. The curve, not a numbers table: the shape
+    // (a plateau falling off a cliff) is the thing worth seeing, and the values behind it are
+    // estimates from ~24 clicks, which a table would dress up as precision.
+    const v2 = this.calibrationV2;
     const status = cal
       ? el('div', { class: 'calib-status' }, [
           el('p', { class: 'calib-result' }, [
-            document.createTextNode(cal.overridden ? 'Grid set to ' : 'Grid set to '),
+            document.createTextNode('Grid set to '),
             el('strong', { text: `${cal.chosenGrid}×${cal.chosenGrid}` }),
             document.createTextNode(
-              cal.overridden
-                ? ` — your choice (calibration suggested ${cal.recommendedGrid}×${cal.recommendedGrid}).`
-                : ' — sized so the cells fit your aim on this device.',
+              v2?.overridden
+                ? ` — your choice (calibration suggested ${v2.recommendedGrid}×${v2.recommendedGrid}).`
+                : v2?.method === 'knee'
+                  ? ' — the finest grid your clicks stay fast on with this device.'
+                  : ' — sized from your click scatter; the timing fit was too noisy to find a knee.',
             ),
           ]),
-          el('p', { class: 'field-hint', text: `measured scatter σ ≈ ${cal.sigmaUsed}px on a ${cal.referenceGrid}×${cal.referenceGrid} reference grid` }),
+          ...(this.calibCandidates.length ? [this.candidateCurve(this.calibCandidates, cal.chosenGrid)] : []),
         ])
-      : el('p', { class: 'subtitle', text: 'Calibrate first (~15 s) to size the grid to your aim on this device — it doubles as warm-up. Practice is available anytime.' });
+      : el('p', { class: 'subtitle', text: 'Calibrate first (~25 s) to size the grid to this device — it doubles as warm-up. Practice is available anytime.' });
 
     this.root.append(
       el('div', { class: 'screen config' }, [
@@ -588,6 +600,31 @@ export class App {
       ]),
     );
     (cal ? scored : calibrate).focus();
+  }
+
+  // The B_est curve across candidate grids, with the played grid marked. Deliberately unlabelled on
+  // the y axis: it is a relative shape from ~24 clicks, and printing values would claim a precision
+  // the estimate does not have.
+  private candidateCurve(candidates: CandidateEstimate[], chosen: number): HTMLElement {
+    const W = 260;
+    const H = 54;
+    const values = candidates.map((c) => c.bEst);
+    const lo = Math.min(...values);
+    const span = Math.max(Math.max(...values) - lo, 1e-6);
+    const xOf = (i: number): number => (candidates.length < 2 ? W / 2 : (i / (candidates.length - 1)) * W);
+    const yOf = (v: number): number => H - 8 - ((v - lo) / span) * (H - 18);
+
+    const svg = svgEl('svg', { class: 'calib-curve-svg', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none' }, [
+      svgEl('polyline', { class: 'calib-curve-line', points: candidates.map((c, i) => `${xOf(i).toFixed(1)},${yOf(c.bEst).toFixed(1)}`).join(' ') }),
+      ...candidates.flatMap((c, i) =>
+        c.grid === chosen ? [svgEl('circle', { class: 'calib-curve-pick', cx: xOf(i).toFixed(1), cy: yOf(c.bEst).toFixed(1), r: '4' })] : [],
+      ),
+    ]);
+    return el('details', { class: 'calib-curve' }, [
+      el('summary', { text: 'estimated bit rate by grid size' }),
+      svg,
+      el('div', { class: 'calib-curve-axis' }, candidates.map((c) => el('span', { text: String(c.grid) }))),
+    ]);
   }
 
   private commit(c: GameConfig): void {
@@ -718,6 +755,8 @@ export class App {
       const drift = Math.abs(gridView.fieldPx - this.calibration.fieldPx) / this.calibration.fieldPx;
       if (drift > 0.1) {
         this.calibration = null;
+        this.calibrationV2 = null;
+        this.calibCandidates = [];
         this.showConfig('The play area changed size since calibration — please recalibrate.');
         return;
       }
@@ -1057,13 +1096,14 @@ export class App {
     const scopeLog = rc.scope ? this.buildScopeLog(rc) : undefined;
     const pointerPath = pointing ? rc.recorder.buildPointerPath() : undefined;
     const calibration = rc.grid && this.calibration ? this.calibration : undefined; // session calibration
+    const calibrationV2 = rc.grid && this.calibrationV2 ? this.calibrationV2 : undefined;
     // Consume the arm only now, on a run that actually completed and will be logged. Advancing at
     // run START would let an abandoned run eat one half of a pair and leave the block lopsided.
     if (rc.ab) {
       this.abState = abAdvance(this.abState);
       saveAbState(this.abState);
     }
-    void this.completeRun(rc, result, gridLog, pointerPath, scopeLog, calibration, rc.ab ?? undefined);
+    void this.completeRun(rc, result, gridLog, pointerPath, scopeLog, calibration, rc.ab ?? undefined, calibrationV2);
   }
 
   // Assemble the GRID MODE section of the log. The Fitts difficulty of every selection depends on
@@ -1114,6 +1154,7 @@ export class App {
     scope?: RunLog['scope'],
     calibration?: RunLog['calibration'],
     ab?: RunLog['ab'],
+    calibrationV2?: RunLog['calibrationV2'],
   ): Promise<void> {
     const machine = this.machine ?? (await this.machinePromise);
     const log = buildReport(rc.engine, result, {
@@ -1126,6 +1167,7 @@ export class App {
       pointerPath,
       scope,
       calibration,
+      calibrationV2,
       ab,
     });
     this.run = null;

@@ -1,66 +1,88 @@
 // Grid calibration — the pure half (no DOM). The interactive task that feeds it is in
 // calibration-task.ts; between the two files there is no calibration code anywhere else.
 //
-// ═══ THE ALGORITHM, IN FULL ═══════════════════════════════════════════════════
-// Input: ~20 click endpoints on a fixed 24×24 reference grid, each recorded as an offset (dx, dy)
-// from the target cell's centre in CSS px, plus the movement time that preceded it.
+// ═══ WHY v2 LOOKS FOR A KNEE ═════════════════════════════════════════════════
+// v1 measured endpoint scatter σ, turned it into an ISO effective width We = 4.133·σ, and solved
+// fieldPx/We for "the grid whose cells contain your scatter". The sweep data killed the premise
+// twice over. Scatter is not a fixed property of the hand — it is ~0.23·cellPx at every cell size,
+// which makes that solve degenerate (it hands back the grid it was calibrated on). And the failure
+// mode it guards against never happens: players do not miss more on fine grids, they hold accuracy
+// roughly constant and pay in TIME.
 //
-//   1. DISCARD the first WARMUP_DISCARD clicks. The hand is still finding the surface.
-//   2. REJECT endpoints further than 2 cells from centre — an attention lapse, not aim.
-//   3. REJECT the slowest 10% by movement time. Hesitation inflates scatter.
-//        (If fewer than MIN_SURVIVING survive 1–3, return null and ask for a recalibration.)
-//   4. σ = RMS of the per-axis standard deviations: σ = sqrt((σx² + σy²) / 2).
-//   5. We = 4.133·σ — the ISO 9241 effective target width, i.e. the width a target would need
-//      for 96 % of clicks with this scatter to land inside it (±2.066σ of a Gaussian).
-//   6. g_raw = (fieldPx / We) · 0.85 — how many cells of width We span the field, then a
-//      cold-start factor biasing toward coarser cells.
-//   7. Clamp so cells stay at least cellFloor px (a cell too small to see is not a target).
-//   8. SNAP DOWN to the nearest entry of SNAP_GRIDS. Below the smallest → the smallest.
+// Under constant accuracy, ideal Fitts behaviour says bit rate keeps rising with grid size toward
+// an asymptote — so the measured falloff at fine grids comes from something the law does not
+// cover. Below some cell size, particular to a player and a device, click times inflate faster
+// than the Fitts trend: tremor floor, click-induced cursor displacement, sub-movement corrections,
+// visual confirmation of a tiny cell.
 //
-// Rounding coarse at 6 and 8 was deliberate: B(g) was assumed to be a plateau ending in a cliff,
-// so a step too coarse costs a few percent while a step too fine falls off the accuracy cliff at
-// double cost per error.
+// So the optimum is the KNEE: the finest grid where click times still sit on the player's own
+// Fitts line. v2 measures the line, tests for the departure, and places the player at the knee.
 //
-// ═══ WHAT THE MEASURED DATA SAYS ABOUT THIS ══════════════════════════════════
-// Steps 5–6 assume σ is a FIXED property of hand and device, so that "the grid whose cells contain
-// your scatter" names one particular grid. Reconstructing endpoint scatter from the scored-run
-// pointer paths (every click, hit and miss, against the cell it aimed at) says otherwise:
+// ═══ THE v2 ALGORITHM, IN FULL ═══════════════════════════════════════════════
+// Two blocks on the real game surface: A at 16×16 (4 warm-up + 12 measured), B at 64×64
+// (2 warm-up + 12 measured). Each click records movement time, the target it aimed at, and the
+// endpoint offset. Distance D is previous target centre → this target centre, so the warm-up
+// clicks also serve as the anchor for the first measured one.
 //
-//     cell 222px → σ 54.5px    cell 74px → σ 17.2px
-//     cell 148px → σ 36.9px    cell 55px → σ 11.7px
-//     cell 111px → σ 24.9px    cell 27px → σ  5.7px
+//   1. REJECT endpoints beyond 2 cells (an attention lapse, not aim) everywhere; additionally drop
+//      the slowest 10% FROM THE FIT ONLY. The slow cut exists to keep a hesitation out of the
+//      regression — applying it to block B would discard exactly the slow clicks the departure
+//      test is trying to detect. Both medians are robust, so B keeps its slow tail.
+//      Fewer than MIN_SURVIVING_PER_BLOCK left in either block → return null, prompt to redo.
+//   2. FIT the line on BLOCK A ONLY: ID = log2(D/W_A + 1), OLS of MT (seconds) on ID → a, b, R².
+//      b ≤ 0 or R² < MIN_FIT_R2 means the fit is noise, not a person → fall back to the v1 σ rule
+//      and record method: "sigma-fallback".
+//   3. DEPARTURE: predict each block-B click from that line at its own ID (using W_B), and take
+//      r = median(observed MT) / median(predicted MT). r ≈ 1 means B is still on the line; r > 1 is
+//      the inflation the knee is made of.
+//   4. SCORE each candidate grid g:
+//        T(g)    = a + b·log2(MEAN_DISTANCE_FRACTION·g + 1)     baseline time, seconds
+//        infl(W) = 1 for W ≥ W_A, else 1 + (r−1)·log(W_A/W)/log(W_A/W_B), clamped ≥ 1
+//        B_est   = log2(g² − 1) · (2p̂ − 1) / (T(g) · infl(W))
+//      Linear-in-log-width is all two measured widths support; no curve shape is extrapolated from
+//      two points. p̂ is pooled accuracy across both blocks — expected high and flat, which is the
+//      finding v2 rests on. If block B's accuracy falls more than ACCURACY_DIVERGENCE below block
+//      A's, the player is NOT holding accuracy constant, and p̂ is interpolated per candidate the
+//      same way inflation is rather than pooled flat.
+//   5. RECOMMEND argmax(B_est), then step one candidate COARSER (the plateau is flat on the coarse
+//      side and a cliff on the fine side, so the cheap error is the coarse one), then apply the
+//      pixel floor.
 //
-// σ ≈ 0.22·cellPx across a 10× range of cell sizes: scatter is proportional to the target, not
-// fixed against it. Substitute that into step 6 and it collapses:
-//
-//     g_raw = fieldPx / (4.133 · 0.22 · fieldPx/g) · 0.85 = g · 0.935
-//
-// The procedure is a MIRROR. It hands back the grid it was calibrated on, times a constant — and
-// since that is always REFERENCE_GRID, the answer is pinned near 0.935 · 24 ≈ 22.4, which snaps
-// down to 16. It is not measuring the player at all; everything that moves the recommendation off
-// 16 is noise in the σ estimate. Six calibrations of the same hand on the same machine produced
-// g_raw from 14.4 to 27.4 and recommendations of 12, 16, 16, 16, 16 and 24.
-//
-// It survives as-is because it lands in the right neighbourhood and its output barely matters:
-// measured bit rate is flat within noise from 16² to 64² (12.4–13.0 bits/s). See README_V2.md
-// "Calibration: what it actually measures" before changing any constant here.
+// v1's σ pipeline below is kept in full: it is the fallback when the fit is unusable, and σ is
+// still computed and logged for every run either way.
 
-export const REFERENCE_GRID = 24; // the task's fixed grid, regardless of what's recommended
-export const CALIB_CLICKS = 20; // total clicks
-export const WARMUP_DISCARD = 4; // first N discarded as warm-up
 export const SNAP_GRIDS = [12, 16, 24, 32, 48, 64] as const; // recommendation snaps DOWN to one of these
 export const EFFECTIVE_WIDTH_COEF = 4.133; // ISO 9241 effective width We = 4.133·σ
 export const COLD_START = 0.85; // scatter widens under scoring pressure; round toward coarser
-const MIN_SURVIVING = 12; // fewer surviving samples → prompt to recalibrate
+
+// ---- v2 ----
+export const BLOCK_A_GRID = 16; // coarse reference — the Fitts line is fitted here
+export const BLOCK_B_GRID = 64; // fine reference — the departure is measured here
+export const BLOCK_A_WARMUP = 4;
+export const WARMUP_DISCARD = BLOCK_A_WARMUP; // the σ fallback reads block A, so it shares its warm-up
+export const BLOCK_B_WARMUP = 2;
+export const BLOCK_MEASURED = 12; // measured clicks per block
+export const MIN_SURVIVING_PER_BLOCK = 9;
+// The σ fallback runs on block A, so its floor must match block A's size: 12 measured clicks minus
+// the slowest 10% leaves 10. The old value of 12 was sized for v1's 20-click block and made the
+// fallback impossible to satisfy under the v2 protocol — every calibration failed outright.
+const MIN_SURVIVING = MIN_SURVIVING_PER_BLOCK;
+export const MIN_FIT_R2 = 0.15; // below this the block-A regression is noise, not a person
+export const MEAN_DISTANCE_FRACTION = 0.52; // mean jump as a fraction of the field, for T(g)
+export const ACCURACY_DIVERGENCE = 0.1; // block B this far below block A ⇒ accuracy is NOT flat
+export const JUMP_MIN = 0.2; // scripted jump length, as a fraction of the field
+export const JUMP_MAX = 0.9;
+export const CANDIDATE_GRIDS = SNAP_GRIDS; // the grids B_est is evaluated over
 const MAX_ENDPOINT_CELLS = 2; // step 2: reject endpoints beyond this many cells from centre
 const SLOWEST_FRACTION_CUT = 0.1; // step 3: reject this fraction, slowest movement times first
 
 export interface CalibClick {
   t: number; // run-relative ms
-  targetCell: number; // the highlighted reference-grid cell
+  targetCell: number; // the highlighted cell, in ITS OWN block's grid
   dx: number; // endpoint offset from the cell centre (px)
   dy: number;
   mtMs: number; // movement time (since the previous click)
+  block?: 'A' | 'B'; // which reference block; absent on v1-era logs
 }
 
 export interface CalibrationResult {
@@ -95,36 +117,14 @@ export function seededRandInt(seed: number): (n: number) => number {
   };
 }
 
-// The scripted target cells: alternate long jumps (≥ ⅓ grid, varied directions) with occasional
-// short ones. Long-jump endpoints predict scored-run scatter; near targets understate it. Seeded so
-// every calibration is the same script.
-export function generateCalibrationScript(referenceGrid = REFERENCE_GRID, count = CALIB_CLICKS, seed = 0x9e3779b9): number[] {
-  const rnd = seededRandInt(seed);
-  const g = referenceGrid;
-  const minLong = Math.ceil(g / 3);
-  const cells: number[] = [];
-  let col = Math.floor(g / 2);
-  let row = Math.floor(g / 2);
-  cells.push(row * g + col);
-  for (let i = 1; i < count; i++) {
-    const long = i % 4 !== 0; // mostly long jumps; every 4th is short
-    let nc = col;
-    let nr = row;
-    for (let tries = 0; tries < 48; tries++) {
-      nc = rnd(g);
-      nr = rnd(g);
-      const d = Math.hypot(nc - col, nr - row);
-      if (long ? d >= minLong : d >= 2 && d < minLong) break;
-    }
-    col = nc;
-    row = nr;
-    cells.push(row * g + col);
-  }
-  return cells;
-}
-
 function mean(v: number[]): number {
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
+}
+function median(v: number[]): number {
+  if (!v.length) return 0;
+  const s = [...v].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 function std(v: number[]): number {
   if (v.length < 2) return 0;
@@ -273,6 +273,238 @@ export function computeCalibration(rawClicks: CalibClick[], opts: CalibComputeOp
     pointerType: opts.pointerType,
     fieldPx: Math.round(opts.fieldPx),
     devicePixelRatio: opts.devicePixelRatio,
+  };
+}
+
+
+// ============================================================================
+// v2 — knee detection
+// ============================================================================
+
+/** One block's scripted targets. Jumps are held between JUMP_MIN and JUMP_MAX of the field so the
+ *  block spans a real range of difficulty — a regression needs the spread, and a block of uniform
+ *  jumps would fit a slope through nothing. Seeded, so every calibration runs the same script. */
+export function generateBlockScript(gridSize: number, count: number, seed: number): number[] {
+  const rnd = seededRandInt(seed);
+  const minCells = Math.max(1, Math.round(JUMP_MIN * gridSize));
+  const maxCells = Math.max(minCells + 1, Math.round(JUMP_MAX * gridSize));
+  const cells: number[] = [];
+  let col = Math.floor(gridSize / 2);
+  let row = Math.floor(gridSize / 2);
+  cells.push(row * gridSize + col);
+  for (let i = 1; i < count; i++) {
+    let nc = col;
+    let nr = row;
+    for (let tries = 0; tries < 64; tries++) {
+      nc = rnd(gridSize);
+      nr = rnd(gridSize);
+      const d = Math.hypot(nc - col, nr - row);
+      if (d >= minCells && d <= maxCells) break;
+    }
+    col = nc;
+    row = nr;
+    cells.push(row * gridSize + col);
+  }
+  return cells;
+}
+
+/** One measured click, with the geometry the fit needs already resolved. */
+export interface BlockClick {
+  mtMs: number;
+  distancePx: number; // previous target centre → this target centre
+  id: number; // log2(D/W + 1) at this block's width
+  hit: boolean; // landed inside the target cell
+  offsetPx: number; // radial endpoint error, for the outlier rule
+}
+
+export interface BlockSummary {
+  gridSize: number;
+  w: number; // cell width px
+  clicks: BlockClick[]; // measured, endpoint-outlier rejected
+  fitClicks: BlockClick[]; // the above, minus the slowest 10% — the regression set
+  accuracy: number; // over `clicks`
+  medianMtMs: number;
+}
+
+function centreOf(cell: number, gridSize: number, w: number): { x: number; y: number } {
+  return { x: ((cell % gridSize) + 0.5) * w, y: (Math.floor(cell / gridSize) + 0.5) * w };
+}
+
+/** Resolve one block's raw clicks into fit-ready geometry. `raw` must be the whole block in order,
+ *  warm-up first: the last warm-up click is what the first measured click's distance is measured
+ *  from. Null when too few survive the endpoint-outlier rule. */
+export function summariseBlock(raw: CalibClick[], gridSize: number, fieldPx: number, warmup: number): BlockSummary | null {
+  const w = fieldPx / gridSize;
+  const clicks: BlockClick[] = [];
+  for (let i = Math.max(1, warmup); i < raw.length; i++) {
+    const from = centreOf(raw[i - 1].targetCell, gridSize, w);
+    const to = centreOf(raw[i].targetCell, gridSize, w);
+    const distancePx = Math.hypot(to.x - from.x, to.y - from.y);
+    if (distancePx <= 0) continue;
+    const offsetPx = Math.hypot(raw[i].dx, raw[i].dy);
+    // Endpoint outliers are rejected in BOTH blocks: a click two cells off target is an attention
+    // lapse, and its movement time describes nothing about aim at this width.
+    if (offsetPx > MAX_ENDPOINT_CELLS * w) continue;
+    clicks.push({
+      mtMs: raw[i].mtMs,
+      distancePx,
+      id: Math.log2(distancePx / w + 1),
+      hit: Math.abs(raw[i].dx) <= w / 2 && Math.abs(raw[i].dy) <= w / 2,
+      offsetPx,
+    });
+  }
+  if (clicks.length < MIN_SURVIVING_PER_BLOCK) return null;
+
+  // The slow cut applies to the FIT set only. Block B's slow tail is the signal the departure test
+  // is looking for; trimming it there would measure away the thing being measured.
+  const byTime = [...clicks].sort((a, b) => a.mtMs - b.mtMs);
+  const keep = Math.max(1, Math.floor(byTime.length * (1 - SLOWEST_FRACTION_CUT)));
+  const slowCut = byTime[keep - 1].mtMs;
+  return {
+    gridSize,
+    w,
+    clicks,
+    fitClicks: clicks.filter((c) => c.mtMs <= slowCut),
+    accuracy: clicks.filter((c) => c.hit).length / clicks.length,
+    medianMtMs: median(clicks.map((c) => c.mtMs)),
+  };
+}
+
+export interface FittsLine {
+  a: number; // intercept, SECONDS
+  b: number; // slope, seconds per bit
+  r2: number;
+  n: number;
+}
+
+/** Step 2: the player's own speed-vs-difficulty line, from block A. */
+export function fitFittsLine(block: BlockSummary): FittsLine {
+  const { slope, intercept, r2 } = ols(block.fitClicks.map((c) => c.id), block.fitClicks.map((c) => c.mtMs / 1000));
+  return { a: intercept, b: slope, r2, n: block.fitClicks.length };
+}
+
+/** Is this line usable, or is it noise wearing a slope? */
+export function lineIsUsable(line: FittsLine): boolean {
+  return line.b > 0 && line.r2 >= MIN_FIT_R2;
+}
+
+/** Step 3: how much slower block B ran than its own predicted times. Medians, so one wild click
+ *  cannot set the recommendation. */
+export function inflationRatio(line: FittsLine, blockB: BlockSummary): number {
+  const predicted = blockB.clicks.map((c) => (line.a + line.b * c.id) * 1000);
+  const medPred = median(predicted);
+  return medPred > 0 ? blockB.medianMtMs / medPred : 1;
+}
+
+export interface CandidateEstimate {
+  grid: number;
+  w: number;
+  baselineS: number; // T(g)
+  inflation: number; // infl(W(g))
+  accuracy: number; // p̂ used for this candidate
+  bEst: number;
+}
+
+/** Step 4: B_est across the candidate grids. */
+export function estimateCandidates(
+  line: FittsLine,
+  r: number,
+  blockA: BlockSummary,
+  blockB: BlockSummary,
+  fieldPx: number,
+): CandidateEstimate[] {
+  const wA = blockA.w;
+  const wB = blockB.w;
+  const pooled = (blockA.accuracy * blockA.clicks.length + blockB.accuracy * blockB.clicks.length) / (blockA.clicks.length + blockB.clicks.length);
+  // Flat accuracy is the expected case and the finding v2 rests on. Only when block B is clearly
+  // worse does accuracy become a per-candidate term rather than one pooled number.
+  const diverged = blockA.accuracy - blockB.accuracy > ACCURACY_DIVERGENCE;
+  const logSpan = Math.log(wA / wB);
+
+  return (CANDIDATE_GRIDS as readonly number[]).map((grid) => {
+    const w = fieldPx / grid;
+    const frac = w >= wA || logSpan <= 0 ? 0 : Math.log(wA / w) / logSpan;
+    const inflation = Math.max(1, 1 + (r - 1) * frac);
+    const accuracy = diverged ? blockA.accuracy + (blockB.accuracy - blockA.accuracy) * frac : pooled;
+    const baselineS = line.a + line.b * Math.log2(MEAN_DISTANCE_FRACTION * grid + 1);
+    const bits = Math.log2(grid * grid - 1);
+    const bEst = baselineS > 0 ? (bits * (2 * accuracy - 1)) / (baselineS * inflation) : 0;
+    return { grid, w, baselineS, inflation, accuracy, bEst };
+  });
+}
+
+/** Step 5: argmax, one step coarser, then the pixel floor. */
+export function recommendKnee(candidates: CandidateEstimate[], fieldPx: number, devicePixelRatio: number): { grid: number; argmaxGrid: number; cellFloorPx: number } {
+  const ladder = CANDIDATE_GRIDS as readonly number[];
+  let best = candidates[0];
+  for (const c of candidates) if (c.bEst > best.bEst) best = c;
+  const at = ladder.indexOf(best.grid);
+  // One candidate coarser: B(g) is a plateau on the coarse side and a cliff on the fine side, so
+  // the cheap direction to be wrong in is coarse.
+  const stepped = ladder[Math.max(0, at - 1)];
+  const cellFloorPx = Math.max(10, 6 * devicePixelRatio);
+  let grid = stepped;
+  while (grid > ladder[0] && fieldPx / grid < cellFloorPx) grid = ladder[ladder.indexOf(grid) - 1];
+  return { grid, argmaxGrid: best.grid, cellFloorPx };
+}
+
+export interface CalibrationV2 {
+  blockA: { w: number; gridSize: number; n: number; accuracy: number; medianMt: number; fittsA: number; fittsB: number; r2: number };
+  blockB: { w: number; gridSize: number; n: number; accuracy: number; medianMt: number; medianPredictedMt: number };
+  inflationRatio: number;
+  pooledAccuracy: number;
+  bEstByCandidate: Record<string, number>;
+  method: 'knee' | 'sigma-fallback';
+  recommendedGrid: number;
+  chosenGrid: number;
+  overridden: boolean;
+}
+
+/** The whole v2 pipeline. `sigmaFallbackGrid` is v1's recommendation, used when the block-A fit is
+ *  unusable. Null when either block lost too many clicks to say anything. */
+export function computeKnee(
+  rawA: CalibClick[],
+  rawB: CalibClick[],
+  opts: { fieldPx: number; devicePixelRatio: number; sigmaFallbackGrid: number },
+): { v2: CalibrationV2; candidates: CandidateEstimate[] } | null {
+  const blockA = summariseBlock(rawA, BLOCK_A_GRID, opts.fieldPx, BLOCK_A_WARMUP);
+  const blockB = summariseBlock(rawB, BLOCK_B_GRID, opts.fieldPx, BLOCK_B_WARMUP);
+  if (!blockA || !blockB) return null;
+
+  const line = fitFittsLine(blockA);
+  const usable = lineIsUsable(line);
+  const r = usable ? inflationRatio(line, blockB) : 1;
+  const candidates = usable ? estimateCandidates(line, r, blockA, blockB, opts.fieldPx) : [];
+  const knee = usable ? recommendKnee(candidates, opts.fieldPx, opts.devicePixelRatio) : null;
+  const recommendedGrid = knee ? knee.grid : opts.sigmaFallbackGrid;
+
+  const predicted = blockB.clicks.map((c) => (line.a + line.b * c.id) * 1000);
+  const bEstByCandidate: Record<string, number> = {};
+  for (const c of candidates) bEstByCandidate[String(c.grid)] = round3(c.bEst);
+
+  return {
+    candidates,
+    v2: {
+      blockA: {
+        w: round1(blockA.w), gridSize: blockA.gridSize, n: blockA.clicks.length,
+        accuracy: round3(blockA.accuracy), medianMt: Math.round(blockA.medianMtMs),
+        fittsA: round3(line.a), fittsB: round3(line.b), r2: round3(line.r2),
+      },
+      blockB: {
+        w: round1(blockB.w), gridSize: blockB.gridSize, n: blockB.clicks.length,
+        accuracy: round3(blockB.accuracy), medianMt: Math.round(blockB.medianMtMs),
+        medianPredictedMt: Math.round(median(predicted)),
+      },
+      inflationRatio: round3(r),
+      pooledAccuracy: round3(
+        (blockA.accuracy * blockA.clicks.length + blockB.accuracy * blockB.clicks.length) / (blockA.clicks.length + blockB.clicks.length),
+      ),
+      bEstByCandidate,
+      method: usable ? 'knee' : 'sigma-fallback',
+      recommendedGrid,
+      chosenGrid: recommendedGrid,
+      overridden: false,
+    },
   };
 }
 

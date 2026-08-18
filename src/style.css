@@ -94,6 +94,26 @@ code { font-family: var(--mono); }
 .calib-result strong { color: var(--accent); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; filter: grayscale(0.3); }
 
+/* Calibration v2: the estimated-bit-rate curve behind the recommendation. Collapsed by default —
+   the one-line result is the answer, and this is the working shown on request. No y axis: the
+   shape is the point, and the values are estimates from ~24 clicks. */
+.calib-curve { margin: 6px auto 0; max-width: 280px; text-align: left; }
+.calib-curve > summary {
+  cursor: pointer; color: var(--muted); font-size: 12px; list-style: none;
+  text-align: center; padding: 2px 0;
+}
+.calib-curve > summary::-webkit-details-marker { display: none; }
+.calib-curve > summary::before { content: '▸ '; }
+.calib-curve[open] > summary::before { content: '▾ '; }
+.calib-curve > summary:hover { color: var(--ink); }
+.calib-curve-svg { width: 100%; height: 54px; display: block; margin-top: 4px; overflow: visible; }
+.calib-curve-line { fill: none; stroke: var(--muted); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.calib-curve-pick { fill: var(--accent); }
+.calib-curve-axis {
+  display: flex; justify-content: space-between; font-family: var(--mono);
+  font-size: 10px; color: var(--muted); margin-top: 2px;
+}
+
 /* SCOPE MODE: click-to-(re)lock overlay covering the play area */
 .scope-overlay {
   position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;

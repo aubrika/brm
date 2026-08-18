@@ -2,7 +2,7 @@
 // './stats.js' and resolve to these declarations; Node imports the .js directly and needs
 // no types. The runtime file is stats.js — keep the two in sync by hand (the API is small).
 
-import type { CalibrationResult } from '../v2/calibration.js';
+import type { CalibrationResult, CalibrationV2 } from '../v2/calibration.js';
 import type { AbAssignment } from './ab.js';
 
 export type Verdict = 'ok' | 'err';
@@ -118,6 +118,9 @@ export interface RunLog {
   grid?: GridLog; // present only on GRID MODE runs
   scope?: ScopeLog; // present only on SCOPE MODE runs (a grid variant)
   calibration?: CalibrationResult; // grid mode: the session's calibration (attached to every run)
+  /** Calibration v2 — the knee-detection result. Sits alongside `calibration` rather than replacing
+   *  it: σ is still measured and is still the fallback when the block-A regression is unusable. */
+  calibrationV2?: CalibrationV2;
   pointerPath?: Array<[number, number, number]>; // GRID/SCOPE: [t, x, y] field-local (virtual) samples
   /** A/B arm, when the run was assigned one by the harness (core/ab.ts). Recording block+position
    *  rather than just the arm is what lets the analyzer pair runs EXACTLY — pairing by timestamp

@@ -1,89 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
-  generateCalibrationScript, computeCalibration, seededRandInt, surviveRejection, estimateScatter,
-  recommendGrid, REFERENCE_GRID, CALIB_CLICKS, WARMUP_DISCARD, SNAP_GRIDS, COLD_START,
-  EFFECTIVE_WIDTH_COEF, type CalibClick,
+  surviveRejection, estimateScatter, recommendGrid, WARMUP_DISCARD, SNAP_GRIDS, COLD_START,
+  EFFECTIVE_WIDTH_COEF, generateBlockScript, summariseBlock, fitFittsLine, lineIsUsable,
+  inflationRatio, estimateCandidates, recommendKnee, computeKnee, BLOCK_A_GRID, BLOCK_B_GRID,
+  BLOCK_A_WARMUP, BLOCK_B_WARMUP, BLOCK_MEASURED, MEAN_DISTANCE_FRACTION, JUMP_MIN, JUMP_MAX,
+  type CalibClick,
 } from './calibration.js';
 
-describe('generateCalibrationScript', () => {
-  it('is deterministic and produces CALIB_CLICKS in-range cells', () => {
-    const a = generateCalibrationScript();
-    const b = generateCalibrationScript();
-    expect(a).toEqual(b); // seeded → identical
-    expect(a.length).toBe(CALIB_CLICKS);
-    for (const c of a) expect(c).toBeGreaterThanOrEqual(0), expect(c).toBeLessThan(REFERENCE_GRID * REFERENCE_GRID);
-  });
-
-  it('mostly makes long jumps (≥ ⅓ grid) between consecutive targets', () => {
-    const g = REFERENCE_GRID;
-    const cells = generateCalibrationScript();
-    let longs = 0;
-    for (let i = 1; i < cells.length; i++) {
-      const a = cells[i - 1], b = cells[i];
-      const d = Math.hypot((b % g) - (a % g), Math.floor(b / g) - Math.floor(a / g));
-      if (d >= Math.ceil(g / 3)) longs++;
-    }
-    expect(longs).toBeGreaterThan(cells.length * 0.6); // the majority are long jumps
-  });
-});
-
-// Build synthetic clicks with a controlled Gaussian-ish scatter (deterministic) around cell centres.
-function synthClicks(sigma: number, count = CALIB_CLICKS): CalibClick[] {
-  const script = generateCalibrationScript();
-  const rnd = seededRandInt(42);
-  const gauss = () => {
-    // sum of 3 uniforms − 1.5 → mean 0, sd ≈ 0.5; scale to `sigma`
-    return ((rnd(1000) / 1000 + rnd(1000) / 1000 + rnd(1000) / 1000) - 1.5) * (sigma / 0.5);
-  };
-  const clicks: CalibClick[] = [];
-  let t = 0;
-  for (let i = 0; i < count; i++) {
-    const mt = 400 + rnd(200);
-    t += mt;
-    clicks.push({ t, targetCell: script[i], dx: gauss(), dy: gauss(), mtMs: mt });
-  }
-  return clicks;
-}
-
-describe('computeCalibration', () => {
-  it('recovers a small σ and recommends a fine grid', () => {
-    const fieldPx = 720;
-    const c = computeCalibration(synthClicks(4), { fieldPx, referenceGrid: REFERENCE_GRID, devicePixelRatio: 1, pointerType: 'mouse' });
-    expect(c).not.toBeNull();
-    if (!c) return;
-    expect(c.sigmaUsed).toBeGreaterThan(2);
-    expect(c.sigmaUsed).toBeLessThan(7);
-    // We ≈ 4.133·σ ≈ 17–29px; fieldPx/We ≈ 25–42 × 0.85 → snaps to 24 or 32
-    expect([24, 32]).toContain(c.recommendedGrid);
-    expect(c.chosenGrid).toBe(c.recommendedGrid);
-    expect(c.overridden).toBe(false);
-  });
-
-  it('recommends a coarser grid for a shakier hand (larger σ)', () => {
-    const fieldPx = 720;
-    const fine = computeCalibration(synthClicks(4), { fieldPx, referenceGrid: REFERENCE_GRID, devicePixelRatio: 1, pointerType: 'mouse' });
-    const shaky = computeCalibration(synthClicks(14), { fieldPx, referenceGrid: REFERENCE_GRID, devicePixelRatio: 1, pointerType: 'mouse' });
-    expect(fine && shaky).toBeTruthy();
-    if (!fine || !shaky) return;
-    expect(shaky.sigmaUsed).toBeGreaterThan(fine.sigmaUsed);
-    expect(shaky.recommendedGrid).toBeLessThanOrEqual(fine.recommendedGrid);
-  });
-
-  it('returns null when too few samples survive rejection', () => {
-    // only 8 clicks total → after discarding 4 warm-up, 4 remain (< 12)
-    const c = computeCalibration(synthClicks(4, 8), { fieldPx: 720, referenceGrid: REFERENCE_GRID, devicePixelRatio: 1, pointerType: 'mouse' });
-    expect(c).toBeNull();
-  });
-
-  it('snaps the recommendation to an allowed grid size', () => {
-    const c = computeCalibration(synthClicks(6), { fieldPx: 720, referenceGrid: REFERENCE_GRID, devicePixelRatio: 1, pointerType: 'mouse' });
-    expect(c).not.toBeNull();
-    if (!c) return;
-    expect([12, 16, 24, 32, 48, 64]).toContain(c.recommendedGrid);
-  });
-});
-
-// ---- the grid-choice algorithm, step by step --------------------------------
+// ---- the v1 σ fallback, step by step --------------------------------
 // These pin each numbered step of the algorithm documented at the top of calibration.ts, so that a
 // change to any constant shows up as a failing expectation rather than as a quietly different
 // recommendation months later.
@@ -170,9 +94,9 @@ describe('recommendGrid (steps 6-8)', () => {
   // The documented degeneracy. Measured scatter is ~0.22·cellPx at every cell size, so feeding the
   // scatter a grid actually produces back into step 6 returns that same grid times a constant:
   //   raw = field / (4.133 · 0.22 · field/g) · 0.85 = g · 0.935
-  // The procedure is a mirror. It answers "what grid did you calibrate on?", and since that is
-  // always REFERENCE_GRID the recommendation is pinned near 0.935·24 ≈ 22.4 — which snaps to 16.
-  // Everything else the recommendation does is noise in the σ estimate moving it off that value.
+  // The procedure is a mirror. It answers "what grid did you calibrate on?" — which is why v2
+  // replaced it. Pinned here at v1's old 24×24 reference: 0.935·24 ≈ 22.4, snapping to 16.
+  // (v2 runs the σ fallback on block A at 16×16, so the same degeneracy now lands at 12.)
   it('hands back the grid it was calibrated on, times a constant — it does not measure the player', () => {
     const field = 1752;
     const SCATTER_RATIO = 0.22; // σ / cellPx, measured across a 10× range of cell sizes
@@ -182,11 +106,225 @@ describe('recommendGrid (steps 6-8)', () => {
       expect(recommendGrid(EFFECTIVE_WIDTH_COEF * sigma, field, 2).raw).toBeCloseTo(g * expectedFactor, 6);
     }
     // and so, run on the 24×24 reference grid as it always is, it lands just under 24 → snaps to 16
-    const sigmaAtReference = SCATTER_RATIO * (field / REFERENCE_GRID);
+    const V1_REFERENCE_GRID = 24;
+    const sigmaAtReference = SCATTER_RATIO * (field / V1_REFERENCE_GRID);
     const r = recommendGrid(EFFECTIVE_WIDTH_COEF * sigmaAtReference, field, 2);
-    expect(r.raw).toBeCloseTo(REFERENCE_GRID * expectedFactor, 6);
+    expect(r.raw).toBeCloseTo(V1_REFERENCE_GRID * expectedFactor, 6);
     expect(r.raw).toBeGreaterThan(16);
     expect(r.raw).toBeLessThan(24);
     expect(r.grid).toBe(16);
+  });
+});
+
+
+// ============================================================================
+// v2 — knee detection
+// ============================================================================
+// The v1 rule was degenerate for a reason worth not repeating: it solved an equation whose answer
+// did not depend on the player. These tests are built around the question "does the recommendation
+// actually move when the PLAYER changes?" — a synthetic fast hand and a synthetic shaky one must
+// come out at different grids, and a player with no departure must be sent finer than one with a
+// large departure.
+
+/** A synthetic block: `count` clicks that obey MT = (a + b·ID)·inflation, with a chosen accuracy.
+ *  Targets walk the grid so distances vary, which is what makes the regression possible at all. */
+function syntheticBlock(gridSize: number, fieldPx: number, count: number, a: number, b: number, inflation = 1, accuracy = 1): CalibClick[] {
+  const w = fieldPx / gridSize;
+  const script = generateBlockScript(gridSize, count, 0x1234);
+  const out: CalibClick[] = [];
+  for (let i = 0; i < script.length; i++) {
+    const prev = i > 0 ? script[i - 1] : script[0];
+    const from = { x: ((prev % gridSize) + 0.5) * w, y: (Math.floor(prev / gridSize) + 0.5) * w };
+    const to = { x: ((script[i] % gridSize) + 0.5) * w, y: (Math.floor(script[i] / gridSize) + 0.5) * w };
+    const d = Math.hypot(to.x - from.x, to.y - from.y);
+    const id = Math.log2(d / w + 1);
+    const miss = accuracy < 1 && i % Math.max(2, Math.round(1 / (1 - accuracy))) === 0;
+    out.push({
+      t: i * 500,
+      targetCell: script[i],
+      dx: miss ? w * 0.9 : w * 0.1, // a miss lands outside the cell but well inside the 2-cell cut
+      dy: 0,
+      mtMs: Math.round((a + b * id) * 1000 * inflation),
+      block: gridSize === gridSize ? 'A' : 'A',
+    });
+  }
+  return out;
+}
+
+const FIELD = 896; // 16×16 → 56px cells, 64×64 → 14px cells
+
+describe('generateBlockScript', () => {
+  it('is deterministic and stays inside the grid', () => {
+    const a = generateBlockScript(16, 16, 7);
+    expect(a).toEqual(generateBlockScript(16, 16, 7));
+    for (const c of a) expect(c).toBeGreaterThanOrEqual(0), expect(c).toBeLessThan(256);
+  });
+
+  it('keeps jumps inside the specified band, so the block spans a range of difficulty', () => {
+    for (const g of [BLOCK_A_GRID, BLOCK_B_GRID]) {
+      const cells = generateBlockScript(g, 40, 3);
+      const ds: number[] = [];
+      for (let i = 1; i < cells.length; i++) {
+        const a = cells[i - 1], b = cells[i];
+        ds.push(Math.hypot((b % g) - (a % g), Math.floor(b / g) - Math.floor(a / g)) / g);
+      }
+      const inBand = ds.filter((d) => d >= JUMP_MIN * 0.9 && d <= JUMP_MAX * 1.1);
+      expect(inBand.length).toBeGreaterThan(ds.length * 0.9);
+      // and the spread is real — a block of identical jumps would fit a slope through nothing
+      expect(Math.max(...ds) - Math.min(...ds)).toBeGreaterThan(0.15);
+    }
+  });
+});
+
+describe('summariseBlock', () => {
+  it('measures distance from the previous target, using the warm-up as the anchor', () => {
+    const raw = syntheticBlock(BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP + BLOCK_MEASURED, 0.2, 0.1);
+    const block = summariseBlock(raw, BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP)!;
+    expect(block.clicks).toHaveLength(BLOCK_MEASURED); // warm-up excluded, but it anchored the first
+    expect(block.w).toBeCloseTo(FIELD / BLOCK_A_GRID, 10);
+    for (const c of block.clicks) expect(c.distancePx).toBeGreaterThan(0);
+  });
+
+  it('keeps block B\'s slow tail out of the fit set but inside the median', () => {
+    const raw = syntheticBlock(BLOCK_B_GRID, FIELD, BLOCK_B_WARMUP + BLOCK_MEASURED, 0.2, 0.1);
+    const block = summariseBlock(raw, BLOCK_B_GRID, FIELD, BLOCK_B_WARMUP)!;
+    expect(block.fitClicks.length).toBeLessThan(block.clicks.length); // slowest 10% dropped from the fit
+    expect(block.clicks.length).toBe(BLOCK_MEASURED); // but all of them still count for the median
+  });
+
+  it('returns null when too few clicks survive', () => {
+    expect(summariseBlock(syntheticBlock(BLOCK_A_GRID, FIELD, 6, 0.2, 0.1), BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP)).toBeNull();
+  });
+});
+
+describe('fitFittsLine', () => {
+  it('recovers the line it was generated from', () => {
+    const raw = syntheticBlock(BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP + BLOCK_MEASURED, 0.25, 0.12);
+    const line = fitFittsLine(summariseBlock(raw, BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP)!);
+    expect(line.a).toBeCloseTo(0.25, 2);
+    expect(line.b).toBeCloseTo(0.12, 2);
+    expect(line.r2).toBeGreaterThan(0.99); // noiseless input
+    expect(lineIsUsable(line)).toBe(true);
+  });
+
+  it('rejects a line with no slope as noise rather than fitting it anyway', () => {
+    const raw = syntheticBlock(BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP + BLOCK_MEASURED, 0.5, 0);
+    const line = fitFittsLine(summariseBlock(raw, BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP)!);
+    expect(lineIsUsable(line)).toBe(false); // b ≤ 0 — the σ fallback takes over
+  });
+});
+
+describe('inflationRatio', () => {
+  it('reads 1 when block B sits on block A\'s line', () => {
+    const a = summariseBlock(syntheticBlock(BLOCK_A_GRID, FIELD, 16, 0.25, 0.12), BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP)!;
+    const b = summariseBlock(syntheticBlock(BLOCK_B_GRID, FIELD, 14, 0.25, 0.12), BLOCK_B_GRID, FIELD, BLOCK_B_WARMUP)!;
+    expect(inflationRatio(fitFittsLine(a), b)).toBeCloseTo(1, 1);
+  });
+
+  it('reads the departure when block B runs slow', () => {
+    const a = summariseBlock(syntheticBlock(BLOCK_A_GRID, FIELD, 16, 0.25, 0.12), BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP)!;
+    const b = summariseBlock(syntheticBlock(BLOCK_B_GRID, FIELD, 14, 0.25, 0.12, 1.4), BLOCK_B_GRID, FIELD, BLOCK_B_WARMUP)!;
+    expect(inflationRatio(fitFittsLine(a), b)).toBeCloseTo(1.4, 1);
+  });
+});
+
+describe('estimateCandidates', () => {
+  const blocks = () => ({
+    a: summariseBlock(syntheticBlock(BLOCK_A_GRID, FIELD, 16, 0.25, 0.12), BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP)!,
+    b: summariseBlock(syntheticBlock(BLOCK_B_GRID, FIELD, 14, 0.25, 0.12), BLOCK_B_GRID, FIELD, BLOCK_B_WARMUP)!,
+  });
+
+  it('leaves candidates at or coarser than block A uninflated, and interpolates in log-width', () => {
+    const { a, b } = blocks();
+    const cands = estimateCandidates(fitFittsLine(a), 1.4, a, b, FIELD);
+    const at = (g: number) => cands.find((c) => c.grid === g)!;
+    expect(at(12).inflation).toBe(1); // coarser than block A
+    expect(at(16).inflation).toBe(1); // block A itself
+    expect(at(64).inflation).toBeCloseTo(1.4, 6); // block B itself — the measured value, not extrapolated
+    // 32 is halfway between 16 and 64 in log-width, so half the inflation
+    expect(at(32).inflation).toBeCloseTo(1.2, 6);
+  });
+
+  it('never extrapolates inflation beyond the measured span', () => {
+    const { a, b } = blocks();
+    for (const c of estimateCandidates(fitFittsLine(a), 1.4, a, b, FIELD)) {
+      expect(c.inflation).toBeGreaterThanOrEqual(1);
+      expect(c.inflation).toBeLessThanOrEqual(1.4 + 1e-9);
+    }
+  });
+
+  it('uses T(g) = a + b·log2(f·g + 1)', () => {
+    const { a, b } = blocks();
+    const line = fitFittsLine(a);
+    const c = estimateCandidates(line, 1, a, b, FIELD).find((x) => x.grid === 32)!;
+    expect(c.baselineS).toBeCloseTo(line.a + line.b * Math.log2(MEAN_DISTANCE_FRACTION * 32 + 1), 10);
+  });
+});
+
+describe('recommendKnee', () => {
+  const cands = (peak: number) =>
+    (SNAP_GRIDS as readonly number[]).map((grid) => ({
+      grid, w: FIELD / grid, baselineS: 0.5, inflation: 1, accuracy: 1,
+      bEst: 10 - Math.abs(Math.log2(grid) - Math.log2(peak)), // a peak at `peak`
+    }));
+
+  it('steps one candidate coarser than the argmax', () => {
+    const r = recommendKnee(cands(32), FIELD, 1);
+    expect(r.argmaxGrid).toBe(32);
+    expect(r.grid).toBe(24); // one coarser on the ladder
+  });
+
+  it('cannot step below the coarsest candidate', () => {
+    expect(recommendKnee(cands(12), FIELD, 1).grid).toBe(12);
+  });
+
+  it('honours the pixel floor even when the estimate wants finer', () => {
+    const tiny = 400; // 400px field: 64² would be 6.25px cells
+    const r = recommendKnee(cands(64), tiny, 2);
+    expect(tiny / r.grid).toBeGreaterThanOrEqual(r.cellFloorPx);
+  });
+});
+
+describe('computeKnee end to end', () => {
+  const run = (inflation: number) =>
+    computeKnee(
+      syntheticBlock(BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP + BLOCK_MEASURED, 0.25, 0.12),
+      syntheticBlock(BLOCK_B_GRID, FIELD, BLOCK_B_WARMUP + BLOCK_MEASURED, 0.25, 0.12, inflation),
+      { fieldPx: FIELD, devicePixelRatio: 1, sigmaFallbackGrid: 16 },
+    );
+
+  it('sends a player with no departure finer than one with a large departure', () => {
+    // This is the property v1 could not have: the recommendation must depend on the PLAYER.
+    const clean = run(1.0)!;
+    const shaky = run(1.8)!;
+    expect(clean.v2.method).toBe('knee');
+    expect(shaky.v2.method).toBe('knee');
+    expect(clean.v2.recommendedGrid).toBeGreaterThan(shaky.v2.recommendedGrid);
+  });
+
+  it('records the departure it measured and scores every candidate', () => {
+    const r = run(1.4)!;
+    expect(r.v2.inflationRatio).toBeCloseTo(1.4, 1);
+    expect(Object.keys(r.v2.bEstByCandidate).map(Number).sort((a, b) => a - b)).toEqual([...SNAP_GRIDS]);
+    expect(r.v2.blockA.gridSize).toBe(BLOCK_A_GRID);
+    expect(r.v2.blockB.gridSize).toBe(BLOCK_B_GRID);
+  });
+
+  it('falls back to the σ rule when block A will not fit', () => {
+    const r = computeKnee(
+      syntheticBlock(BLOCK_A_GRID, FIELD, BLOCK_A_WARMUP + BLOCK_MEASURED, 0.5, 0), // flat: no slope
+      syntheticBlock(BLOCK_B_GRID, FIELD, BLOCK_B_WARMUP + BLOCK_MEASURED, 0.5, 0),
+      { fieldPx: FIELD, devicePixelRatio: 1, sigmaFallbackGrid: 24 },
+    )!;
+    expect(r.v2.method).toBe('sigma-fallback');
+    expect(r.v2.recommendedGrid).toBe(24); // whatever σ said
+  });
+
+  it('returns null when a block is too short to say anything', () => {
+    expect(
+      computeKnee(syntheticBlock(BLOCK_A_GRID, FIELD, 6, 0.25, 0.12), syntheticBlock(BLOCK_B_GRID, FIELD, 14, 0.25, 0.12), {
+        fieldPx: FIELD, devicePixelRatio: 1, sigmaFallbackGrid: 16,
+      }),
+    ).toBeNull();
   });
 });
