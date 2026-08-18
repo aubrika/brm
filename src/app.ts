@@ -19,7 +19,7 @@ import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
 import { svgEl } from './ui/dom.js';
 import { loadConfig, saveConfig, GRID_SIZES, LOOKAHEAD_DEPTHS, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
-import { loadAbState, saveAbState, peek as abPeek, advance as abAdvance, completedPairs, type AbState, type AbAssignment } from './core/ab.js';
+import { loadAbState, saveAbState, peek as abPeek, advance as abAdvance, type AbState, type AbAssignment } from './core/ab.js';
 import { validateAlphabet } from './core/alphabet.js';
 import { type CalibrationResult, type CalibrationV2, type CandidateEstimate } from './v2/calibration.js';
 import { CalibrationTask } from './v2/calibration-task.js';
@@ -125,6 +125,11 @@ export class App {
     // v1 and v2 are served from the same origin and so share localStorage; a saved v2 config would
     // otherwise start v1 in grid mode. v1 is the keyboard game, always.
     if (VARIANT === 'v1') this.config = { ...this.config, grid: false, scope: false };
+    // The lookahead selector and the A/B toggle are gone from the config screen, but a config saved
+    // while they existed can still carry lookaheadDepth: 2 or abGhost: true — which would go on
+    // steering every run with nothing on screen to explain it, let alone turn it off. Normalise
+    // them back to the defaults here; the ?look and ?ab dev aids below still override deliberately.
+    this.config = { ...this.config, abGhost: false, lookaheadDepth: DEFAULT_CONFIG.lookaheadDepth };
 
     this.machinePromise = probeMachine().then((m) => (this.machine = m));
     void probeHealth().then((ok) => (this.loggingAvailable = ok));
@@ -513,40 +518,11 @@ export class App {
         ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
       ]);
 
-    // Lookahead depth. Disabled while the A/B is armed, because there the harness — not this
-    // control — decides the depth (1 vs 0), and a select that silently does nothing is worse than
-    // one that is visibly unavailable.
-    const LOOKAHEAD_LABELS = ['0 · no preview', '1 · next target', '2 · next two'];
-    const lookahead = el('select', { class: 'field-input mono', ...(this.config.abGhost ? { disabled: true } : {}) },
-      (LOOKAHEAD_DEPTHS as readonly number[]).map((d) =>
-        el('option', { value: String(d), ...(this.config.lookaheadDepth === d ? { selected: true } : {}), text: LOOKAHEAD_LABELS[d] }),
-      ),
-    ) as HTMLSelectElement;
-    lookahead.addEventListener('change', () => {
-      this.config = { ...this.config, lookaheadDepth: Number(lookahead.value) || 0 };
-      saveConfig(this.config);
-    });
-
-    // The ghost A/B. Off by default so a first-time visitor plays the whole game; while it is on,
-    // the harness overrides the lookahead depth on every scored run and the config's value is idle.
-    const abGhost = el('input', { type: 'checkbox', class: 'field-check', ...(this.config.abGhost ? { checked: true } : {}) }) as HTMLInputElement;
-    abGhost.addEventListener('change', () => {
-      this.config = { ...this.config, abGhost: abGhost.checked };
-      saveConfig(this.config);
-      this.showConfig(); // re-render: the hint must state the arm you are about to play
-    });
-    const next = abPeek(this.abState);
-    const abHint = this.config.abGhost
-      ? `Next scored run: ghost ${next.arm.toUpperCase()} (pair ${next.block + 1}, run ${next.position + 1} of 2) · ${completedPairs(this.abState)} pairs complete`
-      : 'Alternates the next-target preview on and off in randomised pairs, to measure what it is worth.';
-
     const collect = (): GameConfig => ({
       ...DEFAULT_CONFIG,
       grid: true,
       scope: false,
       gridSize: Number(gridSize.value) || 32,
-      lookaheadDepth: Number(lookahead.value) || 0,
-      abGhost: abGhost.checked,
       label: label.value.trim().slice(0, 24),
     });
 
@@ -590,8 +566,6 @@ export class App {
         status,
         el('div', { class: 'config-grid' }, [
           field(cal ? 'Grid size (change)' : 'Grid size', gridSize, 'More cells = more bits per correct click, but smaller targets.'),
-          field('Lookahead', lookahead, this.config.abGhost ? 'Set by the A/B while it is armed.' : 'How many upcoming targets are outlined. Previewing one is worth about +2.5 bits/s.'),
-          field('A/B the lookahead ghost', abGhost, abHint),
           field('This machine', label, 'Names the runs from this display. Screen and window size are recorded automatically.'),
         ]),
         el('div', { class: 'field-note', text: cal ? 'Duration is locked to 60 s for scored runs.' : 'The scored run unlocks after calibration. Duration is locked to 60 s.' }),
