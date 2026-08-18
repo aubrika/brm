@@ -5,19 +5,29 @@ One cell of a grid is highlighted; you click it; the next one highlights immedia
 
 **Play: [aubrika.github.io/brm](https://aubrika.github.io/brm/)**
 
-```
-B = log2(N - 1) · max(Sc - Si, 0) / t      bits per second
+```math
+B \;=\; \frac{\log_2\!\left(\textcolor{#5a8ad0}{N} - 1\right)\,\cdot\,\max\!\left(\textcolor{#b77e00}{S_c} - \textcolor{#eb5460}{S_i},\; 0\right)}{\textcolor{#838899}{t}}
 ```
 
-`N` = number of cells · `Sc` = correct clicks · `Si` = wrong clicks · `t` = 60 s.
+| | term | meaning | in the game |
+|---|---|---|---|
+| `#6ea8fe` | $\textcolor{#5a8ad0}{N}$ | number of cells | the grid you are aiming at |
+| `#E69F00` | $\textcolor{#b77e00}{S_c}$ | correct clicks | the orange target, and the burst when you hit it |
+| `#ff5b68` | $\textcolor{#eb5460}{S_i}$ | wrong clicks | the red flash on a miss |
+| `#8b91a3` | $\textcolor{#838899}{t}$ | 60 s | the clock |
+
+<sub>The chips are the game's actual colours; the symbols are darkened versions of them, because
+MathJax takes one fixed colour and GitHub renders this file on both a white and a near-black page.
+Each symbol colour clears 3.5:1 contrast on both. Colours are reused for these four quantities
+everywhere below.</sub>
 
 Errors subtract, so accuracy is worth about twice raw speed. A 32×32 grid pays ~10 bits per
 correct click; a 128×128 grid pays 14, but the targets are four times smaller.
 
 ## Why a grid
 
-In a 2-D grid, target width shrinks as `1/√N`, so the Fitts index of difficulty grows as only
-`½·log2(N)` while the bits earned grow as `log2(N)`. The asymptotic ceiling is therefore about
+In a 2-D grid, target width shrinks as $1/\sqrt{\textcolor{#5a8ad0}{N}}$, so the Fitts index of difficulty grows as only
+$\tfrac{1}{2}\log_2 \textcolor{#5a8ad0}{N}$ while the bits earned grow as $\log_2 \textcolor{#5a8ad0}{N}$. The asymptotic ceiling is therefore about
 **2× the pointing device's Fitts throughput** — where a one-dimensional or center-out layout caps
 at 1×. That factor of two is the whole reason this design exists, and it shows up in practice:
 measured runs land around 12–13 bits/s against a measured pointing throughput of ~6.
@@ -30,7 +40,7 @@ The scored run is gated behind a ~15 second calibration, which doubles as warm-u
 
 1. **Calibrate** — 20 clicks on a fixed 24×24 grid.
 2. It measures your **endpoint scatter σ** (how far your clicks land from the cell centre) and
-   sizes the grid so its cells contain that scatter: `g = fieldPx / (4.133·σ)`, with a 0.85
+   sizes the grid so its cells contain that scatter: $g = \mathit{field}_{px} / (4.133\,\sigma)$, with a 0.85
    cold-start factor, snapped **down** to one of {12, 16, 24, 32, 48, 64}.
 3. You can override the suggested size; both the recommendation and your choice are logged.
 
@@ -52,8 +62,9 @@ clicks across a narrow difficulty range its R² is ~0.05, which is noise, not a 
 
 The scored run is gated behind a ~15 second calibration whose job is to pick a grid size. The
 algorithm is written out step by step at the top of `src/v2/calibration.ts`; the short version is
-that it measures endpoint scatter σ, converts it to an ISO 9241 effective width `We = 4.133·σ`, and
-solves `g = fieldPx / We` for the grid whose cells are one effective width across.
+that it measures endpoint scatter $\sigma$, converts it to an ISO 9241 effective width
+$W_e = 4.133\,\sigma$, and solves $g = \mathit{field}_{px} / W_e$ for the grid whose cells are one
+effective width across.
 
 **That solve is degenerate, and the run logs show why.** Reconstructing endpoint scatter from the
 scored-run pointer paths — every click, hit and miss, measured against the cell it aimed at
@@ -68,9 +79,12 @@ scored-run pointer paths — every click, hit and miss, measured against the cel
 | 32² | 55 px | 6 | 12.998 | 2.82 % | 749 ms | 11.7 px | 0.213 |
 | 64² | 27 px | 2 | 12.400 | 3.73 % | 937 ms | 5.7 px | 0.210 |
 
+```math
+\log \sigma \;=\; -1.85 \;+\; 1.084\,\log w
+\qquad\qquad R^2 = 0.998
 ```
-log σ = -1.85 + 1.084 · log cellPx        R² = 0.998, six grid sizes, 8× range of cell size
-```
+
+<sub>$w$ = cell width in px. Six grid sizes, an 8× range of cell size.</sub>
 
 **Scatter is a fixed fraction of the target, not a fixed property of the hand.** σ ≈ 0.23·cellPx
 whether the cell is 222 px or 27 px. The calibration's model is the slope-0 case — σ fixed, cellPx
@@ -78,8 +92,8 @@ free — and the measured slope is 1.08.
 
 Substituting the real relationship into the solve collapses it:
 
-```
-g_raw = fieldPx / (4.133 · 0.23 · fieldPx/g) · 0.85  =  g · 0.9
+```math
+g_\text{raw} \;=\; \frac{\mathit{field}_{px}}{4.133 \cdot 0.23 \cdot \mathit{field}_{px}/g}\cdot 0.85 \;=\; 0.9\,g
 ```
 
 The procedure is a **mirror**: it hands back the grid it was calibrated on, times a constant. Since
@@ -97,9 +111,13 @@ record of the machine's geometry.
 
 `B` factors exactly into three terms, and measuring each separately says where the trade really is:
 
+```math
+B \;=\; \underbrace{\log_2\!\left(\textcolor{#5a8ad0}{N}-1\right)}_{\text{bits per selection}}
+   \;\times\; \underbrace{\frac{1000}{c}}_{\text{selections per second}}
+   \;\times\; \underbrace{\frac{1-2\textcolor{#eb5460}{e}}{1-\textcolor{#eb5460}{e}}}_{\text{error penalty}}
 ```
-B  =  [bits per selection]  ×  [selections per second]  ×  [error penalty (1-2e)/(1-e)]
-```
+
+<sub>$c$ = cycle time in ms per completed selection; $\textcolor{#eb5460}{e}$ = error rate.</sub>
 
 | grid | bits/sel | cycle | rate/s | err | penalty | B |
 |---|---|---|---|---|---|---|
@@ -120,12 +138,19 @@ per side you gain 13–31 % in bits per selection and lose 22–45 % of your sel
 
 Cycle time obeys Fitts cleanly across the entire measured range:
 
-```
-cycle = 207 + 112·log2(g) ms        throughput = 1000/112 = 8.9 bits/s
+```math
+c \;=\; 207 + 112\log_2 g \;\text{ms}
+\qquad\qquad
+\mathit{TP} \;=\; \frac{1000}{112} \;=\; 8.9\ \text{bits/s}
 ```
 
-and since bits per selection grows as `2·log2(g)` while cycle grows as `112·log2(g)`, the ceiling
-is `2000/112 = 17.9 bits/s` — **exactly twice the measured Fitts throughput**, which is the claim
+and since bits per selection grows as $2\log_2 g$ while cycle grows as $112\log_2 g$, the ceiling is
+
+```math
+\lim_{g\to\infty} B \;=\; \frac{2000}{112} \;=\; 17.9\ \text{bits/s} \;=\; 2\,\mathit{TP}
+```
+
+— **exactly twice the measured Fitts throughput**, which is the claim
 [the whole design rests on](#why-a-grid), recovered from play data rather than assumed.
 
 **But you approach that ceiling absurdly slowly.** If Fitts held forever: 32² → 13.0, 64² → 13.7,
