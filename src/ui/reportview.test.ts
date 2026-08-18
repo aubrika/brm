@@ -252,16 +252,19 @@ describe('renderReport', () => {
     expect(tagged.querySelector('.r-hero-util')?.textContent).toContain('ghost off');
   });
 
-  it('charts the momentary rate, with a null band and a reading', () => {
+  it('charts the momentary rate as one curve plus the final-score rule', () => {
     const r = root();
     render(r, synthGridLog(32, 60, 8), [], info, cb);
     const titles = r.querySelectorAll('.r-sec-title').map((e) => e.textContent);
     expect(titles).toContain('Momentary rate');
-    // the band is the honesty device — a curve without it invites reading noise as structure
-    expect(r.querySelectorAll('.r-mom-band').length).toBe(1);
-    expect(r.querySelectorAll('.r-mom-ref').length).toBe(1); // the run's final score, for reference
-    const strokes = r.querySelectorAll('.r-mom-line').length + r.querySelectorAll('.r-mom-hot').length + r.querySelectorAll('.r-mom-cold').length;
-    expect(strokes).toBeGreaterThan(0);
+    expect(r.querySelectorAll('.r-mom-line').length).toBe(1); // one curve, undivided
+    expect(r.querySelectorAll('.r-mom-ref').length).toBe(1); // the run's final score
+    // the crosshair readout exists but starts hidden until the pointer enters the plot
+    expect(r.querySelectorAll('.r-mom-guide').length).toBe(1);
+    expect(r.querySelectorAll('.r-mom-dot').length).toBe(1);
+    expect(r.querySelector('.r-mom-tip')?.textContent).toBe('');
+    // and the panel makes no claim in prose about what the bumps mean
+    expect(r.querySelector('.r-mom')?.textContent).not.toContain('noise');
   });
 
   it('suppresses the momentary chart when the run is too short to window', () => {

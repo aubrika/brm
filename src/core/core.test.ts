@@ -3,7 +3,7 @@ import { bitRate } from './bitrate.js';
 import { makeRandInt, generateSequence, type Uint32Source } from './sequence.js';
 import { validateAlphabet, isSelection, type RawKey } from './alphabet.js';
 import { reduceLog } from '../v1/reduce.js';
-import { momentaryRate, momentaryBand } from './stats.js';
+import { momentaryRate } from './stats.js';
 import type { RunLog, RawEvent } from './stats.js';
 
 // A deterministic 32-bit word source (mulberry32) so the statistical tests are reproducible
@@ -278,36 +278,5 @@ describe('momentaryRate', () => {
     const { samples } = momentaryRate(log, 60_000);
     const direct = (Math.log2(255) * (log.summary.sc - log.summary.si)) / 60;
     expect(samples[Math.floor(samples.length / 2)].bps).toBeCloseTo(direct, 1);
-  });
-});
-
-describe('momentaryBand', () => {
-  it('is deterministic, so a log renders the same envelope every time', () => {
-    const log = paceLog(500);
-    expect(JSON.stringify(momentaryBand(log))).toBe(JSON.stringify(momentaryBand(log)));
-  });
-
-  it('brackets a genuinely constant run — no false peaks', () => {
-    const log = paceLog(500);
-    const { samples } = momentaryRate(log);
-    const band = momentaryBand(log)!;
-    const outside = samples.filter((s, i) => s.bps > band[i].hi || s.bps < band[i].lo);
-    // a metronome has no time structure to find; a couple of edge samples may graze the envelope
-    expect(outside.length).toBeLessThan(samples.length * 0.1);
-  });
-
-  it('flags a real change of pace as outside the band', () => {
-    const fast = paceLog(350, 30).events;
-    const slow = paceLog(900, 30).events.map(([t, ...rest]) => [(t as number) + 30_000, ...rest] as RawEvent);
-    const log = paceLog(350, 60);
-    log.events = [...fast, ...slow];
-    const { samples } = momentaryRate(log);
-    const band = momentaryBand(log)!;
-    const outside = samples.filter((s, i) => s.bps > band[i].hi || s.bps < band[i].lo);
-    expect(outside.length).toBeGreaterThan(samples.length * 0.2); // the shift is unmissable
-  });
-
-  it('declines to draw a band from too few events', () => {
-    expect(momentaryBand(paceLog(6000, 60))).toBeNull(); // ~10 selections
   });
 });

@@ -246,17 +246,29 @@ code { font-family: var(--mono); }
 .r-tape { width: 100%; }
 .r-tape-plot { position: relative; width: 100%; }
 .r-tape-svg { width: 100%; height: clamp(150px, 27vh, 320px); display: block; }
-/* Momentary rate: B on a sliding window against the clock. The null band is the quietest thing on
-   the panel — it is context, not data — and only stretches that escape it get a colour. */
+/* Momentary rate: B on a sliding window against the clock. One curve, the run's final score as a
+   dashed rule, and a crosshair that reads the value under the cursor.
+   The crosshair, dot and label are HTML positioned in percent over the SVG rather than shapes
+   inside it: the viewBox is stretched non-uniformly to fit its box, which would turn the dot into
+   an ellipse and squash the label. Percentages map exactly under that same stretch. */
 .r-mom { position: relative; }
+.r-mom-plot { position: relative; width: 100%; cursor: crosshair; }
 .r-mom-svg { width: 100%; height: clamp(120px, 16vh, 168px); display: block; overflow: visible; }
-.r-mom-band { fill: var(--rpanel); stroke: var(--hair); stroke-width: 0.75; }
 .r-mom-zero { stroke: var(--hair); stroke-width: 1; }
 .r-mom-ref { stroke: var(--slate); stroke-width: 1.2; stroke-dasharray: 4 4; }
 .r-mom-strokes polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
 .r-mom-line { stroke: var(--rink); }
-.r-mom-hot { stroke: var(--amber); }   /* a real peak — faster than this run's own shuffle */
-.r-mom-cold { stroke: var(--rerr); }   /* a real valley */
+
+.r-mom-guide, .r-mom-dot, .r-mom-tip { position: absolute; opacity: 0; pointer-events: none; transition: opacity .09s; }
+.r-mom-plot.is-hovered .r-mom-guide,
+.r-mom-plot.is-hovered .r-mom-dot,
+.r-mom-plot.is-hovered .r-mom-tip { opacity: 1; }
+.r-mom-guide { top: 0; bottom: 0; width: 1px; background: var(--hair); transform: translateX(-50%); }
+.r-mom-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rink); transform: translate(-50%, -50%); box-shadow: 0 0 0 3px var(--ground); }
+.r-mom-tip {
+  font-family: var(--mono); font-size: 13px; color: var(--rink); white-space: nowrap;
+  background: var(--ground); border: 1px solid var(--hair); border-radius: 6px; padding: 3px 8px;
+}
 
 .r-errdot { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--rerr); transform: translate(-50%, -50%); pointer-events: none; }
 .r-tick { outline: none; cursor: default; }

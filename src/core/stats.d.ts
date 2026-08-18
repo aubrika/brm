@@ -270,17 +270,5 @@ export interface MomentaryRate {
   stepMs: number;
   samples: MomentSample[];
 }
-export interface MomentBandSample {
-  t: number;
-  lo: number;
-  hi: number;
-}
 export function momentaryRate(log: RunLog, windowMs?: number, stepMs?: number): MomentaryRate;
-export function momentaryBand(
-  log: RunLog,
-  windowMs?: number,
-  stepMs?: number,
-  iterations?: number,
-  pct?: number,
-): MomentBandSample[] | null;
 export function reportStats(log: RunLog): ReportStats;
