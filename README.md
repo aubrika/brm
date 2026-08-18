@@ -34,8 +34,11 @@ The scored run is gated behind a ~15 second calibration, which doubles as warm-u
    cold-start factor, snapped **down** to one of {12, 16, 24, 32, 48, 64}.
 3. You can override the suggested size; both the recommendation and your choice are logged.
 
-Rounding down everywhere is deliberate: `B(g)` is a plateau ending in a cliff. One step too coarse
-costs a few percent; one step too fine falls off the accuracy cliff at double cost per error.
+Rounding down everywhere was deliberate, on the assumption that `B(g)` is a plateau ending in an
+accuracy cliff: one step too coarse costs a few percent, one step too fine falls off the cliff at
+double cost per error. The plateau is real. The accuracy cliff is not — error rate turns out to be
+almost independent of grid size, and what a finer grid costs is time. See
+[what a finer grid actually costs](#what-a-finer-grid-actually-costs).
 
 **Known limits of the calibration.** σ from ~14 surviving endpoints has roughly 20 % standard
 error, and the snap ladder steps by ~1.33×, so repeat calibrations of the same hand land one step
@@ -85,17 +88,58 @@ that is always `REFERENCE_GRID = 24`, the recommendation is pinned near 22 — w
 calibrations of the same hand on the same machine gave `g_raw` from 14.4 to 27.4 and recommended
 12, 16, 16, 16, 16 and 24.
 
-**Why it has not been replaced.** Its output barely matters. Measured bit rate is flat within noise
-from 16² to 64² (12.4–13.0 bits/s) — the plateau the design predicts — and the accuracy cliff is
-somewhere past 64², since 128² gives 9.7 and 256² gives 7.1. The calibration lands in the right
-neighbourhood by accident of its reference grid, and any value in that neighbourhood scores the
-same. It also still earns its keep as a warm-up and as a way to record the machine's geometry.
+**Why it has not been replaced.** Its output barely matters — see the exchange rate below. The
+calibration lands in the right neighbourhood by accident of its reference grid, and every value in
+that neighbourhood scores about the same. It also still earns its keep as a warm-up and as the
+record of the machine's geometry.
 
-**What would actually be worth measuring** is the cliff edge, not the effective width: sweep grid
-size within a session and find where the score starts falling. Note also that error rate *falls*
-from 4.74 % at 16² to 2.82 % at 32² while cycle time rises 605 → 749 ms — the player is picking a
-speed/accuracy operating point per grid size, which is rational under a rule where errors cost
-double, and is another thing a single fixed σ cannot express.
+### What a finer grid actually costs
+
+`B` factors exactly into three terms, and measuring each separately says where the trade really is:
+
+```
+B  =  [bits per selection]  ×  [selections per second]  ×  [error penalty (1-2e)/(1-e)]
+```
+
+| grid | bits/sel | cycle | rate/s | err | penalty | B |
+|---|---|---|---|---|---|---|
+| 8² | 5.98 | 601 ms | 1.665 | 6.67 % | 0.929 | 9.07 |
+| 12² | 7.16 | 591 ms | 1.691 | 6.48 % | 0.931 | 11.22 |
+| 16² | 7.99 | 655 ms | 1.526 | 4.74 % | 0.950 | 11.80 |
+| 24² | 9.17 | 644 ms | 1.552 | 5.88 % | 0.938 | 13.37 ᵈ |
+| 32² | 10.00 | 749 ms | 1.335 | 2.82 % | 0.971 | 13.00 |
+| 64² | 12.00 | 937 ms | 1.068 | 3.73 % | 0.961 | 12.40 |
+
+<sub>ᵈ 24² runs are lookahead depth 2; every other row is depth 1. Plain grid mode only — every run
+above 64² in `logs/` is a SCOPE run and belongs to a different input modality.</sub>
+
+**Error rate is not the currency.** The penalty term sits between 0.93 and 0.97 across the whole
+range with no trend in grid size — it moves the score by at most a few percent and just as often
+in the helpful direction. What you actually pay for resolution is **time**: per doubling of cells
+per side you gain 13–31 % in bits per selection and lose 22–45 % of your selection rate.
+
+Cycle time obeys Fitts cleanly across the entire measured range:
+
+```
+cycle = 207 + 112·log2(g) ms        throughput = 1000/112 = 8.9 bits/s
+```
+
+and since bits per selection grows as `2·log2(g)` while cycle grows as `112·log2(g)`, the ceiling
+is `2000/112 = 17.9 bits/s` — **exactly twice the measured Fitts throughput**, which is the claim
+[the whole design rests on](#why-a-grid), recovered from play data rather than assumed.
+
+**But you approach that ceiling absurdly slowly.** If Fitts held forever: 32² → 13.0, 64² → 13.7,
+128² → 14.1, 256² → 14.5. Each doubling past 32² buys under 5 %, and reaching even 80 % of the
+asymptote would need a 168×168 grid. That is why the plateau is broad and why the calibration's
+precision does not matter: anywhere from 16² to 64² is within ~10 % of the best available score.
+
+**Where is the cliff?** Not established. Fitts still fits at 64² (the largest plain grid ever
+played, n = 2 runs) with no departure — observed cycle is within 11 % of the fitted line at every
+size from 8² to 64². The scored decline from 32² to 64² is −5 % on two runs, which is nothing. The
+one hint of a cliff comes from SCOPE runs at 128²/256², a different modality, so it does not
+transfer. **The cheap next experiment is two or three plain-grid runs at 128²** (13.7 px cells),
+where extrapolating σ ≈ 0.23·cellPx down to the device's noise floor suggests the proportional
+scatter law should finally break.
 
 ## Run it locally
 
