@@ -16,7 +16,7 @@ export interface GameConfig {
   gridDepth: number; // stacked "transparent" grids per selection (1 | 2); N = (gridSize²)^depth
   // How many upcoming targets are previewed (0 | 1 | 2). 1 outlines T+1 in grey and draws a
   // connector to it; 2 adds T+2 behind it, dimmer, so the preview reads as an ordered chain rather
-  // than two equal targets. Measured worth: depth 1 is +2.46 bits/s over depth 0 (see README).
+  // than two equal targets. Measured worth: depth 1 is +2.46 bits/s over depth 0 (see README_V2.md).
   // Not to be confused with `gridDepth`, which stacks layers WITHIN one selection.
   lookaheadDepth: number;
   crosshair: boolean; // full-field locator hairlines through the target cell

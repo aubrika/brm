@@ -393,7 +393,7 @@ export class App {
   // ------------------------------------------------------ v1 legacy config ----
   // The original falling-lanes keyboard game, frozen. Only the two home rows are configurable
   // (N = 8); there is no calibration gate, no grid, and none of the retired experiments. This
-  // exists to demonstrate the design lineage that led to the grid alphabet — see README.
+  // exists to demonstrate the design lineage that led to the grid alphabet — see README_V2.md.
   private showLegacyConfig(msg?: string): void {
     const keyInput = (value: string): HTMLInputElement =>
       el('input', { type: 'text', class: 'field-input mono', value, spellcheck: false, autocomplete: 'off', autocapitalize: 'off' }) as HTMLInputElement;

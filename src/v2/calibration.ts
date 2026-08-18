@@ -42,7 +42,7 @@
 // g_raw from 14.4 to 27.4 and recommendations of 12, 16, 16, 16, 16 and 24.
 //
 // It survives as-is because it lands in the right neighbourhood and its output barely matters:
-// measured bit rate is flat within noise from 16² to 64² (12.4–13.0 bits/s). See README
+// measured bit rate is flat within noise from 16² to 64² (12.4–13.0 bits/s). See README_V2.md
 // "Calibration: what it actually measures" before changing any constant here.
 
 export const REFERENCE_GRID = 24; // the task's fixed grid, regardless of what's recommended
