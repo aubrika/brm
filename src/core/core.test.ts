@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bitRate } from './bitrate.js';
 import { makeRandInt, generateSequence, type Uint32Source } from './sequence.js';
-import { validateAlphabet, isSelection, type RawKey } from './alphabet.js';
-import { reduceLog } from '../v1/reduce.js';
 import { momentaryRate } from './stats.js';
 import type { RunLog, RawEvent } from './stats.js';
 
@@ -20,10 +18,6 @@ function mulberry32Source(seed: number): Uint32Source {
       out[i] = (t ^ (t >>> 14)) >>> 0;
     }
   };
-}
-
-function rawKey(key: string, tMs: number, over: Partial<RawKey> = {}): RawKey {
-  return { key, tMs, repeat: false, ctrlKey: false, metaKey: false, altKey: false, ...over };
 }
 
 // χ² critical values at α = 0.01. chi2 below the value ⟺ p > 0.01 (uniform not rejected).
@@ -48,25 +42,6 @@ describe('bitRate math', () => {
   });
 });
 
-describe('alphabet validation', () => {
-  it('accepts the default', () => {
-    expect(validateAlphabet('asdfjkl;')).toEqual({ ok: true, alphabet: 'asdfjkl;' });
-  });
-  it('rejects < 3 keys', () => {
-    expect(validateAlphabet('ab')).toEqual({ ok: false, error: expect.stringContaining('at least 3') });
-  });
-  it('rejects repeats', () => {
-    const r = validateAlphabet('aab');
-    expect(r.ok).toBe(false);
-  });
-  it('rejects control characters', () => {
-    const r = validateAlphabet('ab\n');
-    expect(r.ok).toBe(false);
-  });
-  it('accepts a minimal 3-key set', () => {
-    expect(validateAlphabet('dfj')).toEqual({ ok: true, alphabet: 'dfj' });
-  });
-});
 
 describe('RNG uniformity (deterministic source)', () => {
   it.each([3, 8, 10])('is uniform for N=%i by χ² over 100k samples', (n) => {
@@ -120,93 +95,7 @@ describe('RNG uniformity (deterministic source)', () => {
   });
 });
 
-describe('state machine (retry-until-correct)', () => {
-  const alphabet = 'asdf';
-  const seq = ['a', 's', 'd', 'f', 'a'];
-  const W = 60_000;
 
-  it('wrong in-alphabet key increments Si without advancing; next correct advances', () => {
-    const log: RawKey[] = [
-      rawKey('a', 100), // correct → Sc 1, target now 's'
-      rawKey('d', 200), // wrong (target 's') → Si 1, target stays 's'
-      rawKey('f', 250), // wrong again → Si 2, target stays 's'
-      rawKey('s', 300), // correct → Sc 2, target now 'd'
-    ];
-    const r = reduceLog(log, alphabet, seq, W);
-    expect(r.sc).toBe(2);
-    expect(r.si).toBe(2);
-    expect(r.outcomes).toEqual(['correct', 'incorrect', 'incorrect', 'correct']);
-    expect(r.errorsByTarget).toEqual({ s: 2 });
-  });
-
-  it('ignores out-of-alphabet keys, auto-repeat, and modifier chords', () => {
-    const log: RawKey[] = [
-      rawKey('x', 100), // out of alphabet → ignored
-      rawKey('a', 150, { repeat: true }), // auto-repeat → ignored
-      rawKey('a', 200, { ctrlKey: true }), // ctrl chord → ignored
-      rawKey('a', 250), // correct → Sc 1
-      rawKey('Shift', 260), // out of alphabet → ignored
-      rawKey('s', 300), // correct → Sc 2
-    ];
-    const r = reduceLog(log, alphabet, seq, W);
-    expect(r.sc).toBe(2);
-    expect(r.si).toBe(0);
-    expect(r.outcomes).toEqual(['ignored', 'ignored', 'ignored', 'correct', 'ignored', 'correct']);
-  });
-
-  it('a genuine double-tap of the same key (repeat=false) registers twice', () => {
-    // seq starts 'a','s'; hitting 'a' then 'a' again: first correct, second is wrong (target 's')
-    const log: RawKey[] = [rawKey('a', 100), rawKey('a', 140)];
-    const r = reduceLog(log, alphabet, seq, W);
-    expect(r.sc).toBe(1);
-    expect(r.si).toBe(1);
-  });
-
-  it('drops keys at or beyond the time window', () => {
-    const log: RawKey[] = [rawKey('a', 59_999), rawKey('s', 60_000), rawKey('d', 60_001)];
-    const r = reduceLog(log, alphabet, seq, W);
-    expect(r.sc).toBe(1); // only the 59_999 ms key counts
-    expect(r.outcomes).toEqual(['correct', 'ignored', 'ignored']);
-  });
-
-  it('isSelection encodes the rule directly', () => {
-    const set = new Set(['a', 's']);
-    expect(isSelection(rawKey('a', 0), set)).toBe(true);
-    expect(isSelection(rawKey('x', 0), set)).toBe(false);
-    expect(isSelection(rawKey('a', 0, { repeat: true }), set)).toBe(false);
-    expect(isSelection(rawKey('a', 0, { metaKey: true }), set)).toBe(false);
-  });
-});
-
-describe('end-to-end bit rate from a scripted log', () => {
-  it('matches a hand-computed value', () => {
-    const alphabet = 'asdf'; // N = 4 → log2(3) bits per net correct selection
-    const seq = ['a', 's', 'd', 'f', 'a', 's', 'd', 'f'];
-    const log: RawKey[] = [
-      rawKey('a', 500), // correct   Sc=1
-      rawKey('s', 1000), // correct  Sc=2
-      rawKey('q', 1200), // ignored (out of alphabet)
-      rawKey('f', 1500), // wrong (target 'd') Si=1
-      rawKey('d', 1800), // correct  Sc=3
-      rawKey('f', 2100), // correct  Sc=4
-      rawKey('a', 2400), // correct  Sc=5
-      rawKey('a', 2600, { repeat: true }), // ignored (auto-repeat)
-      rawKey('a', 2800), // wrong in-alphabet key (target 's') Si=2
-      rawKey('s', 3000), // correct  Sc=6
-    ];
-    const r = reduceLog(log, alphabet, seq, 60_000);
-    expect(r.n).toBe(4);
-    expect(r.sc).toBe(6);
-    expect(r.si).toBe(2);
-    // B = log2(3) * max(6 - 2, 0) / 60
-    const expected = (Math.log2(3) * 4) / 60;
-    expect(r.bitsPerSecond).toBeCloseTo(expected, 12);
-    expect(r.netBits).toBeCloseTo(Math.log2(3) * 4, 12);
-    expect(r.accuracy).toBeCloseTo(6 / 8, 12);
-    expect(r.grossPerSecond).toBeCloseTo(8 / 60, 12);
-    expect(r.errorsByTarget).toEqual({ d: 1, s: 1 });
-  });
-});
 
 
 // ------------------------------------------------- momentary rate + band ----

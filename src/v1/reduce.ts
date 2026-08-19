@@ -3,8 +3,8 @@
 // screen shows and what the exported log recomputes to cannot disagree. v2 (grid) has no equivalent
 // — its engine counts selections directly, because clicks carry no press/release ambiguity.
 
-import { bitRate, type RunResult } from '../core/bitrate.js';
-import { isSelection, type RawKey, type Outcome } from '../core/alphabet.js';
+import { bitRate, type RunResult, type Outcome } from '../core/bitrate.js';
+import { isSelection, type RawKey } from './alphabet.js';
 
 // Authoritative fold over the raw keydown log. Retry-until-correct: a wrong (in-alphabet)
 // key increments Si and does NOT advance the target; the next keydown is evaluated normally.

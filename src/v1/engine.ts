@@ -3,11 +3,11 @@
 // touches layout, never waits on a frame, and stays unit-testable. The renderer reads
 // this state once per rAF; input never waits on the renderer.
 
-import type { RunResult } from '../core/bitrate.js';
+import type { RunResult, Outcome } from '../core/bitrate.js';
 import { makeRandInt, sampleSequence, SEQUENCE_LENGTH } from '../core/sequence.js';
-import { type RawKey, type Outcome, isSelection } from '../core/alphabet.js';
+import { type RawKey, isSelection } from './alphabet.js';
 import { reduceLog } from './reduce.js';
-import type { KeyboardConfig } from '../core/config.js';
+import type { KeyboardConfig } from './config.js';
 
 export interface KeyInput {
   key: string;

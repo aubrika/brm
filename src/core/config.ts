@@ -1,5 +1,4 @@
 import { SCORED_DURATION_MS } from './bitrate.js';
-import { DEFAULT_LOOKAHEAD } from './alphabet.js';
 
 // ---- the config, discriminated by which game it configures --------------------
 // This used to be one flat interface holding both games' settings, so every grid run carried an
@@ -12,21 +11,21 @@ import { DEFAULT_LOOKAHEAD } from './alphabet.js';
 // origin and so share localStorage; with a single flat shape and a single key, playing v1 wrote
 // `grid: false` where v2 would read it back. Keying storage by mode means neither variant can see
 // the other's config at all.
+//
+// Each game's own shape lives with that game: KeyboardConfig in v1/config.ts, GridConfig here —
+// not because the grid is privileged, but because it is the delivered game and core/ is the model
+// it is built on. What is left in this file is the part that is true of both.
 
-/** What both games need regardless of how a selection is made. */
+/** The mode a config configures. Also the localStorage partition — see STORAGE_KEY. */
+export type ConfigMode = 'keyboard' | 'grid';
+
+/** What both games need regardless of how a selection is made. Each game's config extends this and
+ *  narrows `mode` to its own literal, which is what makes the union discriminable. */
 export interface CommonConfig {
+  mode: ConfigMode;
   label: string; // free-text machine name, stamped into each log's filename + meta
   durationMs: number; // locked to 60_000 for scored runs
   sound: boolean;
-}
-
-/** v1, the falling-lanes keyboard game. N = alphabet length. */
-export interface KeyboardConfig extends CommonConfig {
-  mode: 'keyboard';
-  leftFingers: string; // keys the left hand types (left→right) — supports alternate layouts
-  rightFingers: string; // keys the right hand types (left→right)
-  alphabet: string; // leftFingers + rightFingers
-  lookahead: number; // upcoming targets shown on the falling strip
 }
 
 /** GRID MODE: the delivered game. Click the orange square on a large grid, N = cell count, so a
@@ -42,50 +41,6 @@ export interface GridConfig extends CommonConfig {
   hoverPulse: boolean; // pulse a white border while the pointer is inside the target cell
 }
 
-export type GameConfig = KeyboardConfig | GridConfig;
-
-// v1: base key → its lane index (0 = leftmost, ascending left→right across both hands).
-function laneIndexes(c: { leftFingers: string; rightFingers: string }): Map<string, number> {
-  const m = new Map<string, number>();
-  [...c.leftFingers].forEach((ch, j) => m.set(ch, j));
-  [...c.rightFingers].forEach((ch, j) => m.set(ch, [...c.leftFingers].length + j));
-  return m;
-}
-
-// The Okabe-Ito colourblind-safe palette: one hue per lane, in order left→right across both
-// hands. This is the falling strip's palette (v1/view.ts imports it), so a key keeps the exact
-// colour it wore while falling on into the report. Okabe-Ito's 8th colour is black — invisible
-// on the dark UI — so a neutral grey stands in for it on the last lane.
-export const OKABE_ITO = [
-  '#E69F00', // orange
-  '#56B4E9', // sky blue
-  '#009E73', // bluish green
-  '#F0E442', // yellow
-  '#0072B2', // blue
-  '#D55E00', // vermillion
-  '#CC79A7', // reddish purple
-  '#999999', // grey (stands in for Okabe-Ito black against the dark background)
-];
-
-// char → its lane hue, matching the strip. Keyed on the base key; any key not in the alphabet is
-// simply absent (callers fall back to the neutral ink colour).
-export function laneColors(c: { leftFingers: string; rightFingers: string }): Map<string, string> {
-  const m = new Map<string, string>();
-  for (const [ch, lane] of laneIndexes(c)) m.set(ch, OKABE_ITO[lane % OKABE_ITO.length]);
-  return m;
-}
-
-export const DEFAULT_KEYBOARD_CONFIG: KeyboardConfig = {
-  mode: 'keyboard',
-  label: '',
-  leftFingers: 'asdf',
-  rightFingers: 'jkl;',
-  alphabet: 'asdfjkl;',
-  lookahead: DEFAULT_LOOKAHEAD,
-  durationMs: SCORED_DURATION_MS,
-  sound: true,
-};
-
 export const DEFAULT_GRID_CONFIG: GridConfig = {
   mode: 'grid',
   label: '',
@@ -97,31 +52,37 @@ export const DEFAULT_GRID_CONFIG: GridConfig = {
   sound: true,
 };
 
+// ------------------------------------------------------------ persistence ----
+
 // One key per mode. v1 and v2 share an origin and therefore localStorage, so a single key let each
 // variant read back a config the other wrote — the reason app.ts had to normalise `grid` on every
 // start. Separate keys make that impossible rather than merely corrected.
-const STORAGE_KEY = { keyboard: 'brm.config.keyboard.v1', grid: 'brm.config.grid.v1' } as const;
+const STORAGE_KEY: Record<ConfigMode, string> = {
+  keyboard: 'brm.config.keyboard.v1',
+  grid: 'brm.config.grid.v1',
+};
 
-export function loadConfig(mode: 'keyboard'): KeyboardConfig;
-export function loadConfig(mode: 'grid'): GridConfig;
-export function loadConfig(mode: 'keyboard' | 'grid'): GameConfig {
+/** Read back a stored config, falling back to `defaults` for anything absent or unparseable.
+ *
+ *  Parameterised by the defaults rather than by a mode string so that core/ never has to name the
+ *  games it stores for: the caller supplies the shape, and both the storage key and the returned
+ *  type follow from it. Callers get their own config type back, not a union to re-narrow. */
+export function loadConfig<C extends CommonConfig>(defaults: C): C {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY[mode]);
+    const raw = localStorage.getItem(STORAGE_KEY[defaults.mode]);
     if (raw) {
-      // `mode` is re-asserted from the default, never taken from storage: a stored value cannot be
+      // `mode` is re-asserted from the defaults, never taken from storage: a stored value cannot be
       // allowed to change which game this is.
-      const stored = JSON.parse(raw) as Record<string, unknown>;
-      return mode === 'grid'
-        ? { ...DEFAULT_GRID_CONFIG, ...(stored as Partial<GridConfig>), mode: 'grid' }
-        : { ...DEFAULT_KEYBOARD_CONFIG, ...(stored as Partial<KeyboardConfig>), mode: 'keyboard' };
+      const stored = JSON.parse(raw) as Partial<C>;
+      return { ...defaults, ...stored, mode: defaults.mode };
     }
   } catch {
     /* ignore malformed/absent storage */
   }
-  return mode === 'grid' ? { ...DEFAULT_GRID_CONFIG } : { ...DEFAULT_KEYBOARD_CONFIG };
+  return { ...defaults };
 }
 
-export function saveConfig(c: GameConfig): void {
+export function saveConfig(c: CommonConfig): void {
   try {
     localStorage.setItem(STORAGE_KEY[c.mode], JSON.stringify(c));
   } catch {

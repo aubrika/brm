@@ -1,10 +1,10 @@
-// Keyboard alphabet helpers: validating a player-chosen key set, and turning a keydown into the
-// SYMBOL it produced. Used by v1 (the falling-lanes keyboard game) and by the config screen; the
-// grid game (v2) has no alphabet — its symbols are cell indices.
+// Keyboard alphabet helpers: validating a player-chosen key set, and deciding which keydowns
+// count. v1 ONLY — the grid game has no alphabet, because its symbols are cell indices and its
+// "is this a selection" question is a hit test (core/grid.js) rather than a key-set membership
+// test. This lived in core/ back when both games were expected to share an input model; they
+// never did, and every export below is reachable only from v1 and the v1 config screen.
 
 // ---------------------------------------------------------------- alphabet ----
-export const DEFAULT_LOOKAHEAD = 7; // v1: how many upcoming targets the falling strip shows
-
 export type AlphabetResult = { ok: true; alphabet: string } | { ok: false; error: string };
 
 // Validate a candidate alphabet: >= 3 entries, each a single printable character, all unique.
@@ -32,8 +32,6 @@ export interface RawKey {
   metaKey: boolean;
   altKey: boolean;
 }
-
-export type Outcome = 'correct' | 'incorrect' | 'ignored';
 
 // A keydown participates in scoring (is a "selection") iff it is an in-alphabet key with no
 // auto-repeat and no ctrl/meta/alt modifier. Everything else is ignored entirely.

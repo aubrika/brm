@@ -1,6 +1,6 @@
 // Sequence generation: the uniform, unbiased random source and the i.i.d. samplers both game
 // modes draw their targets from. Kept separate from the scoring math (core/bitrate.ts) and from the
-// keyboard alphabet helpers (core/alphabet.ts) so the randomness is auditable on its own — the
+// keyboard alphabet helpers (v1/alphabet.ts) so the randomness is auditable on its own — the
 // verifiability claim rests on these draws being genuinely uniform with replacement.
 
 export const SEQUENCE_LENGTH = 1500; // comfortably above any achievable selection count in 60 s

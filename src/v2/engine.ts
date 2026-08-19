@@ -9,12 +9,14 @@
 // run can enter costs a branch on the hot path and a tuple allocation per selection, and every
 // caller had to handle a 'partial' outcome that could never occur.
 
-import { type RunResult, bitRate } from '../core/bitrate.js';
+import { type RunResult, type Outcome, bitRate } from '../core/bitrate.js';
 import { makeRandInt, SEQUENCE_LENGTH } from '../core/sequence.js';
 import type { GridConfig } from '../core/config.js';
-import type { EngineState } from '../v1/engine.js';
 
-export type GridOutcome = 'correct' | 'incorrect' | 'ignored';
+/** Run lifecycle. Declared here rather than shared with v1's engine: the two are independent state
+ *  machines that happen to have the same three states, and importing this from v1 made the live
+ *  game depend on the frozen one for a string union. */
+export type EngineState = 'idle' | 'running' | 'ended';
 
 export class GridEngine {
   readonly config: GridConfig;
@@ -89,7 +91,7 @@ export class GridEngine {
   // Score a pointerdown on `cellIdx` (or -1 for a press outside the field). Synchronous:
   //  - hit the target → 'correct' (Sc++, advance)
   //  - any other cell → 'incorrect' (Si++); the target STAYS, so a miss is retried, not skipped
-  handleClick(cellIdx: number, nowMs: number): GridOutcome {
+  handleClick(cellIdx: number, nowMs: number): Outcome {
     if (this.state !== 'running') return 'ignored';
     if (this.timed && nowMs - this.startMs >= this.config.durationMs) {
       this.end();

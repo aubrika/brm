@@ -7,9 +7,14 @@
 // draws. Alongside the scoring log, a RunRecorder buffers a richer event log (down+up, verdict,
 // live idx) entirely from primitives, written to logs/ once at run end, never during the 60 s.
 //
-// What does NOT live here: the config screens (ui/configscreen.ts, pure view functions), the
-// auto-players (ui/demo.ts), the log assembly (io/report.ts), the report screen
-// (ui/reportview.ts). Each was moved out because it could be — none of them needs the run loop.
+// What does NOT live here: the config screens (pure view functions), the auto-players, the log
+// assembly (io/report.ts), the report screen (ui/reportview.ts). Each was moved out because it
+// could be — none of them needs the run loop.
+//
+// This file is also the ONLY place both games meet. Each owns its whole stack in its own folder —
+// engine, renderer, config, config screen, auto-player — and neither imports the other; what is in
+// core/ and ui/ is there because both genuinely need it. So the grid game's pieces come from
+// v2/ + ui/, v1's from v1/, and App picks a set at startup from VARIANT.
 
 import { Engine, type KeyInput } from './v1/engine.js';
 import { GridEngine } from './v2/engine.js';
@@ -22,10 +27,17 @@ import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
 import { el } from './ui/dom.js';
-import { gridConfigScreen, keyboardConfigScreen, practiceTag } from './ui/configscreen.js';
-import { startGridDemo, startKeyboardDemo } from './ui/demo.js';
-import { loadConfig, saveConfig, DEFAULT_GRID_CONFIG, type GameConfig, type GridConfig } from './core/config.js';
+import { gridConfigScreen, practiceTag } from './ui/configscreen.js';
+import { keyboardConfigScreen } from './v1/configscreen.js';
+import { startGridDemo } from './ui/demo.js';
+import { startKeyboardDemo } from './v1/demo.js';
+import { loadConfig, saveConfig, DEFAULT_GRID_CONFIG, type GridConfig } from './core/config.js';
+import { DEFAULT_KEYBOARD_CONFIG, type KeyboardConfig } from './v1/config.js';
 import type { MachineMeta, RunLog } from './core/stats.js';
+
+/** Whichever game this build is. The union lives here because App is the only thing that holds a
+ *  config without knowing which game it configures — core/ deliberately does not name the games. */
+type GameConfig = KeyboardConfig | GridConfig;
 
 const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps frame was skipped
 
@@ -82,7 +94,7 @@ type RunCtx = GridRunCtx | KeyRunCtx;
 
 export class App {
   private mode: 'config' | 'run' | 'report' = 'config';
-  private config: GameConfig = VARIANT === 'v1' ? loadConfig('keyboard') : loadConfig('grid');
+  private config: GameConfig = VARIANT === 'v1' ? loadConfig(DEFAULT_KEYBOARD_CONFIG) : loadConfig(DEFAULT_GRID_CONFIG);
   private readonly audio = new AudioFeedback(this.config.sound);
   private readonly latency: LatencyOverlay;
   private run: RunCtx | null = null;

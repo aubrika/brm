@@ -9,7 +9,7 @@
 // up) and horizontal divider lines every four rows to chunk the stream. One colour per finger.
 
 import type { Engine } from './engine.js';
-import { OKABE_ITO } from '../core/config.js';
+import { OKABE_ITO } from './config.js';
 
 const TAIL = 10; // consumed glyphs retained behind the target
 const SLACK = 3; // spare pooled nodes past the lookahead
@@ -27,7 +27,7 @@ const MAX_LAG = 0.45; // cap drift of the target past the target zone during bur
 const PULSE_MS = 110; // correct-keystroke pulse
 const ERROR_FLASH_MS = 120; // wrong-key flash on the target glyph
 
-// The lane palette (OKABE_ITO, one colour per lane left→right) lives in config.ts so the report
+// The lane palette (OKABE_ITO, one colour per lane left→right) lives in v1/config.ts so the report
 // screen can reuse it — a key keeps the exact colour it wore falling.
 
 // '#rrggbb' + alpha → 'rgba(r, g, b, a)'

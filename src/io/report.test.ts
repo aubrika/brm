@@ -8,7 +8,8 @@ import { buildReport } from './report.js';
 import { RunRecorder } from './logging.js';
 import { GridEngine } from '../v2/engine.js';
 import { Engine } from '../v1/engine.js';
-import { DEFAULT_GRID_CONFIG, DEFAULT_KEYBOARD_CONFIG } from '../core/config.js';
+import { DEFAULT_GRID_CONFIG } from '../core/config.js';
+import { DEFAULT_KEYBOARD_CONFIG } from '../v1/config.js';
 import { bitRate } from '../core/bitrate.js';
 import type { MachineMeta, RunLog } from '../core/stats.js';
 

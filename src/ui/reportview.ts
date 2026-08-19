@@ -13,7 +13,7 @@
 
 import type { RunLog, DownEvent, Histogram, MomentSample } from '../core/stats.js';
 import { reportStats, digraphStats, transitionMeans, confusion, ikiList, quantile, gridFitts, momentaryRate } from '../core/stats.js';
-import { laneColors } from '../core/config.js';
+import { laneColors } from '../v1/config.js';
 import type { IndexRow } from '../io/logging.js';
 import { el, svgEl, section, prefersReducedMotion, animateOver } from './dom.js';
 import { colOf, rowOf } from '../core/grid.js';
