@@ -100,8 +100,8 @@ export class App {
     // otherwise start v1 in grid mode. v1 is the keyboard game, always.
     if (VARIANT === 'v1') this.config = { ...this.config, grid: false };
     // Every control and URL parameter these fields used to have is gone, but a config saved while
-    // they existed still carries their values — lookaheadDepth: 2, gridDepth: 2, or a gridSize a
-    // retired calibrator picked (12 and 48 both shipped as recommendations). Left
+    // they existed still carries their values — lookaheadDepth: 2, or a gridSize a retired
+    // calibrator picked (12 and 48 both shipped as recommendations). Left
     // alone they would go on steering every run with nothing on screen to explain it and no way to
     // turn it off: a returning player would be locked to 12×12 forever. This list is what makes
     // "the game is 32×32, one layer, ghost on" true of a returning browser and not just a fresh
@@ -117,7 +117,6 @@ export class App {
         grid: true,
         lookaheadDepth: DEFAULT_CONFIG.lookaheadDepth,
         gridSize: DEFAULT_CONFIG.gridSize,
-        gridDepth: DEFAULT_CONFIG.gridDepth,
       };
       saveConfig(this.config); // persist the normalisation, so it survives even if no run is played
     }
@@ -134,10 +133,10 @@ export class App {
     // (dispatches real keydowns, so it drives the same input path a human would).
     //
     // These two are the only parameters left, and neither can change WHAT is played. There is no
-    // grid-size, grid-depth, lookahead or A/B parameter: each of those questions has been answered
-    // and the answer IS the game — 32×32, one layer, ghost on at lookahead 1 (worth +2.46 bits/s
-    // over none; depth 2 adds only a sixth of that). A parameter that could still change them is a
-    // way to write a log that claims to be this game and is not.
+    // grid-size, lookahead or A/B parameter: each of those questions has been answered and the
+    // answer IS the game — 32×32, ghost on at lookahead 1 (worth +2.46 bits/s over none; a second
+    // preview adds only a sixth of that). A parameter that could still change them is a way to
+    // write a log that claims to be this game and is not.
     //
     // Render the config screen only AFTER the dev aids have had their say. It states the N it is
     // about to play, and a dev aid applied to an already-rendered screen would leave it claiming
@@ -172,7 +171,7 @@ export class App {
         const eng = rc.engine as GridEngine;
         const gv = rc.gridView;
         let cell = eng.target();
-        if (Math.random() < errorRate) cell = (cell + 1) % eng.cellsPerLayer; // an adjacent miss now and then
+        if (Math.random() < errorRate) cell = (cell + 1) % eng.cells; // an adjacent miss now and then
         const r = gv.element.getBoundingClientRect();
         const col = cell % eng.gridSize;
         const row = Math.floor(cell / eng.gridSize);
@@ -284,12 +283,10 @@ export class App {
     const outcome = eng.handleClick(cell, now);
     const pType = e.pointerType || 'mouse';
     if (!rc.pointerType) rc.pointerType = pType; // first observed = modal (mixed input is rare)
-    // One 'ok' event per COMPLETED selection (its cells joined, e.g. "78,912" for a depth-2 pair),
-    // one 'err' per wrong click. A 'partial' (a correct sub-click that doesn't yet complete the
-    // tuple, e.g. orange done, blue to go) advances state but logs no event — so one 'ok' event
-    // still equals one scored selection, which the whole report/stats layer assumes.
+    // One 'ok' event per completed selection, one 'err' per wrong click — so one 'ok' equals one
+    // scored selection, which the whole report/stats layer assumes.
     if (outcome === 'correct') {
-      rc.recorder.recordDown(eng.lastCompleted.join(','), idxBefore, 'ok', tRun);
+      rc.recorder.recordDown(String(eng.lastCorrectCell), idxBefore, 'ok', tRun);
       rc.ghostAdjacent.push(ghostAdjacent ? 1 : 0);
       rc.pointerTypes.push(pType);
     } else if (outcome === 'incorrect') {
@@ -405,15 +402,8 @@ export class App {
       ...DEFAULT_CONFIG,
       grid: true,
       gridSize: this.config.gridSize, // always DEFAULT_CONFIG.gridSize; nothing can change it
-      gridDepth: this.config.gridDepth, // always 1; the stacked-layer experiment is not reachable
       label: this.config.label, // not editable on screen; kept so an existing name survives
     });
-
-    // N, derived the same way GridEngine derives it — (cells)^depth, not cells. Depth is pinned at
-    // 1 now, so this reads 1024; deriving it rather than hardcoding keeps the screen honest if the
-    // stacked-layer experiment is ever switched back on.
-    const cells = this.config.gridSize * this.config.gridSize;
-    const n = Math.pow(cells, Math.max(1, Math.round(this.config.gridDepth || 1)));
 
     // Practice is offered, never required. Gating the scored run behind anything costs a minute of
     // the exact activity being scored, and the run-order data does not show a warm-up deficit to
@@ -443,9 +433,6 @@ export class App {
           document.createTextNode(' target square will appear.'),
         ]),
         ...(msg ? [el('div', { class: 'field-error', text: msg })] : []),
-        // State the alphabet on screen. It is fixed now, so the player cannot read it off a
-        // control — and N is half the score: B = log2(N−1)·(Sc−Si)/t.
-        el('p', { class: 'field-note mono-note', text: `${this.config.gridSize} × ${this.config.gridSize}  ·  N = ${n.toLocaleString('en-US')}  ·  ${Math.log2(n - 1).toFixed(2)} bits per correct click` }),
         el('div', { class: 'field-note', text: 'Duration is locked to 60 s for scored runs. Practice runs will continue until you press ESC.' }),
         el('div', { class: 'buttons' }, [practice, scored]),
         el('p', { class: 'consent', text: 'Runs are saved locally and never transmitted anywhere.' }),
@@ -658,7 +645,8 @@ export class App {
     return {
       enabled: true,
       gridSize: v ? v.gridSize : this.config.gridSize,
-      depth: this.config.gridDepth,
+      depth: 1, // one cell per selection. Kept in the log so the analyzer can still filter the
+      // stacked-layer runs in logs/ out of the grid sweep — see GridLog.depth.
       fieldPx: v ? v.fieldPx : 0,
       cellPx: v ? v.cellPx : 0,
       devicePixelRatio: v ? v.dpr : 1,

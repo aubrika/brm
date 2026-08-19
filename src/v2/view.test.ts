@@ -72,8 +72,8 @@ describe('cellsApart', () => {
 });
 
 describe('visibleLookahead', () => {
-  // The i.i.d. sequence repeats a cell roughly every 1/N selections, and at depth 2 it can also
-  // put T+2 on T+1. Two outlines stacked on one cell reads as two targets, which is exactly the
+  // The i.i.d. sequence repeats a cell roughly every 1/N selections, so T+1 can land on the target
+  // and T+2 on T+1. Two outlines stacked on one cell reads as two targets, which is exactly the
   // ambiguity the preview exists to remove — so only the first (brightest) claim survives.
   it('draws every lookahead when they are all distinct', () => {
     expect(visibleLookahead(5, [9, 40])).toEqual([true, true]);
@@ -88,7 +88,7 @@ describe('visibleLookahead', () => {
     expect(visibleLookahead(5, [9, 9])).toEqual([true, false]);
   });
 
-  it('handles the end of the sequence and depth 0', () => {
+  it('handles the end of the sequence and a lookahead of zero', () => {
     expect(visibleLookahead(5, [])).toEqual([]);
     expect(visibleLookahead(5, [-1])).toEqual([false]);
   });

@@ -13,10 +13,11 @@
 import type { GridEngine } from './engine.js';
 
 const MARGIN = 20; // px inset from the smaller viewport dimension
-// One fill colour per layer: layer 0 (click first) orange, layer 1 blue. Orange/blue is the
-// colourblind-safe pair. crosshair tints are the same hues at low alpha.
-const LAYER_COLORS = ['#E69F00', '#3B82F6'];
-const LAYER_CROSSHAIR = ['rgba(230, 159, 0, 0.32)', 'rgba(59, 130, 246, 0.34)'];
+// The target's fill, and the crosshair tint (same hue at low alpha). Okabe-Ito orange. The config
+// screen paints the word "orange" in this exact value via --target in style.css — if this moves,
+// move that, or the instructions name a colour the game does not draw.
+const TARGET_COLOR = '#E69F00';
+const TARGET_CROSSHAIR = 'rgba(230, 159, 0, 0.32)';
 // Lookahead ramp, indexed by how far ahead the target is (0 = T+1, 1 = T+2). Brightness falls with
 // distance so the chain reads as ORDERED at a glance — two equally bright outlines would just look
 // like two targets and put the "which one first?" decision back on the player, which is the cost
@@ -183,8 +184,7 @@ export class GridRenderer {
     }
     ctx.stroke();
 
-    const target = this.engine.target(); // the ACTIVE cell — the one to click now
-    const active = this.engine.subIndex; // active layer
+    const target = this.engine.target(); // the cell to click now
     // The previewed chain: T+1, then T+2 if lookahead depth is 2. Clamped to the 0..2 the config
     // offers, and truncated at the end of the sequence (lookaheadTarget returns -1 there).
     const depth = Math.max(0, Math.min(LOOKAHEAD_BORDER.length, Math.round(cfg.lookaheadDepth ?? 0)));
@@ -196,13 +196,13 @@ export class GridRenderer {
     }
     const showOutline = visibleLookahead(target, lookahead);
 
-    // 2) crosshair locator — full-field hairlines through the ACTIVE target's centre, tinted with
-    //    that layer's colour so it reads as belonging to the cell you must click now (§2.1)
+    // 2) crosshair locator — full-field hairlines through the target's centre, tinted with the
+    //    target's own colour so it reads as belonging to the cell you must click now (§2.1)
     if (cfg.crosshair && target >= 0) {
       const cx = Math.round(this.centerX(target)) + 0.5;
       const cy = Math.round(this.centerY(target)) + 0.5;
       ctx.lineWidth = 1;
-      ctx.strokeStyle = LAYER_CROSSHAIR[active] ?? LAYER_CROSSHAIR[0];
+      ctx.strokeStyle = TARGET_CROSSHAIR;
       ctx.beginPath();
       ctx.moveTo(0, cy);
       ctx.lineTo(f, cy);
@@ -211,23 +211,15 @@ export class GridRenderer {
       ctx.stroke();
     }
 
-    // 3) connector — traces the actual click path: each still-to-click layer to the next, then on
-    //    through each previewed target in order. Depth 2 in the orange phase is orange→blue→T+1;
-    //    once orange is clicked it's just blue→T+1. So the line follows real cursor travel.
-    //    Segments are drawn one at a time because each carries its own brightness: everything up to
-    //    and including the arrival at T+1 is bright, T+1→T+2 is dim. One polyline could not say
-    //    that, and the fade IS the information — it is what makes the chain read in order.
+    // 3) connector — target → T+1 → T+2, tracing the cursor travel the preview is promising.
+    //    Segments are drawn one at a time because each carries its own brightness: target→T+1 is
+    //    bright, T+1→T+2 is dim. One polyline could not say that, and the fade IS the information —
+    //    it is what makes the chain read in order rather than as two equal destinations.
     if (lookahead.length > 0 && target >= 0) {
-      const pts: Array<[number, number]> = [];
-      for (let L = active; L < this.engine.depth; L++) {
-        const c = this.engine.layerCell(L);
-        if (c >= 0) pts.push([this.centerX(c), this.centerY(c)]);
-      }
-      const firstLookaheadSeg = pts.length - 1; // index of the segment that ARRIVES at T+1
+      const pts: Array<[number, number]> = [[this.centerX(target), this.centerY(target)]];
       for (const cell of lookahead) pts.push([this.centerX(cell), this.centerY(cell)]);
       for (let i = 1; i < pts.length; i++) {
-        // segments before T+1 belong to the current selection: draw them at T+1's brightness
-        const step = Math.max(0, i - 1 - firstLookaheadSeg);
+        const step = i - 1;
         ctx.lineWidth = LOOKAHEAD_LINE_PX[step] ?? 1;
         ctx.strokeStyle = LOOKAHEAD_LINE[step] ?? LOOKAHEAD_LINE[LOOKAHEAD_LINE.length - 1];
         ctx.beginPath();
@@ -251,16 +243,11 @@ export class GridRenderer {
       ctx.strokeRect(gx + w / 2 + 0.5, gy + w / 2 + 0.5, cp - w - 1, cp - w - 1);
     }
 
-    // 5) layer fills — every layer still to be clicked is drawn at once in its colour: the active
-    //    layer (click now) plus any pending layers (e.g. the blue cell shown while you click orange).
-    //    Already-clicked layers are hidden. The active fill is drawn last so it sits on top.
-    for (let L = this.engine.depth - 1; L >= active; L--) {
-      const cell = this.engine.layerCell(L);
-      if (cell < 0) continue;
-      const tx = this.col(cell) * cp;
-      const ty = this.row(cell) * cp;
-      ctx.fillStyle = LAYER_COLORS[L] ?? LAYER_COLORS[0];
-      ctx.fillRect(tx + 0.5, ty + 0.5, cp - 1, cp - 1);
+    // 5) the target fill — drawn after the outlines so it sits on top of a lookahead that landed
+    //    on the same cell.
+    if (target >= 0) {
+      ctx.fillStyle = TARGET_COLOR;
+      ctx.fillRect(this.col(target) * cp + 0.5, this.row(target) * cp + 0.5, cp - 1, cp - 1);
     }
 
     // 5b) repeated-target flash — the i.i.d. sequence can draw the same cell twice in a row (rate
@@ -322,7 +309,7 @@ export class GridRenderer {
         t0: nowMs,
         life: 340 + Math.random() * 260,
         r,
-        color: i % 3 === 0 ? '#ffffff' : '#E69F00',
+        color: i % 3 === 0 ? '#ffffff' : TARGET_COLOR,
       });
     }
     if (this.particles.length > 400) this.particles.splice(0, this.particles.length - 400); // hard cap

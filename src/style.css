@@ -66,8 +66,6 @@ code { font-family: var(--mono); }
 .grid-options select.field-input { width: auto; padding: 4px 8px; }
 .field-error { color: var(--error); min-height: 20px; font-size: 14px; }
 .field-note { color: var(--muted); font-size: 13px; }
-/* The fixed alphabet, stated on the config screen now that no control shows it. */
-.field-note.mono-note { font-family: var(--mono); font-size: 15px; color: var(--ink); letter-spacing: 0.04em; margin: 0; }
 .buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .btn {
   border: 1px solid var(--divider); background: var(--panel-2); color: var(--ink);

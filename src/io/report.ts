@@ -73,8 +73,7 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
       config,
     },
     // targets shown, incl. the unfinished one. Keyboard targets are glyph strings; grid targets are
-    // cell indices, and a depth>1 grid target is an array of cells whose String() is the joined
-    // "o,b" form — matching the event `key` column of a completed selection.
+    // cell indices — either way String(x) matches the event `key` column of that selection.
     sequence: (engine.sequence as unknown[]).slice(0, engine.index + 1).map((x) => String(x)),
     eventColumns: EVENT_COLUMNS,
     events,

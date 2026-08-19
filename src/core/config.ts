@@ -13,11 +13,9 @@ export interface GameConfig {
   // replaces the keyboard game entirely (the alphabet/finger machinery is unused).
   grid: boolean; // GRID MODE on
   gridSize: number; // cells per side; a layer has gridSize² cells
-  gridDepth: number; // stacked "transparent" grids per selection (1 | 2); N = (gridSize²)^depth
   // How many upcoming targets are previewed (0 | 1 | 2). 1 outlines T+1 in grey and draws a
   // connector to it; 2 adds T+2 behind it, dimmer, so the preview reads as an ordered chain rather
   // than two equal targets. Measured worth: depth 1 is +2.46 bits/s over depth 0 (see README_V2.md).
-  // Not to be confused with `gridDepth`, which stacks layers WITHIN one selection.
   lookaheadDepth: number;
   crosshair: boolean; // full-field locator hairlines through the target cell
   hoverPulse: boolean; // pulse a white border while the pointer is inside the target cell
@@ -66,7 +64,6 @@ export const DEFAULT_CONFIG: GameConfig = {
   label: '',
   grid: true, // grid is the singular default mode
   gridSize: 32, // 32×32 = 1024 cells; the geometry whose Fitts ceiling is ~2× device throughput
-  gridDepth: 1, // one layer per selection; 2 stacks an orange+blue pair (N = 1024²)
   lookaheadDepth: 1, // T+1 previewed; measured at +2.46 bits/s over no preview
   crosshair: true,
   hoverPulse: true,
