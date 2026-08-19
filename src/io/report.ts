@@ -37,25 +37,23 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
   const net = Math.max(result.sc - result.si, 0);
 
   // State only what was actually played. A grid run has no alphabet, no fingers, no falling lanes —
-  // stamping those defaults into the log described a keyboard game that never ran.
-  const isGrid = !!opts.grid;
-  const config: RunConfig = isGrid
-    ? {
-        mode: 'grid',
-        n: engine.n,
-        durationMs: engine.config.durationMs,
-        sound: engine.config.sound,
-      }
-    : {
-        mode: 'keyboard',
-        n: engine.n,
-        durationMs: engine.config.durationMs,
-        sound: engine.config.sound,
-        alphabet: engine.config.alphabet,
-        leftFingers: engine.config.leftFingers,
-        rightFingers: engine.config.rightFingers,
-        lookahead: engine.config.lookahead,
-      };
+  // stamping those defaults into the log described a keyboard game that never ran. The engine's own
+  // config is discriminated the same way the log's is, so this is a narrowing rather than a choice:
+  // there is no longer a shape in which the wrong fields are even reachable.
+  const cfg = engine.config;
+  const config: RunConfig =
+    cfg.mode === 'grid'
+      ? { mode: 'grid', n: engine.n, durationMs: cfg.durationMs, sound: cfg.sound }
+      : {
+          mode: 'keyboard',
+          n: engine.n,
+          durationMs: cfg.durationMs,
+          sound: cfg.sound,
+          alphabet: cfg.alphabet,
+          leftFingers: cfg.leftFingers,
+          rightFingers: cfg.rightFingers,
+          lookahead: cfg.lookahead,
+        };
 
   // build stamp (Vite `define`); `typeof` guard keeps it safe if ever run outside the bundle
   const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';

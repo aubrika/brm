@@ -8,7 +8,7 @@ import { buildReport } from './report.js';
 import { RunRecorder } from './logging.js';
 import { GridEngine } from '../v2/engine.js';
 import { Engine } from '../v1/engine.js';
-import { DEFAULT_CONFIG } from '../core/config.js';
+import { DEFAULT_GRID_CONFIG, DEFAULT_KEYBOARD_CONFIG } from '../core/config.js';
 import { bitRate } from '../core/bitrate.js';
 import type { MachineMeta, RunLog } from '../core/stats.js';
 
@@ -26,7 +26,7 @@ const machine: MachineMeta = {
  *  build the log the app would have written. Nothing is stubbed: the events come from the engine's
  *  own verdicts, so a change to scoring shows up here. */
 function playGrid(hits: number, misses: number, gridSize = 32) {
-  const engine = new GridEngine({ ...DEFAULT_CONFIG, gridSize }, true);
+  const engine = new GridEngine({ ...DEFAULT_GRID_CONFIG, gridSize }, true);
   const recorder = new RunRecorder();
   engine.start(0);
   let t = 0;
@@ -108,7 +108,7 @@ describe('buildReport — the config discriminator', () => {
   });
 
   it('states the alphabet and fingers on a keyboard run', () => {
-    const engine = new Engine({ ...DEFAULT_CONFIG, grid: false }, true);
+    const engine = new Engine({ ...DEFAULT_KEYBOARD_CONFIG }, true);
     engine.start(0);
     const log = buildReport(engine, engine.result(), {
       recorder: new RunRecorder(),
@@ -118,15 +118,15 @@ describe('buildReport — the config discriminator', () => {
       droppedFrames: 0,
     });
     expect(log.meta.config.mode).toBe('keyboard');
-    expect(log.meta.config.alphabet).toBe(DEFAULT_CONFIG.alphabet);
-    expect(log.meta.config.leftFingers).toBe(DEFAULT_CONFIG.leftFingers);
+    expect(log.meta.config.alphabet).toBe(DEFAULT_KEYBOARD_CONFIG.alphabet);
+    expect(log.meta.config.leftFingers).toBe(DEFAULT_KEYBOARD_CONFIG.leftFingers);
     expect(log.grid).toBeUndefined();
   });
 });
 
 describe('buildReport — optional sections', () => {
   it('omits a section entirely rather than writing an empty one', () => {
-    const engine = new Engine({ ...DEFAULT_CONFIG, grid: false }, true);
+    const engine = new Engine({ ...DEFAULT_KEYBOARD_CONFIG }, true);
     engine.start(0);
     const log = buildReport(engine, engine.result(), {
       recorder: new RunRecorder(), machine, mode: 'practice', startedAt: 'x', droppedFrames: 0,
@@ -152,7 +152,7 @@ describe('buildReport — optional sections', () => {
   // The machine label is read off the engine's config, not the probed machine meta, so a run always
   // reports the name that was in force when it was played.
   it('takes the machine label from the config the run was played under', () => {
-    const engine = new GridEngine({ ...DEFAULT_CONFIG, label: 'thesia' }, true);
+    const engine = new GridEngine({ ...DEFAULT_GRID_CONFIG, label: 'thesia' }, true);
     engine.start(0);
     const log = buildReport(engine, engine.result(), {
       recorder: new RunRecorder(), machine, mode: 'scored', startedAt: 'x', droppedFrames: 0,

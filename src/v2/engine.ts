@@ -11,13 +11,13 @@
 
 import { type RunResult, bitRate } from '../core/bitrate.js';
 import { makeRandInt, SEQUENCE_LENGTH } from '../core/sequence.js';
-import type { GameConfig } from '../core/config.js';
+import type { GridConfig } from '../core/config.js';
 import type { EngineState } from '../v1/engine.js';
 
 export type GridOutcome = 'correct' | 'incorrect' | 'ignored';
 
 export class GridEngine {
-  readonly config: GameConfig;
+  readonly config: GridConfig;
   readonly timed: boolean;
   readonly gridSize: number; // cells per side
   readonly cells: number; // gridSize² — N for the bit-rate formula
@@ -42,7 +42,7 @@ export class GridEngine {
   onError: (() => void) | null = null;
   onEnd: (() => void) | null = null;
 
-  constructor(config: GameConfig, timed: boolean, randInt: (n: number) => number = makeRandInt()) {
+  constructor(config: GridConfig, timed: boolean, randInt: (n: number) => number = makeRandInt()) {
     this.config = config;
     this.timed = timed;
     this.gridSize = config.gridSize;

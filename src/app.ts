@@ -17,7 +17,7 @@ import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
 import { el } from './ui/dom.js';
-import { loadConfig, saveConfig, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
+import { loadConfig, saveConfig, DEFAULT_GRID_CONFIG, DEFAULT_KEYBOARD_CONFIG, type GameConfig, type GridConfig, type KeyboardConfig } from './core/config.js';
 import { validateAlphabet } from './core/alphabet.js';
 import type { MachineMeta, RunLog } from './core/stats.js';
 
@@ -76,7 +76,7 @@ type RunCtx = GridRunCtx | KeyRunCtx;
 
 export class App {
   private mode: 'config' | 'run' | 'report' = 'config';
-  private config: GameConfig = loadConfig();
+  private config: GameConfig = VARIANT === 'v1' ? loadConfig('keyboard') : loadConfig('grid');
   private readonly audio = new AudioFeedback(this.config.sound);
   private readonly latency: LatencyOverlay;
   private run: RunCtx | null = null;
@@ -89,27 +89,20 @@ export class App {
   constructor(private readonly root: HTMLElement) {
     const params = new URLSearchParams(location.search);
     this.latency = new LatencyOverlay(params.has('debug'));
-    // v1 and v2 are served from the same origin and so share localStorage; a saved v2 config would
-    // otherwise start v1 in grid mode. v1 is the keyboard game, always.
-    if (VARIANT === 'v1') this.config = { ...this.config, grid: false };
     // Every control and URL parameter these fields used to have is gone, but a config saved while
     // they existed still carries their values — lookaheadDepth: 2, or a gridSize a retired
-    // calibrator picked (12 and 48 both shipped as recommendations). Left
-    // alone they would go on steering every run with nothing on screen to explain it and no way to
-    // turn it off: a returning player would be locked to 12×12 forever. This list is what makes
-    // "the game is 32×32, one layer, ghost on" true of a returning browser and not just a fresh
-    // one, so it has to name every field whose control was removed.
+    // calibrator picked (12 and 48 both shipped as recommendations). Left alone they would go on
+    // steering every run with nothing on screen to explain it and no way to turn it off: a
+    // returning player would be locked to 12×12 forever.
     //
-    // `grid: true` belongs in the same list now that nothing can turn it back on: v1 and v2 share
-    // an origin and therefore localStorage, so playing v1 leaves grid: false behind, and v2 would
-    // read it back. Pressing either button re-commits grid: true, but ?auto goes straight to
-    // startRun and would silently capture the KEYBOARD game instead.
-    if (VARIANT === 'v2') {
+    // `grid` is no longer in this list, and could not be: which game this is now lives in the
+    // config's own `mode`, keyed separately in storage, so a v1 config is not something a v2 build
+    // can read back. That used to be a normalisation; it is now a type.
+    if (this.config.mode === 'grid') {
       this.config = {
         ...this.config,
-        grid: true,
-        lookaheadDepth: DEFAULT_CONFIG.lookaheadDepth,
-        gridSize: DEFAULT_CONFIG.gridSize,
+        lookaheadDepth: DEFAULT_GRID_CONFIG.lookaheadDepth,
+        gridSize: DEFAULT_GRID_CONFIG.gridSize,
       };
       saveConfig(this.config); // persist the normalisation, so it survives even if no run is played
     }
@@ -146,7 +139,7 @@ export class App {
       }
       this.startRun(auto === 'scored', true); // start immediately (skip the ready wait) for headless capture
       if (params.has('demo')) {
-        if (this.config.grid) this.startGridDemo();
+        if (this.config.mode === 'grid') this.startGridDemo();
         else this.startDemoTyper();
       }
     }
@@ -311,10 +304,13 @@ export class App {
   // (N = 8); there is no grid and none of the retired experiments. It exists to demonstrate the
   // design lineage that led to the grid alphabet — see the Development Process section of README.md.
   private showLegacyConfig(msg?: string): void {
+    // This screen only ever runs in the v1 bundle, where the config is a KeyboardConfig by
+    // construction. The fallback keeps it honest rather than asserting.
+    const cfg: KeyboardConfig = this.config.mode === 'keyboard' ? this.config : DEFAULT_KEYBOARD_CONFIG;
     const keyInput = (value: string): HTMLInputElement =>
       el('input', { type: 'text', class: 'field-input mono', value, spellcheck: false, autocomplete: 'off', autocapitalize: 'off' });
-    const leftFingers = keyInput(this.config.leftFingers || 'asdf');
-    const rightFingers = keyInput(this.config.rightFingers || 'jkl;');
+    const leftFingers = keyInput(cfg.leftFingers || 'asdf');
+    const rightFingers = keyInput(cfg.rightFingers || 'jkl;');
     const err = el('div', { class: 'field-error' });
 
     // Machine name. Free text, persisted, and stamped into every log's filename and meta. It exists
@@ -322,7 +318,7 @@ export class App {
     // the window, so runs from a laptop and a desktop are not comparable and pooling them would
     // manufacture results. installId separates browser profiles, but a name is what makes the
     // separation legible in the analyzer without cross-referencing a token.
-    const label = el('input', { class: 'field-input', type: 'text', maxlength: '24', placeholder: 'e.g. laptop', value: this.config.label });
+    const label = el('input', { class: 'field-input', type: 'text', maxlength: '24', placeholder: 'e.g. laptop', value: cfg.label });
     label.addEventListener('change', () => {
       this.config = { ...this.config, label: label.value.trim().slice(0, 24) };
       saveConfig(this.config);
@@ -335,7 +331,7 @@ export class App {
         ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
       ]);
 
-    const collect = (): GameConfig | null => {
+    const collect = (): KeyboardConfig | null => {
       const parts = { leftFingers: leftFingers.value, rightFingers: rightFingers.value };
       const v = validateAlphabet(parts.leftFingers + parts.rightFingers);
       if (!v.ok) {
@@ -343,7 +339,7 @@ export class App {
         return null;
       }
       err.textContent = '';
-      return { ...DEFAULT_CONFIG, ...parts, grid: false, alphabet: v.alphabet };
+      return { ...DEFAULT_KEYBOARD_CONFIG, ...parts, alphabet: v.alphabet, label: cfg.label };
     };
     const start = (timed: boolean) => (): void => {
       const c = collect();
@@ -391,11 +387,11 @@ export class App {
     // 13.37 at 24², 13.33 at 32², 13.03 at 48² — so a per-player choice was never worth more than
     // a few percent, and no measurement cheap enough to put in front of a 60 s run can resolve a
     // few percent. There is no override left, not even a URL parameter — see the constructor.
-    const collect = (): GameConfig => ({
-      ...DEFAULT_CONFIG,
-      grid: true,
-      gridSize: this.config.gridSize, // always DEFAULT_CONFIG.gridSize; nothing can change it
-      label: this.config.label, // not editable on screen; kept so an existing name survives
+    const gridCfg: GridConfig = this.config.mode === 'grid' ? this.config : DEFAULT_GRID_CONFIG;
+    const collect = (): GridConfig => ({
+      ...DEFAULT_GRID_CONFIG,
+      gridSize: gridCfg.gridSize, // always DEFAULT_GRID_CONFIG.gridSize; nothing can change it
+      label: gridCfg.label, // not editable on screen; kept so an existing name survives
     });
 
     // Practice is offered, never required. Gating the scored run behind anything costs a minute of
@@ -447,15 +443,16 @@ export class App {
 
   // ------------------------------------------------------------------ run ----
   private startRun(timed: boolean, immediate = false): void {
-    if (this.config.grid) {
-      this.startGridRun(timed, immediate);
+    if (this.config.mode === 'grid') {
+      this.startGridRun(timed, immediate, this.config);
       return;
     }
+    const config = this.config; // narrowed to KeyboardConfig by the branch above
     this.mode = 'run';
     this.root.replaceChildren();
-    if (this.config.sound) this.audio.unlock(); // user gesture (button click) is active
+    if (config.sound) this.audio.unlock(); // user gesture (button click) is active
 
-    const engine = new Engine(this.config, timed);
+    const engine = new Engine(config, timed);
     engine.onError = () => this.audio.error();
 
     const stripRoot = el('div', { class: 'strip-root' });
@@ -501,7 +498,7 @@ export class App {
   // GRID MODE run: a pointing game on a canvas grid. Shares the run loop, HUD, latency proxy, and
   // logging with the keyboard path, but builds a GridEngine + canvas renderer and wires pointer
   // handlers instead of the keyboard strip.
-  private startGridRun(timed: boolean, immediate = false): void {
+  private startGridRun(timed: boolean, immediate: boolean, config: GridConfig): void {
     this.mode = 'run';
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock(); // the Start-button click is the unlocking gesture
@@ -545,8 +542,8 @@ export class App {
     // that resized mid-run (rotating the phone) would make the run's own bit rate meaningless.
     const avail = availableFieldPx(stripRoot.clientWidth || window.innerWidth, stripRoot.clientHeight || 360);
     const coarse = this.coarsePointer();
-    const gridSize = coarse ? fitTouchGrid(avail) : this.config.gridSize;
-    const runConfig = gridSize === this.config.gridSize ? this.config : { ...this.config, gridSize };
+    const gridSize = coarse ? fitTouchGrid(avail) : config.gridSize;
+    const runConfig: GridConfig = gridSize === config.gridSize ? config : { ...config, gridSize };
 
     const engine = new GridEngine(runConfig, timed);
     engine.onCorrect = () => this.audio.bloop(); // hit: rising bloop (+ particle burst in the renderer)
@@ -691,7 +688,7 @@ export class App {
     const v = rc.gridView;
     return {
       enabled: true,
-      gridSize: v ? v.gridSize : this.config.gridSize,
+      gridSize: v ? v.gridSize : rc.engine.config.gridSize,
       depth: 1, // one cell per selection. Kept in the log so the analyzer can still filter the
       // stacked-layer runs in logs/ out of the grid sweep — see GridLog.depth.
       // How N was chosen. 'touch' runs played a coarser grid with a different input device, so they

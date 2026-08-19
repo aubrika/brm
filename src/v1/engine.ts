@@ -7,7 +7,7 @@ import type { RunResult } from '../core/bitrate.js';
 import { makeRandInt, sampleSequence, SEQUENCE_LENGTH } from '../core/sequence.js';
 import { type RawKey, type Outcome, isSelection } from '../core/alphabet.js';
 import { reduceLog } from './reduce.js';
-import type { GameConfig } from '../core/config.js';
+import type { KeyboardConfig } from '../core/config.js';
 
 export interface KeyInput {
   key: string;
@@ -20,7 +20,7 @@ export interface KeyInput {
 export type EngineState = 'idle' | 'running' | 'ended';
 
 export class Engine {
-  readonly config: GameConfig;
+  readonly config: KeyboardConfig;
   readonly timed: boolean;
   readonly chars: string[]; // base keys (finger/hand come from these)
   readonly symbols: string[]; // scored symbols; n = symbols.length
@@ -43,7 +43,7 @@ export class Engine {
   onError: (() => void) | null = null;
   onEnd: (() => void) | null = null;
 
-  constructor(config: GameConfig, timed: boolean, randInt: (n: number) => number = makeRandInt()) {
+  constructor(config: KeyboardConfig, timed: boolean, randInt: (n: number) => number = makeRandInt()) {
     this.config = config;
     this.timed = timed;
     this.chars = [...config.alphabet];

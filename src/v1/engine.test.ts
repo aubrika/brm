@@ -4,9 +4,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { Engine } from './engine.js';
-import { DEFAULT_CONFIG } from '../core/config.js';
+import { DEFAULT_KEYBOARD_CONFIG } from '../core/config.js';
 
-const cfg = { ...DEFAULT_CONFIG, grid: false, alphabet: 'asdfjkl;', durationMs: 60_000 };
+const cfg = { ...DEFAULT_KEYBOARD_CONFIG, alphabet: 'asdfjkl;', durationMs: 60_000 };
 const key = (k: string) => ({ key: k, repeat: false, ctrlKey: false, metaKey: false, altKey: false });
 
 /** Deterministic target sequence. */

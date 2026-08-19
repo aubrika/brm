@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { GridEngine } from './engine.js';
-import { DEFAULT_CONFIG } from '../core/config.js';
+import { DEFAULT_GRID_CONFIG } from '../core/config.js';
 import { sampleCells } from '../core/sequence.js';
 
 function cfg(gridSize: number) {
-  return { ...DEFAULT_CONFIG, grid: true, gridSize, durationMs: 60_000 };
+  return { ...DEFAULT_GRID_CONFIG, gridSize, durationMs: 60_000 };
 }
 
 // Deterministic RNG: hand back a fixed list of cell indices, cycling.
