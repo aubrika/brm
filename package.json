@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "A browser game that maximizes a human player's achieved bit rate: click the highlighted cell of a calibrated grid (v2). The original falling-lanes keyboard version is kept as v1.",
+  "description": "A browser game scoring the player's information rate in bits/second: click the orange square on a 32x32 grid as quickly and accurately as you can for 60 seconds. The original falling-lanes keyboard version is kept as v1.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build && npm run build:v1",

@@ -7,15 +7,15 @@ export interface GameConfig {
   rightFingers: string; // keys the right hand types (left→right)
   label: string; // free-text machine name, stamped into each log's filename + meta
 
-  // ---- GRID MODE (pointing; mouse/trackpad — see bitrate-grid-mode-spec.md) ----
+  // ---- GRID MODE (pointing; mouse, trackpad or touch) ----
   // A separate targeting modality: click the orange square on a large grid, N = cell count, so a
   // 32×32 grid scores log2(1023) ≈ 10 bits/selection. Its own engine + canvas renderer; when on it
   // replaces the keyboard game entirely (the alphabet/finger machinery is unused).
   grid: boolean; // GRID MODE on
-  gridSize: number; // cells per side; a layer has gridSize² cells
+  gridSize: number; // cells per side; N = gridSize²
   // How many upcoming targets are previewed (0 | 1 | 2). 1 outlines T+1 in grey and draws a
   // connector to it; 2 adds T+2 behind it, dimmer, so the preview reads as an ordered chain rather
-  // than two equal targets. Measured worth: depth 1 is +2.46 bits/s over depth 0 (see README_V2.md).
+  // than two equal targets. Measured worth: depth 1 is +2.46 bits/s over depth 0 (see README.md).
   lookaheadDepth: number;
   crosshair: boolean; // full-field locator hairlines through the target cell
   hoverPulse: boolean; // pulse a white border while the pointer is inside the target cell
@@ -36,7 +36,7 @@ function laneIndexes(c: { leftFingers: string; rightFingers: string }): Map<stri
 }
 
 // The Okabe-Ito colourblind-safe palette: one hue per lane, in order left→right across both
-// hands. This is the falling strip's palette (strip.ts imports it), so a key keeps the exact
+// hands. This is the falling strip's palette (v1/view.ts imports it), so a key keeps the exact
 // colour it wore while falling on into the report. Okabe-Ito's 8th colour is black — invisible
 // on the dark UI — so a neutral grey stands in for it on the last lane.
 export const OKABE_ITO = [

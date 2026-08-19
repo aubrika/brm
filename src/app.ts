@@ -316,8 +316,8 @@ export class App {
 
   // ------------------------------------------------------ v1 legacy config ----
   // The original falling-lanes keyboard game, frozen. Only the two home rows are configurable
-  // (N = 8); there is no grid and none of the retired experiments. This
-  // exists to demonstrate the design lineage that led to the grid alphabet — see README_V2.md.
+  // (N = 8); there is no grid and none of the retired experiments. It exists to demonstrate the
+  // design lineage that led to the grid alphabet — see the Development Process section of README.md.
   private showLegacyConfig(msg?: string): void {
     const keyInput = (value: string): HTMLInputElement =>
       el('input', { type: 'text', class: 'field-input mono', value, spellcheck: false, autocomplete: 'off', autocapitalize: 'off' }) as HTMLInputElement;
@@ -422,8 +422,8 @@ export class App {
       el('div', { class: 'screen config' }, [
         el('h1', { class: 'title', text: 'Bit-Rate Maximizer' }),
         // "orange" is painted in the target's own colour, so the word points at the thing rather
-        // than describing it. --target tracks LAYER_COLORS[0] in v2/view.ts; if one moves so must
-        // the other, or the instructions name a colour the game does not draw.
+        // than describing it. --target tracks TARGET_COLOR in v2/view.ts; if one moves so must the
+        // other, or the instructions name a colour the game does not draw.
         el('p', { class: 'subtitle' }, [
           document.createTextNode('Click the '),
           el('span', { class: 'ink-target', text: 'orange' }),

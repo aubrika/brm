@@ -3,7 +3,7 @@
 //
 // Two sounds survive: a rising "bloop" when a grid target is hit (v2), and a low tone on a wrong
 // keypress (v1). Several other layers were built, A/B-tested and removed — an adaptive pacer, a
-// per-lane target-tone bed, and a wrong-cell buzzer. None improved bit rate; see README_V1.md.
+// per-lane target-tone bed, and a wrong-cell buzzer. None improved bit rate; see docs/README_V1.md.
 
 export class AudioFeedback {
   private ctx: AudioContext | null = null;

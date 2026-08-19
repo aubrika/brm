@@ -35,7 +35,7 @@ const GHOST_ADJACENT = 2; // Chebyshev distance flagged as "next target is close
 // ---- pure geometry (no DOM) -------------------------------------------------
 // Extracted so the load-bearing arithmetic is unit-testable: cellIndexAt decides correct-vs-error
 // on EVERY click, and fitGridGeometry fixes the cell size W that every logged Fitts number depends
-// on. See gridview.test.ts.
+// on. See view.test.ts.
 
 /** Cell sizes below this are not reliably tappable with a fingertip — Apple HIG says 44pt, Material
  *  48dp, and a contact patch is ~40px wide. Only consulted on coarse pointers. */
