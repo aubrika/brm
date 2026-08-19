@@ -438,7 +438,9 @@ export class App {
           el('span', { class: 'ink-target', text: 'orange' }),
           document.createTextNode(' squares as fast and as accurately as you can. Correct clicks add to your score, while errors subtract. The line drawn from the '),
           el('span', { class: 'ink-target', text: 'orange' }),
-          document.createTextNode(' target square to the gray outlined cell indicates where the next target square will appear.'),
+          document.createTextNode(' target square to the white outlined square indicates where the next '),
+          el('span', { class: 'ink-target', text: 'orange' }),
+          document.createTextNode(' target square will appear.'),
         ]),
         ...(msg ? [el('div', { class: 'field-error', text: msg })] : []),
         // State the alphabet on screen. It is fixed now, so the player cannot read it off a
