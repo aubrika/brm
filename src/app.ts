@@ -430,12 +430,21 @@ export class App {
     this.root.append(
       el('div', { class: 'screen config' }, [
         el('h1', { class: 'title', text: 'Bit-Rate Maximizer' }),
-        el('p', { class: 'subtitle', text: 'Click the highlighted cell as fast and as accurately as you can. Correct clicks add bits; errors subtract — so accuracy is worth about twice raw speed.' }),
+        // "orange" is painted in the target's own colour, so the word points at the thing rather
+        // than describing it. --target tracks LAYER_COLORS[0] in v2/view.ts; if one moves so must
+        // the other, or the instructions name a colour the game does not draw.
+        el('p', { class: 'subtitle' }, [
+          document.createTextNode('Click the '),
+          el('span', { class: 'ink-target', text: 'orange' }),
+          document.createTextNode(' squares as fast and as accurately as you can. Correct clicks add to your score, while errors subtract. The line drawn from the '),
+          el('span', { class: 'ink-target', text: 'orange' }),
+          document.createTextNode(' target square to the gray outlined cell indicates where the next target square will appear.'),
+        ]),
         ...(msg ? [el('div', { class: 'field-error', text: msg })] : []),
         // State the alphabet on screen. It is fixed now, so the player cannot read it off a
         // control — and N is half the score: B = log2(N−1)·(Sc−Si)/t.
         el('p', { class: 'field-note mono-note', text: `${this.config.gridSize} × ${this.config.gridSize}  ·  N = ${n.toLocaleString('en-US')}  ·  ${Math.log2(n - 1).toFixed(2)} bits per correct click` }),
-        el('div', { class: 'field-note', text: 'Duration is locked to 60 s for scored runs. Practice runs until you press Esc.' }),
+        el('div', { class: 'field-note', text: 'Duration is locked to 60 s for scored runs. Practice runs will continue until you press ESC.' }),
         el('div', { class: 'buttons' }, [practice, scored]),
         el('p', { class: 'consent', text: 'Runs are saved locally and never transmitted anywhere.' }),
       ]),

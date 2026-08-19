@@ -11,6 +11,10 @@
   --right: #f2a65a; /* right hand */
   --error: #ff5b68;
   --good: #64d98a;
+  /* The GRID MODE target's fill. Must stay equal to LAYER_COLORS[0] in v2/view.ts — the config
+     screen paints the word "orange" in it, so a drift makes the instructions name a colour the
+     game does not draw. Okabe-Ito orange: 8.9:1 on --bg, so it is legible as body text. */
+  --target: #E69F00;
   --grid-line: rgba(160, 180, 220, 0.13);
   --grid-col: rgba(150, 178, 235, 0.24);
   --mono: "SF Mono", "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
@@ -35,6 +39,9 @@ code { font-family: var(--mono); }
 .screen.config { align-items: center; justify-content: center; gap: 20px; padding: 24px; text-align: center; }
 .title { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 .subtitle { max-width: 620px; color: var(--muted); line-height: 1.5; margin: 0; }
+/* Names a game element in that element's own colour. Never colour alone: the word itself still
+   says "orange", so the sentence survives being read in greyscale or by a colourblind player. */
+.ink-target { color: var(--target); font-weight: 600; }
 .config-grid { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; align-items: flex-start; margin-top: 8px; }
 .field { display: flex; flex-direction: column; gap: 6px; text-align: left; }
 .field-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
