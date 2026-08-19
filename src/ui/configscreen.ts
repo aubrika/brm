@@ -12,7 +12,7 @@ import { DEFAULT_GRID_CONFIG, type GridConfig } from '../core/config.js';
 /** What a config screen does when the player commits: hand back the config that was assembled from
  *  the screen, and say whether the run should be scored. */
 export interface ConfigHandlers<C> {
-  onStart: (config: C, timed: boolean) => void;
+  onStart: (config: C, scored: boolean) => void;
 }
 
 /** Is the primary pointer a finger? Passed in rather than probed, so the screen renders identically
@@ -35,7 +35,7 @@ export interface ConfigOpts {
 export function gridConfigScreen(config: GridConfig, opts: ConfigOpts, handlers: ConfigHandlers<GridConfig>): HTMLElement {
   // The screen carries nothing forward but the machine label, which is not editable here and only
   // survives because an earlier build could set it.
-  const collect = (): GridConfig => ({ ...DEFAULT_GRID_CONFIG, gridSize: config.gridSize, label: config.label });
+  const collect = (): GridConfig => ({ ...DEFAULT_GRID_CONFIG, gridSize: config.gridSize });
 
   // Practice is offered, never required. Gating the scored run behind anything costs a minute of the
   // exact activity being scored, and the run-order data shows no warm-up deficit to pay that for:

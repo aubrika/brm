@@ -2,7 +2,7 @@
 // every advance is a canvas workload; a DOM-node-per-cell approach would fight the latency budget
 // (spec §4). The app's run loop already rAFs each frame for the HUD clock, so we simply redraw
 // there; the expensive thing the spec warns against (per-cell DOM) is what's avoided, not the
-// redraw itself. Draw order is fixed: gridlines → crosshair → connector → ghost border → target
+// redraw itself. Draw order is fixed: gridlines → crosshair → connector → lookahead outline → target
 // fill → wrong-cell flash → pulse border.
 //
 // Coordinate model: the canvas is a square of side fieldPx = cellPx·gridSize, centred in its root.
@@ -179,11 +179,11 @@ export class GridRenderer {
   }
 
   // Is the current target's next target "close" — T+1 within GHOST_ADJACENT cells (Chebyshev) of T?
-  // The ghost border is always drawn (a preference: its irregular appearance was distracting, and
+  // The lookahead outline is always drawn (a preference: its irregular appearance was distracting, and
   // the grey outline is distinct enough from the orange fill even when adjacent). This is now a
   // pure geometry flag the app logs per selection, so the analyzer can test whether a close next
   // target correlates with more misclicks / a longer dwell.
-  ghostAdjacent(): boolean {
+  lookaheadAdjacent(): boolean {
     const t = this.engine.target();
     const g = this.engine.nextTarget();
     if (t < 0 || g < 0) return false;

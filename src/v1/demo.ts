@@ -2,10 +2,10 @@
 // equivalent is ui/demo.ts; both follow the same rule, stated there — drive the SAME input path a
 // human does, so a demo run exercises shipping code rather than a private back door.
 
-import type { Engine } from './engine.js';
+import type { KeyboardEngine } from './engine.js';
 
 /** Keep typing while this returns a live engine; the caller ends the demo by returning null. */
-export type KeyDemoSource = () => Engine | null;
+export type KeyDemoSource = () => KeyboardEngine | null;
 
 const KEY_ERROR_RATE = 0.06; // a wrong key now and then, so error handling is exercised too
 

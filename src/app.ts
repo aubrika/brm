@@ -16,14 +16,14 @@
 // core/ and ui/ is there because both genuinely need it. So the grid game's pieces come from
 // v2/ + ui/, v1's from v1/, and App picks a set at startup from VARIANT.
 
-import { Engine, type KeyInput } from './v1/engine.js';
+import { KeyboardEngine, type KeyInput } from './v1/engine.js';
 import { GridEngine } from './v2/engine.js';
 import { StripRenderer } from './v1/view.js';
 import { GridRenderer, availableFieldPx, fitTouchGrid, TOUCH_MIN_CELL_PX } from './v2/view.js';
 import { AudioFeedback } from './ui/audio.js';
 import { LatencyOverlay } from './ui/latency.js';
 import { buildReport, downloadReport } from './io/report.js';
-import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './io/logging.js';
+import { RunRecorder, verdictOf, postLog, probeHealth, fetchIndex, type IndexRow } from './io/logging.js';
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
 import { el } from './ui/dom.js';
@@ -51,7 +51,7 @@ const VARIANT: 'v1' | 'v2' = (typeof __APP_VARIANT__ !== 'undefined' && __APP_VA
  *  `ready` until the first selection starts its clock, then `playing`, then `done`. */
 interface RunCtxBase {
   recorder: RunRecorder;
-  timed: boolean;
+  scored: boolean;
   phase: 'ready' | 'playing' | 'done';
   startedAt: string; // ISO, stamped when play begins
   droppedFrames: number;
@@ -78,7 +78,7 @@ interface GridRunCtx extends RunCtxBase {
   gridView: GridRenderer; // the same object as `view`, named for the pointer wiring
   pendingPointer: { t: number; x: number; y: number } | null; // one path sample per frame
   pointerType: string; // modal pointer type across the run
-  ghostAdjacent: number[]; // per down-event, was the next target within a couple cells
+  lookaheadAdjacent: number[]; // per down-event, was the next target within a couple cells
   pointerTypes: string[]; // per down-event pointer type
   touchSized: boolean; // the grid was sized for a fingertip, not fixed at the desktop N
 }
@@ -86,14 +86,17 @@ interface GridRunCtx extends RunCtxBase {
 /** The v1 keyboard game: falling lanes, scored on keydown. */
 interface KeyRunCtx extends RunCtxBase {
   grid: false;
-  engine: Engine;
+  engine: KeyboardEngine;
   view: StripRenderer;
 }
 
 type RunCtx = GridRunCtx | KeyRunCtx;
 
 export class App {
-  private mode: 'config' | 'run' | 'report' = 'config';
+  // Which screen is showing. Called `screen`, not `mode`, because `mode` already means which GAME
+  // this is (config.mode) — and a log carries a THIRD sense one level deeper (meta.mode, whether
+  // the run counts). Three unrelated concepts had converged on one word; each now has its own.
+  private screen: 'config' | 'run' | 'report' = 'config';
   private config: GameConfig = VARIANT === 'v1' ? loadConfig(DEFAULT_KEYBOARD_CONFIG) : loadConfig(DEFAULT_GRID_CONFIG);
   private readonly audio = new AudioFeedback(this.config.sound);
   private readonly latency: LatencyOverlay;
@@ -176,7 +179,7 @@ export class App {
 
   // ---------------------------------------------------------------- input ----
   private onKey = (e: KeyboardEvent): void => {
-    if (this.mode !== 'run' || !this.run) return; // config/report use normal DOM controls
+    if (this.screen !== 'run' || !this.run) return; // config/report use normal DOM controls
     if (e.key === 'Escape') {
       e.preventDefault();
       this.abortRun();
@@ -203,7 +206,7 @@ export class App {
     const tRun = now - eng.startMs;
     const outcome = eng.handleKey(input, now);
     if (outcome === 'correct' || outcome === 'incorrect') {
-      rc.recorder.recordDown(e.key, idxBefore, outcome === 'correct' ? 'ok' : 'err', tRun);
+      rc.recorder.recordDown(e.key, idxBefore, verdictOf(outcome), tRun);
       rc.pendingDownT = tRun; // measure this keydown → next paint for the latency samples
       rc.pendingDown = true;
     } else if (!inAlpha && !modified && !e.repeat && e.key.length === 1) {
@@ -215,7 +218,7 @@ export class App {
   // going down before the previous comes up, is measurable. Not part of scoring.
   private onKeyUp = (e: KeyboardEvent): void => {
     const rc = this.run;
-    if (this.mode !== 'run' || !rc || rc.phase !== 'playing' || rc.grid) return;
+    if (this.screen !== 'run' || !rc || rc.phase !== 'playing' || rc.grid) return;
     const eng = rc.engine;
     if (!eng.alphaSet.has(e.key)) return;
     const now = performance.now();
@@ -229,7 +232,7 @@ export class App {
   // as the keyboard path, then falls through to score that first pointerdown.
   private onGridPointerDown = (e: PointerEvent): void => {
     const rc = this.run;
-    if (this.mode !== 'run' || !rc || !rc.grid || rc.phase === 'done') return;
+    if (this.screen !== 'run' || !rc || !rc.grid || rc.phase === 'done') return;
     if (e.ctrlKey || e.metaKey || e.altKey) return; // ignore modified clicks (spec §1)
     e.preventDefault();
     const eng = rc.engine;
@@ -239,22 +242,19 @@ export class App {
     const cell = rc.gridView.cellAt(e.clientX, e.clientY);
     const idxBefore = eng.index;
     const tRun = now - eng.startMs;
-    const ghostAdjacent = rc.gridView.ghostAdjacent();
+    const lookaheadAdjacent = rc.gridView.lookaheadAdjacent();
     const outcome = eng.handleClick(cell, now);
     const pType = e.pointerType || 'mouse';
     if (!rc.pointerType) rc.pointerType = pType; // first observed = modal (mixed input is rare)
     // One 'ok' event per completed selection, one 'err' per wrong click — so one 'ok' equals one
-    // scored selection, which the whole report/stats layer assumes.
-    if (outcome === 'correct') {
-      rc.recorder.recordDown(String(eng.lastCorrectCell), idxBefore, 'ok', tRun);
-      rc.ghostAdjacent.push(ghostAdjacent ? 1 : 0);
-      rc.pointerTypes.push(pType);
-    } else if (outcome === 'incorrect') {
-      rc.recorder.recordDown(String(cell), idxBefore, 'err', tRun);
-      rc.ghostAdjacent.push(ghostAdjacent ? 1 : 0);
-      rc.pointerTypes.push(pType);
-    }
+    // scored selection, which the whole report/stats layer assumes. The two cases differ only in
+    // WHICH cell is logged: a correct click records the target it completed (which the engine has
+    // already advanced past), a wrong one records the cell actually hit.
     if (outcome !== 'ignored') {
+      const cellLogged = outcome === 'correct' ? eng.lastCorrectCell : cell;
+      rc.recorder.recordDown(String(cellLogged), idxBefore, verdictOf(outcome), tRun);
+      rc.lookaheadAdjacent.push(lookaheadAdjacent ? 1 : 0);
+      rc.pointerTypes.push(pType);
       rc.pendingDownT = tRun; // this click → next paint, for the latency samples
       rc.pendingDown = true;
     }
@@ -265,7 +265,7 @@ export class App {
   // field-local so the log is self-contained for Fitts analysis.
   private onGridPointerMove = (e: PointerEvent): void => {
     const rc = this.run;
-    if (this.mode !== 'run' || !rc || !rc.grid) return;
+    if (this.screen !== 'run' || !rc || !rc.grid) return;
     rc.gridView.hoverCell = rc.gridView.cellAt(e.clientX, e.clientY);
     if (rc.phase === 'playing') {
       const p = rc.gridView.localPoint(e.clientX, e.clientY);
@@ -278,22 +278,22 @@ export class App {
   // callback it needs, and mount it. The screens themselves are pure view functions in
   // ui/configscreen.ts and know nothing about App.
   private showConfig(msg?: string): void {
-    this.mode = 'config';
+    this.screen = 'config';
     this.run = null;
     this.root.replaceChildren();
     const opts = { coarsePointer: this.coarsePointer(), message: msg };
     this.root.append(
       this.config.mode === 'keyboard'
         ? keyboardConfigScreen(this.config, opts, {
-            onStart: (config, timed) => {
+            onStart: (config, scored) => {
               this.commit(config);
-              this.startRun(timed);
+              this.startRun(scored);
             },
           })
         : gridConfigScreen(this.config, opts, {
-            onStart: (config, timed) => {
+            onStart: (config, scored) => {
               this.commit(config);
-              this.startRun(timed);
+              this.startRun(scored);
             },
           }),
     );
@@ -306,28 +306,28 @@ export class App {
   }
 
   // ------------------------------------------------------------------ run ----
-  private startRun(timed: boolean, immediate = false): void {
+  private startRun(scored: boolean, immediate = false): void {
     if (this.config.mode === 'grid') {
-      this.startGridRun(timed, immediate, this.config);
+      this.startGridRun(scored, immediate, this.config);
       return;
     }
     const config = this.config; // narrowed to KeyboardConfig by the branch above
-    this.mode = 'run';
+    this.screen = 'run';
     this.root.replaceChildren();
     if (config.sound) this.audio.unlock(); // user gesture (button click) is active
 
-    const engine = new Engine(config, timed);
+    const engine = new KeyboardEngine(config, scored);
     engine.onError = () => this.audio.error();
 
     const playRoot = el('div', { class: 'play-root' });
     // shown until the first keypress: the run's clock starts when you type, no 3-2-1 countdown
     const startPrompt = el('div', { class: 'start-prompt', text: 'type the highlighted key to start' });
 
-    const { screen, ...ui } = this.runScreen(timed, playRoot, startPrompt);
+    const { screen, ...ui } = this.runScreen(scored, playRoot, startPrompt);
     this.root.append(screen);
 
     const strip = new StripRenderer(engine, playRoot);
-    this.run = { engine, view: strip, grid: false, ...this.baseRunCtx(timed, immediate, ui) };
+    this.run = { engine, view: strip, grid: false, ...this.baseRunCtx(scored, immediate, ui) };
     if (immediate) this.beginPlay(this.run);
     this.run.rafId = requestAnimationFrame(this.loop);
   }
@@ -335,8 +335,8 @@ export class App {
   // GRID MODE run: a pointing game on a canvas grid. Shares the run loop, HUD, latency proxy, and
   // logging with the keyboard path, but builds a GridEngine + canvas renderer and wires pointer
   // handlers instead of the keyboard strip.
-  private startGridRun(timed: boolean, immediate: boolean, config: GridConfig): void {
-    this.mode = 'run';
+  private startGridRun(scored: boolean, immediate: boolean, config: GridConfig): void {
+    this.screen = 'run';
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock(); // the Start-button click is the unlocking gesture
 
@@ -355,7 +355,7 @@ export class App {
       ]),
     ]);
 
-    const { screen, ...ui } = this.runScreen(timed, playRoot, startPrompt);
+    const { screen, ...ui } = this.runScreen(scored, playRoot, startPrompt);
     this.root.append(screen);
 
     // Size the grid AFTER the screen is in the document, because on a coarse pointer the choice
@@ -374,7 +374,7 @@ export class App {
     const gridSize = coarse ? fitTouchGrid(avail) : config.gridSize;
     const runConfig: GridConfig = gridSize === config.gridSize ? config : { ...config, gridSize };
 
-    const engine = new GridEngine(runConfig, timed);
+    const engine = new GridEngine(runConfig, scored);
     engine.onCorrect = () => this.audio.bloop(); // hit: rising bloop (+ particle burst in the renderer)
     // no wrong-cell buzzer — the red flash (drawn by the renderer) is the only miss feedback
 
@@ -395,10 +395,10 @@ export class App {
       grid: true,
       pendingPointer: null,
       pointerType: '',
-      ghostAdjacent: [],
+      lookaheadAdjacent: [],
       pointerTypes: [],
       touchSized: coarse,
-      ...this.baseRunCtx(timed, immediate, ui),
+      ...this.baseRunCtx(scored, immediate, ui),
     };
     if (immediate) this.beginPlay(this.run);
     this.run.rafId = requestAnimationFrame(this.loop);
@@ -427,7 +427,7 @@ export class App {
 
   /** The run screen's chrome — clock, play area, readout, and the practice exit. Identical for both
    *  games; only the thing mounted into `playRoot` differs. */
-  private runScreen(timed: boolean, playRoot: HTMLElement, startPrompt: HTMLElement): RunCtx['ui'] & { screen: HTMLElement } {
+  private runScreen(scored: boolean, playRoot: HTMLElement, startPrompt: HTMLElement): RunCtx['ui'] & { screen: HTMLElement } {
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
     const stats = el('div', { class: 'stats' });
@@ -435,16 +435,16 @@ export class App {
       time,
       el('div', { class: 'play-wrap' }, [playRoot, startPrompt]),
       el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
+      ...(scored ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
     ]);
     return { time, rate, stats, startPrompt, playRoot, screen };
   }
 
   /** The fields every run starts with, whichever game it is. */
-  private baseRunCtx(timed: boolean, immediate: boolean, ui: RunCtx['ui']): Omit<RunCtxBase, 'recorder'> & { recorder: RunRecorder } {
+  private baseRunCtx(scored: boolean, immediate: boolean, ui: RunCtx['ui']): Omit<RunCtxBase, 'recorder'> & { recorder: RunRecorder } {
     return {
       recorder: new RunRecorder(),
-      timed,
+      scored,
       phase: immediate ? 'playing' : 'ready',
       startedAt: '',
       droppedFrames: 0,
@@ -466,7 +466,7 @@ export class App {
 
     if (rc.phase === 'ready') {
       // waiting for the first keypress (handled in onKey); the clock shows its full value, frozen
-      rc.ui.time.textContent = rc.timed ? (this.config.durationMs / 1000).toFixed(1) : 'practice';
+      rc.ui.time.textContent = rc.scored ? (this.config.durationMs / 1000).toFixed(1) : 'practice';
     }
 
     if (rc.phase === 'playing') {
@@ -498,7 +498,7 @@ export class App {
 
   private updateHud(now: number, rc: RunCtx): void {
     const eng = rc.engine;
-    if (rc.timed) {
+    if (rc.scored) {
       rc.ui.time.textContent = (eng.remainingMs(now) / 1000).toFixed(1);
     } else {
       rc.ui.time.textContent = (eng.elapsedMs(now) / 1000).toFixed(1) + 's';
@@ -543,14 +543,16 @@ export class App {
       fieldPx: v.fieldPx,
       cellPx: v.cellPx,
       devicePixelRatio: v.dpr,
-      // `ghost` is the derived boolean the analyzer and every pre-existing log speak; `lookahead`
-      // is the value itself. Read from the ENGINE, so the log states what was actually rendered.
+      // THE PREVIEW IS CALLED `ghost` IN THE LOG AND `lookahead` IN THE CODE. This is the one place
+      // the two vocabularies meet, so the translation is here and nowhere else: `ghost` is the
+      // derived boolean the analyzer and every pre-existing log speak, `lookahead` is the value
+      // itself. Both read from the ENGINE, so the log states what was actually rendered.
       ghost: rc.engine.config.lookaheadDepth > 0,
       lookahead: rc.engine.config.lookaheadDepth,
       crosshair: rc.engine.config.crosshair,
       hoverPulse: rc.engine.config.hoverPulse,
       pointerType: rc.pointerType || 'mouse',
-      ghostAdjacent: rc.ghostAdjacent,
+      ghostAdjacent: rc.lookaheadAdjacent,
       pointerTypes: rc.pointerTypes,
     };
   }
@@ -559,7 +561,7 @@ export class App {
   // then render the report. Falls back to the download button when logging is unavailable.
   private async completeRun(
     rc: RunCtx,
-    result: ReturnType<Engine['result']>,
+    result: ReturnType<KeyboardEngine['result']>,
     grid?: RunLog['grid'],
     pointerPath?: RunLog['pointerPath'],
   ): Promise<void> {
@@ -567,7 +569,7 @@ export class App {
     const log = buildReport(rc.engine, result, {
       recorder: rc.recorder,
       machine,
-      mode: rc.timed ? 'scored' : 'practice',
+      mode: rc.scored ? 'scored' : 'practice',
       startedAt: rc.startedAt || new Date().toISOString(),
       droppedFrames: rc.droppedFrames,
       grid,
@@ -586,7 +588,7 @@ export class App {
 
   // --------------------------------------------------------------- report ----
   private showReport(log: RunLog, logInfo: LogInfo, indexRows: IndexRow[]): void {
-    this.mode = 'report';
+    this.screen = 'report';
     this.root.replaceChildren();
     renderReport(this.root, log, indexRows, logInfo, {
       onRunAgain: () => this.startRun(true),

@@ -76,6 +76,70 @@ export function splitEvents(log) {
   return { downs, ups };
 }
 
+// ---------------------------------------------------------------- selections ----
+// A SELECTION is the unit this whole project counts: one scored act, correct or incorrect. It is
+// what Sc and Si tally and what B divides by, and until these three helpers it was the one central
+// concept with no name — every consumer re-derived it from raw events, sixteen times across this
+// file and analyze.mjs, five of them the identical consecutive-correct-pair guard.
+//
+// Every recorded `down` IS a selection. Input that does not score never becomes an event at all:
+// an out-of-alphabet key or a click outside the field increments summary.outOfAlphabet instead. So
+// a down's verdict is always 'ok' or 'err', never null — null verdicts belong to `up` events.
+
+/** The run's selections, in order. The domain-named accessor for what the file calls `down`s. */
+export function selections(log) {
+  return splitEvents(log).downs;
+}
+
+/** Just the correct ones — the sequence the player actually completed. */
+export function correctSelections(sels) {
+  return sels.filter((s) => s.verdict === 'ok');
+}
+
+/** Consecutive pairs of selections that were BOTH correct, as [a, b].
+ *
+ *  This is the unit of every interval statistic — inter-selection interval, transition class,
+ *  digraph, Fitts movement time — because the gap between two correct selections is a clean
+ *  measurement, while a gap spanning an error is a retry and measures something else. Pairs are
+ *  adjacent in the log, so an error between two correct selections breaks the pair rather than
+ *  joining across it. */
+export function correctPairs(sels) {
+  const out = [];
+  for (let i = 1; i < sels.length; i++) {
+    const a = sels[i - 1];
+    const b = sels[i];
+    if (a.verdict === 'ok' && b.verdict === 'ok') out.push([a, b]);
+  }
+  return out;
+}
+
+// --------------------------------------------------------- run comparability ----
+
+/** Cells per selection. The stored name for this is `grid.depth`, which is a trap in a codebase
+ *  where `lookaheadDepth` means something entirely different — so read it through here, never
+ *  directly. It is always 1 on a current log; logs/ holds a batch from the retired stacked-layer
+ *  variant where two cells were clicked per selection, making N = (gridSize²)². */
+export function cellsPerSelection(log) {
+  return log.grid?.depth ?? 1;
+}
+
+/** Is this a run of THE game — one whose B may be pooled with another run's B?
+ *
+ *  Comparability is the whole reason the grid is fixed at 32×32: B is NOT invariant to N in the
+ *  measured data (9.07 bits/s at 8², 13.37 at 24²), so averaging across runs that answered
+ *  different questions produces a number that looks like a result and is an artifact. Four kinds of
+ *  log in logs/ answered a different question, and each is excluded here rather than in each
+ *  caller's own copy of the predicate. */
+export function isComparableGridRun(log) {
+  const g = log.grid;
+  if (!g || !g.enabled) return false; // not a pointing run at all
+  if (log.scope && log.scope.enabled) return false; // retired SCOPE MODE: pointer lock + magnifier
+  if (log.meta.mode !== 'scored') return false; // practice runs are not scores
+  if (cellsPerSelection(log) !== 1) return false; // retired stacked variant: a different N entirely
+  if ((g.sizing ?? 'fixed') === 'touch') return false; // fingertip-sized: different N AND device
+  return true;
+}
+
 // --------------------------------------------------------------- iki stats ----
 function sortedNumeric(values) {
   return [...values].sort((a, b) => a - b);
@@ -112,10 +176,7 @@ export function medianIki(downs) {
 export function transitionStats(downs, alphabet) {
   const map = deriveFingerMap(alphabet);
   const buckets = { sameFinger: [], sameHand: [], crossHand: [] };
-  for (let i = 1; i < downs.length; i++) {
-    const a = downs[i - 1];
-    const b = downs[i];
-    if (a.verdict !== 'ok' || b.verdict !== 'ok') continue;
+  for (const [a, b] of correctPairs(downs)) {
     const kind = classifyTransition(map, a.key, b.key);
     if (kind) buckets[kind].push(b.t - a.t);
   }
@@ -133,10 +194,7 @@ export function transitionStats(downs, alphabet) {
 export function transitionMeans(downs, alphabet) {
   const map = deriveFingerMap(alphabet);
   const buckets = { sameKey: [], sameHand: [], crossHand: [] };
-  for (let i = 1; i < downs.length; i++) {
-    const a = downs[i - 1];
-    const b = downs[i];
-    if (a.verdict !== 'ok' || b.verdict !== 'ok') continue;
+  for (const [a, b] of correctPairs(downs)) {
     const dt = b.t - a.t;
     if (a.key === b.key) {
       buckets.sameKey.push(dt);
@@ -162,10 +220,7 @@ export function transitionMeans(downs, alphabet) {
 // ranking a single-sample digraph as "slowest".
 export function digraphStats(downs, minCount = 1) {
   const groups = new Map();
-  for (let i = 1; i < downs.length; i++) {
-    const a = downs[i - 1];
-    const b = downs[i];
-    if (a.verdict !== 'ok' || b.verdict !== 'ok') continue;
+  for (const [a, b] of correctPairs(downs)) {
     const key = `${a.key}\u0000${b.key}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(b.t - a.t);
@@ -194,7 +249,7 @@ export function gridFitts(log) {
   const { downs } = splitEvents(log);
   const gridSize = g.gridSize;
   const cellPx = g.cellPx || 1;
-  const corr = downs.filter((d) => d.verdict === 'ok');
+  const corr = correctSelections(downs);
   const rows = [];
   for (let k = 1; k < corr.length; k++) {
     const a = Number(corr[k - 1].key);

@@ -23,7 +23,6 @@ export type ConfigMode = 'keyboard' | 'grid';
  *  narrows `mode` to its own literal, which is what makes the union discriminable. */
 export interface CommonConfig {
   mode: ConfigMode;
-  label: string; // free-text machine name, stamped into each log's filename + meta
   durationMs: number; // locked to 60_000 for scored runs
   sound: boolean;
 }
@@ -43,7 +42,6 @@ export interface GridConfig extends CommonConfig {
 
 export const DEFAULT_GRID_CONFIG: GridConfig = {
   mode: 'grid',
-  label: '',
   gridSize: 32, // 32×32 = 1024 cells; the geometry whose Fitts ceiling is ~2× device throughput
   lookaheadDepth: 1, // T+1 previewed; measured at +2.46 bits/s over no preview
   crosshair: true,

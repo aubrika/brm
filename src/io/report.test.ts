@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { buildReport } from './report.js';
 import { RunRecorder } from './logging.js';
 import { GridEngine } from '../v2/engine.js';
-import { Engine } from '../v1/engine.js';
+import { KeyboardEngine } from '../v1/engine.js';
 import { DEFAULT_GRID_CONFIG } from '../core/config.js';
 import { DEFAULT_KEYBOARD_CONFIG } from '../v1/config.js';
 import { bitRate } from '../core/bitrate.js';
@@ -109,7 +109,7 @@ describe('buildReport — the config discriminator', () => {
   });
 
   it('states the alphabet and fingers on a keyboard run', () => {
-    const engine = new Engine({ ...DEFAULT_KEYBOARD_CONFIG }, true);
+    const engine = new KeyboardEngine({ ...DEFAULT_KEYBOARD_CONFIG }, true);
     engine.start(0);
     const log = buildReport(engine, engine.result(), {
       recorder: new RunRecorder(),
@@ -127,7 +127,7 @@ describe('buildReport — the config discriminator', () => {
 
 describe('buildReport — optional sections', () => {
   it('omits a section entirely rather than writing an empty one', () => {
-    const engine = new Engine({ ...DEFAULT_KEYBOARD_CONFIG }, true);
+    const engine = new KeyboardEngine({ ...DEFAULT_KEYBOARD_CONFIG }, true);
     engine.start(0);
     const log = buildReport(engine, engine.result(), {
       recorder: new RunRecorder(), machine, mode: 'practice', startedAt: 'x', droppedFrames: 0,
@@ -150,14 +150,17 @@ describe('buildReport — optional sections', () => {
     expect(log.summary.droppedFrames).toBe(3);
   });
 
-  // The machine label is read off the engine's config, not the probed machine meta, so a run always
-  // reports the name that was in force when it was played.
-  it('takes the machine label from the config the run was played under', () => {
-    const engine = new GridEngine({ ...DEFAULT_GRID_CONFIG, label: 'thesia' }, true);
+  // The machine meta is passed through from the probe, unaltered. It used to be rewritten here —
+  // buildReport overwrote `label` with the config's copy, back when the config screen had a machine
+  // name box. That box is gone, so the config no longer carries a label and there is nothing to
+  // overwrite with; the probe is now the only source. `label` itself stays in MachineMeta because
+  // logs/ holds runs that set it, and the analyzer groups by it.
+  it('passes the probed machine meta through unaltered', () => {
+    const engine = new GridEngine({ ...DEFAULT_GRID_CONFIG }, true);
     engine.start(0);
     const log = buildReport(engine, engine.result(), {
       recorder: new RunRecorder(), machine, mode: 'scored', startedAt: 'x', droppedFrames: 0,
     });
-    expect(log.meta.machine.label).toBe('thesia');
+    expect(log.meta.machine).toEqual(machine);
   });
 });

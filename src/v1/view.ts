@@ -8,7 +8,7 @@
 // glyphs fall downward to a hit-line near the bottom, with static receptors (the target's lights
 // up) and horizontal divider lines every four rows to chunk the stream. One colour per finger.
 
-import type { Engine } from './engine.js';
+import type { KeyboardEngine } from './engine.js';
 import { OKABE_ITO } from './config.js';
 
 const TAIL = 10; // consumed glyphs retained behind the target
@@ -79,7 +79,7 @@ export class StripRenderer {
   private flow = 0; // smoothed cumulative flow position of the target (px)
   private lastFrameMs = -1;
 
-  constructor(private readonly engine: Engine, root: HTMLElement) {
+  constructor(private readonly engine: KeyboardEngine, root: HTMLElement) {
     this.root = root;
     this.poolSize = TAIL + engine.config.lookahead + SLACK + 1;
     // Two hand blocks (left fingers | neutral centre gap | right fingers), each lane coloured from

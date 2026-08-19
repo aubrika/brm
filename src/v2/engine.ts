@@ -20,10 +20,14 @@ export type EngineState = 'idle' | 'running' | 'ended';
 
 export class GridEngine {
   readonly config: GridConfig;
-  readonly timed: boolean;
+  readonly scored: boolean;
   readonly gridSize: number; // cells per side
-  readonly cells: number; // gridSize² — N for the bit-rate formula
-  readonly n: number; // = cells; kept as its own name because it is the N in log2(N-1)
+  readonly cells: number; // gridSize² — the alphabet size
+  /** The N in log2(N - 1). A getter, not a second field: it IS `cells`, named for the role it
+   *  plays in the score. Two stored fields holding one number is a thing that can drift. */
+  get n(): number {
+    return this.cells;
+  }
   readonly sequence: number[]; // one i.i.d. uniform cell index per selection
   readonly logBits: number; // log2(N - 1), precomputed
 
@@ -44,12 +48,11 @@ export class GridEngine {
   onError: (() => void) | null = null;
   onEnd: (() => void) | null = null;
 
-  constructor(config: GridConfig, timed: boolean, randInt: (n: number) => number = makeRandInt()) {
+  constructor(config: GridConfig, scored: boolean, randInt: (n: number) => number = makeRandInt()) {
     this.config = config;
-    this.timed = timed;
+    this.scored = scored;
     this.gridSize = config.gridSize;
     this.cells = this.gridSize * this.gridSize;
-    this.n = this.cells;
     this.sequence = new Array<number>(SEQUENCE_LENGTH);
     for (let i = 0; i < SEQUENCE_LENGTH; i++) this.sequence[i] = randInt(this.cells);
     this.logBits = Math.log2(this.n - 1);
@@ -77,13 +80,13 @@ export class GridEngine {
   }
 
   // A lookahead target: the cell `ahead` selections from the current one; -1 past the end of the
-  // sequence. ahead=1 is the ghost, ahead=2 the one behind it.
+  // sequence. ahead=1 is the first lookahead outline, ahead=2 the one behind it.
   lookaheadTarget(ahead: number): number {
     const cell = this.sequence[this.index + ahead];
     return cell === undefined ? -1 : cell;
   }
 
-  // The ghost: the next selection's cell; -1 if none.
+  // The first lookahead: the next selection's cell; -1 if none.
   nextTarget(): number {
     return this.lookaheadTarget(1);
   }
@@ -93,7 +96,7 @@ export class GridEngine {
   //  - any other cell → 'incorrect' (Si++); the target STAYS, so a miss is retried, not skipped
   handleClick(cellIdx: number, nowMs: number): Outcome {
     if (this.state !== 'running') return 'ignored';
-    if (this.timed && nowMs - this.startMs >= this.config.durationMs) {
+    if (this.scored && nowMs - this.startMs >= this.config.durationMs) {
       this.end();
       return 'ignored';
     }
@@ -121,7 +124,7 @@ export class GridEngine {
   }
 
   tick(nowMs: number): void {
-    if (this.timed && this.state === 'running' && nowMs - this.startMs >= this.config.durationMs) {
+    if (this.scored && this.state === 'running' && nowMs - this.startMs >= this.config.durationMs) {
       this.end();
     }
   }

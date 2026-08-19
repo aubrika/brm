@@ -3,20 +3,20 @@
 // /brm/v1, so its scoring is worth pinning down.
 
 import { describe, it, expect } from 'vitest';
-import { Engine } from './engine.js';
+import { KeyboardEngine } from './engine.js';
 import { DEFAULT_KEYBOARD_CONFIG } from './config.js';
 
 const cfg = { ...DEFAULT_KEYBOARD_CONFIG, alphabet: 'asdfjkl;', durationMs: 60_000 };
 const key = (k: string) => ({ key: k, repeat: false, ctrlKey: false, metaKey: false, altKey: false });
 
 /** Deterministic target sequence. */
-function engineOver(targets: string[]): Engine {
+function engineOver(targets: string[]): KeyboardEngine {
   let i = 0;
   const chars = [...cfg.alphabet];
-  return new Engine(cfg, true, () => chars.indexOf(targets[i++ % targets.length]));
+  return new KeyboardEngine(cfg, true, () => chars.indexOf(targets[i++ % targets.length]));
 }
 
-describe('v1 Engine', () => {
+describe('v1 KeyboardEngine', () => {
   it('advances on the right key and holds on the wrong one', () => {
     const e = engineOver(['a', 'j', 'l']);
     e.start(0);
@@ -55,7 +55,7 @@ describe('v1 Engine', () => {
     expect(e.sc).toBe(0);
   });
 
-  it('ends a timed run exactly at the window boundary', () => {
+  it('ends a scored run exactly at the window boundary', () => {
     const e = engineOver(['a']);
     e.start(0);
     e.tick(59_999);

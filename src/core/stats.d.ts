@@ -1,6 +1,31 @@
 // Type surface for the plain-JS stats core (stats.js). TypeScript callers import from
 // './stats.js' and resolve to these declarations; Node imports the .js directly and needs
 // no types. The runtime file is stats.js — keep the two in sync by hand (the API is small).
+//
+// ---- STORED NAMES vs DOMAIN NAMES ---------------------------------------------------------
+// This file types a FILE FORMAT, not the running game, and the two use different words for the
+// same things. The stored names are v1's: the log schema was designed for a keyboard game and
+// then carried, unchanged, to a pointing game — deliberately, because logs/ is the research
+// artifact and renaming a field would make already-collected runs unreadable to the tooling that
+// produced them. So the names below are frozen, and this table is the translation:
+//
+//   STORED             MEANS                                    DOMAIN NAME
+//   events[].key       the symbol selected. On a GRID run this  symbol
+//                      is String(cellIndex), NOT a keyboard key.
+//   sequence[]         the drawn targets, same encoding          targets
+//   summary.grossKeysPerSec    selections/s including errors     grossPerSecond
+//   summary.outOfAlphabet      inputs that were not selections   (grid: clicks outside the field)
+//   summary.medianIkiMs        median gap between selections     inter-selection interval
+//   summary.rollovers          overlapping presses (v1 only)     — meaningless on a pointing run
+//   meta.mode          whether the run COUNTS ('scored' |        scored: boolean
+//                      'practice'). Not the game — that is
+//                      meta.config.mode ('grid' | 'keyboard').
+//   grid.depth         cells per selection (retired stacked      cellsPerSelection — NOT the
+//                      variant). Always 1 on a current log.      lookahead. Read it through
+//                                                                cellsPerSelection() below.
+//
+// The rule: code says the domain name, the file says the stored name, and the translation happens
+// here and nowhere else. Do not introduce a NEW field under a stored name — those are historical.
 
 
 // ---- retired calibration shapes, read-only -----------------------------------
@@ -303,6 +328,17 @@ export function classifyTransition(
   b: string,
 ): TransitionKind | null;
 export function splitEvents(log: RunLog): { downs: DownEvent[]; ups: UpEvent[] };
+
+/** The run's selections, in order — the domain name for the log's `down` events. Every recorded
+ *  down IS a selection: input that does not score never becomes an event. */
+export function selections(log: RunLog): DownEvent[];
+export function correctSelections(sels: DownEvent[]): DownEvent[];
+/** Consecutive pairs where BOTH selections were correct — the unit of every interval statistic. */
+export function correctPairs(sels: DownEvent[]): Array<[DownEvent, DownEvent]>;
+/** Cells per selection (stored as `grid.depth`, which is NOT the lookahead). Always 1 today. */
+export function cellsPerSelection(log: RunLog): number;
+/** Is this a run of THE game — one whose B may be pooled with another run's B? */
+export function isComparableGridRun(log: RunLog): boolean;
 export function quantile(sortedValues: number[], q: number): number;
 export function ikiStats(values: number[]): IkiStats;
 export function ikiList(downs: DownEvent[]): number[];

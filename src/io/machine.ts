@@ -81,7 +81,10 @@ export function probeMachine(): Promise<MachineMeta> {
   const nav = navigator as Navigator & { platform?: string };
   const base = {
     installId: getInstallId(),
-    label: '', // filled from config at log-build time
+    // Always '' now: the config screen's machine-name box was removed, and nothing else sets it.
+    // The field stays because logs/ holds runs that DID set it and the analyzer groups by it —
+    // dropping it here would make new logs a different shape from the ones being compared against.
+    label: '',
     ua: nav.userAgent,
     platform: nav.platform ?? 'unknown',
     hardwareConcurrency: nav.hardwareConcurrency ?? 0,

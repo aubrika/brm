@@ -19,9 +19,9 @@ export interface KeyInput {
 
 export type EngineState = 'idle' | 'running' | 'ended';
 
-export class Engine {
+export class KeyboardEngine {
   readonly config: KeyboardConfig;
-  readonly timed: boolean;
+  readonly scored: boolean;
   readonly chars: string[]; // base keys (finger/hand come from these)
   readonly symbols: string[]; // scored symbols; n = symbols.length
   readonly n: number;
@@ -43,9 +43,9 @@ export class Engine {
   onError: (() => void) | null = null;
   onEnd: (() => void) | null = null;
 
-  constructor(config: KeyboardConfig, timed: boolean, randInt: (n: number) => number = makeRandInt()) {
+  constructor(config: KeyboardConfig, scored: boolean, randInt: (n: number) => number = makeRandInt()) {
     this.config = config;
-    this.timed = timed;
+    this.scored = scored;
     this.chars = [...config.alphabet];
     this.symbols = this.chars;
     this.n = this.symbols.length; // N for the formula
@@ -79,7 +79,7 @@ export class Engine {
   handleKey(ev: KeyInput, nowMs: number): Outcome {
     if (this.state !== 'running') return 'ignored';
     const tMs = nowMs - this.startMs;
-    if (this.timed && tMs >= this.config.durationMs) {
+    if (this.scored && tMs >= this.config.durationMs) {
       this.end();
       return 'ignored';
     }
@@ -111,9 +111,9 @@ export class Engine {
     return 'incorrect';
   }
 
-  // Called from the render loop; ends a timed run exactly at the window boundary.
+  // Called from the render loop; ends a scored run exactly at the window boundary.
   tick(nowMs: number): void {
-    if (this.timed && this.state === 'running' && nowMs - this.startMs >= this.config.durationMs) {
+    if (this.scored && this.state === 'running' && nowMs - this.startMs >= this.config.durationMs) {
       this.end();
     }
   }

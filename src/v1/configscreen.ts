@@ -38,11 +38,11 @@ export function keyboardConfigScreen(config: KeyboardConfig, opts: ConfigOpts, h
       return null;
     }
     err.textContent = '';
-    return { ...DEFAULT_KEYBOARD_CONFIG, ...parts, alphabet: v.alphabet, label: config.label };
+    return { ...DEFAULT_KEYBOARD_CONFIG, ...parts, alphabet: v.alphabet };
   };
-  const start = (timed: boolean) => (): void => {
+  const start = (scored: boolean) => (): void => {
     const c = collect();
-    if (c) handlers.onStart(c, timed);
+    if (c) handlers.onStart(c, scored);
   };
 
   const screen = el('div', { class: 'screen config' }, [

@@ -6,12 +6,24 @@
 // JSON download — never blocking, never retrying, never surfacing a stack trace.
 
 import type { RawEvent, RunLog, Verdict } from '../core/stats.js';
+import type { Outcome } from '../core/bitrate.js';
 
 const CAP = 2048; // generous ceiling for a 60 s run (~120–250 keystrokes); no mid-run realloc
 const PCAP = 4608; // grid pointer-path ceiling: > 60 fps × 60 s samples, no mid-run realloc
 
 const VERDICT_OK = 0;
 const VERDICT_ERR = 1;
+
+/** Outcome (what the engines return) → Verdict (what the log stores). One concept, two spellings:
+ *  the engines say 'correct'/'incorrect' because that is what a player did, and the log says
+ *  'ok'/'err' because events are array-encoded and every character is paid for on every row.
+ *
+ *  'ignored' is excluded at the TYPE level rather than mapped to null, because it has no verdict to
+ *  map to: input that does not score never becomes an event. It increments outOfAlphabet instead,
+ *  which is why every recorded down is a selection — the property core/stats.js relies on. */
+export function verdictOf(outcome: Exclude<Outcome, 'ignored'>): Verdict {
+  return outcome === 'correct' ? 'ok' : 'err';
+}
 
 export class RunRecorder {
   // event columns, stored column-wise as primitives

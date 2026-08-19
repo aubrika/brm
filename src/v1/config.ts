@@ -20,7 +20,6 @@ export interface KeyboardConfig extends CommonConfig {
 
 export const DEFAULT_KEYBOARD_CONFIG: KeyboardConfig = {
   mode: 'keyboard',
-  label: '',
   leftFingers: 'asdf',
   rightFingers: 'jkl;',
   alphabet: 'asdfjkl;',

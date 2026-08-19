@@ -15,6 +15,9 @@ import { fileURLToPath } from 'node:url';
 import { printReport } from './report.mjs';
 import {
   splitEvents,
+  correctSelections,
+  correctPairs,
+  isComparableGridRun,
   deriveFingerMap,
   classifyTransition,
   ikiStats,
@@ -109,10 +112,7 @@ function analyzeTransitions(logs) {
     const b = byMachine.get(label);
     const map = deriveFingerMap(log.meta.config.alphabet);
     const { downs } = splitEvents(log);
-    for (let i = 1; i < downs.length; i++) {
-      const a = downs[i - 1];
-      const c = downs[i];
-      if (a.verdict !== 'ok' || c.verdict !== 'ok') continue;
+    for (const [a, c] of correctPairs(downs)) {
       const kind = classifyTransition(map, a.key, c.key);
       if (kind) b[kind].push(c.t - a.t);
     }
@@ -231,10 +231,7 @@ function analyzeDigraphs(logs, minCount = 5) {
   const groups = new Map();
   for (const log of logs) {
     const { downs } = splitEvents(log);
-    for (let i = 1; i < downs.length; i++) {
-      const a = downs[i - 1];
-      const b = downs[i];
-      if (a.verdict !== 'ok' || b.verdict !== 'ok') continue;
+    for (const [a, b] of correctPairs(downs)) {
       const key = `${a.key} ${b.key}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(b.t - a.t);
@@ -336,7 +333,7 @@ function dwellTimes(log) {
   const path = log.pointerPath;
   if (!g || !path || path.length === 0) return [];
   const { downs } = splitEvents(log);
-  const corr = downs.filter((d) => d.verdict === 'ok');
+  const corr = correctSelections(downs);
   const out = [];
   let prevT = 0;
   for (const d of corr) {
@@ -591,8 +588,7 @@ function armRunMetrics(l) {
 function analyzeGhostAb(logs) {
   const eligible = logs.filter(
     (l) =>
-      l.ab && l.ab.experiment === 'ghost' && l.grid && l.grid.enabled && !(l.scope && l.scope.enabled) &&
-      l.meta.mode === 'scored' && (l.grid.depth ?? 1) === 1 && (l.grid.sizing ?? 'fixed') !== 'touch',
+      l.ab && l.ab.experiment === 'ghost' && isComparableGridRun(l),
   );
   if (eligible.length === 0) return { pairs: [], runs: 0, dropped: [] };
 
@@ -720,7 +716,7 @@ function analyzeGridSizes(logs) {
   // Pooling them into a per-grid-size sweep would put one 6×6 thumb run alongside the mouse runs and
   // read as evidence about grid size. They are reported separately below.
   const scored = logs.filter(
-    (l) => l.grid?.enabled && !l.scope?.enabled && l.meta.mode === 'scored' && (l.grid.depth ?? 1) === 1 && (l.grid.sizing ?? 'fixed') !== 'touch',
+    (l) => isComparableGridRun(l),
   );
   if (!scored.length) return null;
   // Split by machine FIRST. A 700px laptop field and a 1750px desktop field put the same `16²`

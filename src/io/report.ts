@@ -5,7 +5,7 @@
 // holds: the log carries the full generated sequence AND every keystroke, so B is
 // independently recomputable and the sequence independently checkable for uniformity.
 
-import type { Engine } from '../v1/engine.js';
+import type { KeyboardEngine } from '../v1/engine.js';
 import type { GridEngine } from '../v2/engine.js';
 import type { RunResult } from '../core/bitrate.js';
 import type { RunLog, MachineMeta, RunConfig } from '../core/stats.js';
@@ -26,7 +26,7 @@ export interface BuildOpts {
 
 // A grid run has no keyboard alphabet/finger structure, so buildReport accepts either engine and
 // takes only the loop-facing surface both share (config, n, sequence, index).
-type ReportEngine = Engine | GridEngine;
+type ReportEngine = KeyboardEngine | GridEngine;
 
 export function buildReport(engine: ReportEngine, result: RunResult, opts: BuildOpts): RunLog {
   const events = opts.recorder.buildEvents();
@@ -67,7 +67,7 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
       runId: crypto.randomUUID(),
       startedAt: opts.startedAt,
       mode: opts.mode,
-      machine: { ...opts.machine, label: engine.config.label },
+      machine: opts.machine,
       config,
     },
     // targets shown, incl. the unfinished one. Keyboard targets are glyph strings; grid targets are
