@@ -23,8 +23,6 @@ export interface BuildOpts {
   grid?: RunLog['grid']; // GRID / SCOPE MODE
   pointerPath?: RunLog['pointerPath']; // GRID / SCOPE MODE
   scope?: RunLog['scope']; // SCOPE MODE only
-  calibration?: RunLog['calibration']; // grid mode session calibration
-  calibrationV2?: RunLog['calibrationV2']; // knee-detection result for the same calibration
   ab?: RunLog['ab']; // A/B arm, when the harness assigned one
 }
 
@@ -99,8 +97,6 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
     },
     ...(opts.grid ? { grid: opts.grid } : {}),
     ...(opts.scope ? { scope: opts.scope } : {}),
-    ...(opts.calibration ? { calibration: opts.calibration } : {}),
-    ...(opts.calibrationV2 ? { calibrationV2: opts.calibrationV2 } : {}),
     ...(opts.pointerPath ? { pointerPath: opts.pointerPath } : {}),
     ...(opts.ab ? { ab: opts.ab } : {}),
   };

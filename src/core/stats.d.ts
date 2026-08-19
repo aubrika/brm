@@ -2,8 +2,54 @@
 // './stats.js' and resolve to these declarations; Node imports the .js directly and needs
 // no types. The runtime file is stats.js — keep the two in sync by hand (the API is small).
 
-import type { CalibrationResult, CalibrationV2 } from '../v2/calibration.js';
 import type { AbAssignment } from './ab.js';
+
+// ---- retired calibration shapes, read-only -----------------------------------
+// The game no longer calibrates. These two interfaces stay because logs/ holds runs written while
+// it did, RunLog still types those fields, and a log is the research artifact: deleting the shape
+// would make already-collected data unreadable to the very tooling that produced it. Nothing
+// computes them, and no new log carries them.
+//
+// WHY IT WAS DROPPED, so the next person does not rebuild it: v1 solved fieldPx/(4.133·σ) for a
+// grid size, which is degenerate because σ ∝ cellPx — it returns the grid it was measured on. v2
+// looked for the knee in a Fitts line and swung between 12² and 48² for the same hand inside an
+// hour, because its accuracy branch turned three clicks out of twelve into a 16× swing. A third
+// version measured 24² and 32² head to head and worked, but its standard error (±3.9%) was larger
+// than the gap it was measuring (~3.5%), and there was no evidence the winner varies between
+// players at all. A measurement noisier than its signal loses to just picking the better grid.
+
+/** v1: the σ → ISO effective width → grid solve. */
+export interface CalibrationResult {
+  referenceGrid: number;
+  clicks: Array<{ t: number; targetCell: number; dx: number; dy: number; mtMs: number; block?: 'A' | 'B' }>;
+  sigmaX: number;
+  sigmaY: number;
+  sigmaUsed: number;
+  effectiveWidthPx: number;
+  fittsA: number;
+  fittsB: number;
+  fittsR2: number;
+  impliedThroughput: number | null;
+  recommendedGrid: number;
+  chosenGrid: number;
+  overridden: boolean;
+  pointerType: string;
+  fieldPx: number;
+  devicePixelRatio: number;
+}
+
+/** v2: fit a Fitts line on 16×16, measure the departure at 64×64, score a six-rung ladder. */
+export interface CalibrationV2 {
+  blockA: { w: number; gridSize: number; n: number; accuracy: number; medianMt: number; fittsA: number; fittsB: number; r2: number };
+  blockB: { w: number; gridSize: number; n: number; accuracy: number; medianMt: number; medianPredictedMt: number };
+  inflationRatio: number;
+  pooledAccuracy: number;
+  bEstByCandidate: Record<string, number>;
+  method: 'knee' | 'sigma-fallback';
+  recommendedGrid: number;
+  chosenGrid: number;
+  overridden: boolean;
+}
 
 export type Verdict = 'ok' | 'err';
 export type EventType = 'down' | 'up';
@@ -117,9 +163,10 @@ export interface RunLog {
   summary: RunSummary;
   grid?: GridLog; // present only on GRID MODE runs
   scope?: ScopeLog; // present only on SCOPE MODE runs (a grid variant)
-  calibration?: CalibrationResult; // grid mode: the session's calibration (attached to every run)
-  /** Calibration v2 — the knee-detection result. Sits alongside `calibration` rather than replacing
-   *  it: σ is still measured and is still the fallback when the block-A regression is unusable. */
+  /** Grid mode: the session's calibration, when there was one. Present only on logs written while
+   *  the game still calibrated — see the note above these two interfaces. Two separate keys, never
+   *  one reused key, so a stored log always means exactly what the calibrator that wrote it meant. */
+  calibration?: CalibrationResult;
   calibrationV2?: CalibrationV2;
   pointerPath?: Array<[number, number, number]>; // GRID/SCOPE: [t, x, y] field-local (virtual) samples
   /** A/B arm, when the run was assigned one by the harness (core/ab.ts). Recording block+position

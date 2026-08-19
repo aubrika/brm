@@ -17,12 +17,9 @@ import { buildReport, downloadReport } from './io/report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './io/logging.js';
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
-import { svgEl } from './ui/dom.js';
-import { loadConfig, saveConfig, GRID_SIZES, LOOKAHEAD_DEPTHS, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
+import { loadConfig, saveConfig, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
 import { loadAbState, saveAbState, peek as abPeek, advance as abAdvance, type AbState, type AbAssignment } from './core/ab.js';
 import { validateAlphabet } from './core/alphabet.js';
-import { type CalibrationResult, type CalibrationV2, type CandidateEstimate } from './v2/calibration.js';
-import { CalibrationTask } from './v2/calibration-task.js';
 import type { MachineMeta, RunLog, ScopeActivation } from './core/stats.js';
 
 type Props = Record<string, string | number | boolean | EventListener>;
@@ -53,7 +50,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
 
 const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps frame was skipped
 
-// Which app this bundle is (Vite `define`). 'v2' — the delivered game: GRID MODE + calibration.
+// Which app this bundle is (Vite `define`). 'v2' — the delivered game: GRID MODE.
 // 'v1' — the legacy falling-lanes keyboard game, deployed at /brm/v1 purely so the design story
 // (why the alphabet became a grid) can be demonstrated. v1 is frozen: home rows only, N = 8, no
 // top row / chords / challenge / audio experiments. All ongoing work targets v2.
@@ -100,16 +97,11 @@ interface RunCtx {
 }
 
 export class App {
-  private mode: 'config' | 'run' | 'report' | 'calibrate' = 'config';
+  private mode: 'config' | 'run' | 'report' = 'config';
   private config: GameConfig = loadConfig();
   private readonly audio = new AudioFeedback(this.config.sound);
   private readonly latency: LatencyOverlay;
   private run: RunCtx | null = null;
-  // grid calibration: session-scoped; gates the scored run and is attached to every run log.
-  private calibration: CalibrationResult | null = null;
-  private calibrationV2: CalibrationV2 | null = null; // the knee result for the same calibration
-  private calibCandidates: CandidateEstimate[] = []; // B_est curve, for the config-screen expander
-  private calib: CalibrationTask | null = null; // the in-progress calibration task
   // Ghost A/B position. Persisted, so a pair survives a page reload; advanced only when a scored
   // run actually finishes (an abandoned run must not burn an arm and unbalance the pair).
   private abState: AbState = loadAbState();
@@ -125,11 +117,29 @@ export class App {
     // v1 and v2 are served from the same origin and so share localStorage; a saved v2 config would
     // otherwise start v1 in grid mode. v1 is the keyboard game, always.
     if (VARIANT === 'v1') this.config = { ...this.config, grid: false, scope: false };
-    // The lookahead selector and the A/B toggle are gone from the config screen, but a config saved
-    // while they existed can still carry lookaheadDepth: 2 or abGhost: true — which would go on
-    // steering every run with nothing on screen to explain it, let alone turn it off. Normalise
-    // them back to the defaults here; the ?look and ?ab dev aids below still override deliberately.
-    this.config = { ...this.config, abGhost: false, lookaheadDepth: DEFAULT_CONFIG.lookaheadDepth };
+    // Every control and URL parameter these fields used to have is gone, but a config saved while
+    // they existed still carries their values — lookaheadDepth: 2, gridDepth: 2, abGhost: true, or
+    // a gridSize a retired calibrator picked (12 and 48 both shipped as recommendations). Left
+    // alone they would go on steering every run with nothing on screen to explain it and no way to
+    // turn it off: a returning player would be locked to 12×12 forever. This list is what makes
+    // "the game is 32×32, one layer, ghost on" true of a returning browser and not just a fresh
+    // one, so it has to name every field whose control was removed.
+    //
+    // `grid: true` belongs in the same list now that nothing can turn it back on: v1 and v2 share
+    // an origin and therefore localStorage, so playing v1 leaves grid: false behind, and v2 would
+    // read it back. Pressing either button re-commits grid: true, but ?auto goes straight to
+    // startRun and would silently capture the KEYBOARD game instead.
+    if (VARIANT === 'v2') {
+      this.config = {
+        ...this.config,
+        grid: true,
+        abGhost: false,
+        lookaheadDepth: DEFAULT_CONFIG.lookaheadDepth,
+        gridSize: DEFAULT_CONFIG.gridSize,
+        gridDepth: DEFAULT_CONFIG.gridDepth,
+      };
+      saveConfig(this.config); // persist the normalisation, so it survives even if no run is played
+    }
 
     this.machinePromise = probeMachine().then((m) => (this.machine = m));
     void probeHealth().then((ok) => (this.loggingAvailable = ok));
@@ -137,34 +147,21 @@ export class App {
     // one listener each for the whole app; game input is handled synchronously here.
     window.addEventListener('keydown', this.onKey, { passive: false });
     window.addEventListener('keyup', this.onKeyUp);
-    window.addEventListener('resize', () => {
-      this.run?.strip.resize();
-      this.calib?.resize();
-    });
-    this.showConfig();
+    window.addEventListener('resize', () => this.run?.strip.resize());
 
     // Dev aid: ?auto=practice|scored skips the config screen; add &demo to auto-type
     // (dispatches real keydowns, so it drives the same input path a human would).
-    // Dev aid: ?grid[=SIZE] forces GRID MODE on for this session (headless captures / quick trials).
-    if (params.has('grid')) {
-      const sz = Number(params.get('grid'));
-      const dp = Number(params.get('depth'));
-      this.config = {
-        ...this.config,
-        grid: true,
-        ...((GRID_SIZES as readonly number[]).includes(sz) ? { gridSize: sz } : {}),
-        ...(dp === 1 || dp === 2 ? { gridDepth: dp } : {}),
-      };
-    }
-    // Dev aid: ?ab arms the ghost A/B for this session, so the harness can be driven headlessly
-    // (`?grid=32&auto=scored&secs=6&demo&ab` plays one arm and reports it) without clicking through
-    // the config screen. It only arms the harness; which arm you get is still the harness's call.
-    if (params.has('ab')) this.config = { ...this.config, abGhost: true };
-    // Dev aid: ?look=0|1|2 forces the lookahead depth for this session (headless capture).
-    if (params.has('look')) {
-      const d = Number(params.get('look'));
-      if ((LOOKAHEAD_DEPTHS as readonly number[]).includes(d)) this.config = { ...this.config, lookaheadDepth: d };
-    }
+    //
+    // There is deliberately NO grid-size parameter. The game is 32×32, full stop — one fixed N is
+    // what makes two scores comparable, and a URL that quietly changes it would put runs in logs/
+    // that look like the same game and are not. Sweeping sizes for research meant editing this
+    // block anyway; re-add it here if that question ever comes back.
+    //
+    // Nor is there one for grid depth, lookahead depth, or the ghost A/B. Each of those questions
+    // has been answered and the answer is now the game: depth 1, lookahead 1 (worth +2.46 bits/s
+    // over none, and depth 2 adds only a sixth of that), ghost always on. A parameter that can
+    // still change them is a way to write a log that claims to be this game and is not.
+    //
     // Dev aid: ?scope[=128|256]&mag=8 forces SCOPE MODE; &scoped engages the lens after start (for
     // headless capture, where there is no pointer lock to drive it).
     if (params.has('scope')) {
@@ -178,6 +175,11 @@ export class App {
         ...(mag === 4 || mag === 8 || mag === 12 ? { magnification: mag } : {}),
       };
     }
+    // Render the config screen only AFTER the dev aids have had their say. It states the N it is
+    // about to play, and a dev aid applied to an already-rendered screen would leave it claiming
+    // one N while the run scored another — the screen lying about the run it starts.
+    this.showConfig();
+
     const auto = params.get('auto');
     if (auto === 'practice' || auto === 'scored') {
       // Dev-only: ?secs=N shortens JUST this capture run so a full run→report can be driven
@@ -192,11 +194,6 @@ export class App {
         if (this.config.grid) this.startGridDemo();
         else if (!this.config.scope) this.startDemoTyper();
       }
-    }
-    // Dev aid: ?calibrate[&demo] opens the calibration task (demo auto-clicks the targets with scatter).
-    if (params.has('calibrate')) {
-      this.startCalibration();
-      if (params.has('demo')) this.calib?.startDemo();
     }
   }
 
@@ -249,13 +246,6 @@ export class App {
 
   // ---------------------------------------------------------------- input ----
   private onKey = (e: KeyboardEvent): void => {
-    if (this.mode === 'calibrate') {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        this.abortCalibration();
-      }
-      return;
-    }
     if (this.mode !== 'run' || !this.run) return; // config/report use normal DOM controls
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -366,44 +356,9 @@ export class App {
     }
   };
 
-  // ---------------------------------------------------------- calibration ----
-  // The required pre-run calibration (grid mode). Everything about it — the screen, the click
-  // capture, and the σ → grid-size algorithm — lives in v2/calibration-task.ts and v2/calibration.ts.
-  // What stays here is only the screen routing: when to open it, and what to do with the result.
-  private startCalibration(): void {
-    this.mode = 'calibrate';
-    // NOTE: any existing calibration is deliberately kept until a new one succeeds — cancelling a
-    // recalibration (Esc) must not strip a valid result and re-lock the scored run.
-    this.root.replaceChildren();
-    if (this.config.sound) this.audio.unlock();
-    this.calib = new CalibrationTask(this.root, this.config, {
-      onDone: (result, v2, candidates) => {
-        this.calib = null;
-        this.calibration = result;
-        this.calibrationV2 = v2;
-        this.calibCandidates = candidates;
-        // v2's knee is the recommendation; v1's σ number stays in the log as the fallback record.
-        this.config = { ...this.config, gridSize: v2.recommendedGrid };
-        saveConfig(this.config);
-        this.showConfig();
-      },
-      onFailed: (message) => {
-        this.calib = null;
-        this.showConfig(message);
-      },
-      onClick: () => this.audio.bloop(),
-    });
-  }
-
-  private abortCalibration(): void {
-    this.calib?.abort();
-    this.calib = null;
-    this.showConfig();
-  }
-
   // ------------------------------------------------------ v1 legacy config ----
   // The original falling-lanes keyboard game, frozen. Only the two home rows are configurable
-  // (N = 8); there is no calibration gate, no grid, and none of the retired experiments. This
+  // (N = 8); there is no grid and none of the retired experiments. This
   // exists to demonstrate the design lineage that led to the grid alphabet — see README_V2.md.
   private showLegacyConfig(msg?: string): void {
     const keyInput = (value: string): HTMLInputElement =>
@@ -472,133 +427,61 @@ export class App {
   private showConfig(msg?: string): void {
     this.mode = 'config';
     this.run = null;
-    this.calib = null;
     this.root.replaceChildren();
     if (VARIANT === 'v1') {
       this.showLegacyConfig(msg);
       return;
     }
 
-    const cal = this.calibration;
-    // Grid size options: the config sizes plus the calibrator's snap sizes, so both a recommendation
-    // (e.g. 12 or 48) and a manual choice are selectable.
-    const SIZES = [8, 12, 16, 24, 32, 48, 64, 128];
-    const gridSize = el('select', { class: 'field-input mono' },
-      SIZES.map((sz) =>
-        el('option', { value: String(sz), ...(this.config.gridSize === sz ? { selected: true } : {}), text: `${sz} × ${sz}  ·  N = ${sz * sz}` }),
-      ),
-    ) as HTMLSelectElement;
-    gridSize.addEventListener('change', () => {
-      this.config = { ...this.config, gridSize: Number(gridSize.value) || 32 };
-      saveConfig(this.config);
-      if (this.calibration) this.calibration.chosenGrid = this.config.gridSize;
-      if (this.calibrationV2) {
-        this.calibrationV2.chosenGrid = this.config.gridSize; // auto-set, override allowed — both logged
-        this.calibrationV2.overridden = this.calibrationV2.chosenGrid !== this.calibrationV2.recommendedGrid;
-        if (this.calibration) this.calibration.overridden = this.calibrationV2.overridden;
-      }
-      this.showConfig(); // re-render: the headline must state the grid you will actually play
-    });
-
-    // Machine name. Free text, persisted, and stamped into every log's filename and meta. It exists
-    // because cell size in px — the unit every Fitts number and the scatter law live in — is set by
-    // the window, so runs from a laptop and a desktop are not comparable and pooling them would
-    // manufacture results. installId separates browser profiles, but a name is what makes the
-    // separation legible in the analyzer without cross-referencing a token.
-    const label = el('input', { class: 'field-input', type: 'text', maxlength: '24', placeholder: 'e.g. laptop', value: this.config.label }) as HTMLInputElement;
-    label.addEventListener('change', () => {
-      this.config = { ...this.config, label: label.value.trim().slice(0, 24) };
-      saveConfig(this.config);
-    });
-
-    const field = (label: string, control: Node, hint?: string): HTMLElement =>
-      el('label', { class: 'field' }, [
-        el('span', { class: 'field-label', text: label }),
-        control,
-        ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
-      ]);
-
+    // THE GAME IS 32×32. There is no grid-size control, and that is the design, not an omission:
+    // one fixed N is what makes two scores comparable, and B is only a fair comparison across
+    // players if they are all answering the same question. Three successive calibrators tried to
+    // personalise it and all three were retired (see core/stats.d.ts); the reason they could be
+    // dropped without cost is that measured B is nearly flat across the middle of the ladder —
+    // 13.37 at 24², 13.33 at 32², 13.03 at 48² — so a per-player choice was never worth more than
+    // a few percent, and no measurement cheap enough to put in front of a 60 s run can resolve a
+    // few percent. There is no override left, not even a URL parameter — see the constructor.
     const collect = (): GameConfig => ({
       ...DEFAULT_CONFIG,
       grid: true,
       scope: false,
-      gridSize: Number(gridSize.value) || 32,
-      label: label.value.trim().slice(0, 24),
+      gridSize: this.config.gridSize, // always DEFAULT_CONFIG.gridSize; nothing can change it
+      gridDepth: this.config.gridDepth, // always 1; the stacked-layer experiment is not reachable
+      label: this.config.label, // not editable on screen; kept so an existing name survives
     });
 
-    const calibrate = el('button', { class: 'btn ghost', onclick: () => this.startCalibration(), text: cal ? 'Recalibrate' : 'Calibrate' });
+    // N, derived the same way GridEngine derives it — (cells)^depth, not cells. Depth is pinned at
+    // 1 now, so this reads 1024; deriving it rather than hardcoding keeps the screen honest if the
+    // stacked-layer experiment is ever switched back on.
+    const cells = this.config.gridSize * this.config.gridSize;
+    const n = Math.pow(cells, Math.max(1, Math.round(this.config.gridDepth || 1)));
+
+    // Practice is offered, never required. Gating the scored run behind anything costs a minute of
+    // the exact activity being scored, and the run-order data does not show a warm-up deficit to
+    // pay that for: across sessions the FIRST run tends to be the best one (+6.0% over the rest of
+    // the session in the one clean 13-run session; two other sessions agree in sign but change
+    // grid size partway through). So when to warm up is the player's call, not the app's.
     const practice = el('button', { class: 'btn ghost', onclick: () => { this.commit(collect()); this.startRun(false); }, text: 'Practice' });
     const scored = el('button', {
       class: 'btn primary',
-      onclick: () => { if (this.calibration) { this.commit(collect()); this.startRun(true); } },
+      onclick: () => { this.commit(collect()); this.startRun(true); },
       text: 'Start scored run',
-      ...(cal ? {} : { disabled: true }),
     });
-
-    // The calibration result (or the prompt to run it). One plain line, auto-set with a visible
-    // override, plus an expander showing the estimated-bit-rate curve across candidate grids so an
-    // override is an informed choice rather than a guess. The curve, not a numbers table: the shape
-    // (a plateau falling off a cliff) is the thing worth seeing, and the values behind it are
-    // estimates from ~24 clicks, which a table would dress up as precision.
-    const v2 = this.calibrationV2;
-    const status = cal
-      ? el('div', { class: 'calib-status' }, [
-          el('p', { class: 'calib-result' }, [
-            document.createTextNode('Grid set to '),
-            el('strong', { text: `${cal.chosenGrid}×${cal.chosenGrid}` }),
-            document.createTextNode(
-              v2?.overridden
-                ? ` — your choice (calibration suggested ${v2.recommendedGrid}×${v2.recommendedGrid}).`
-                : v2?.method === 'knee'
-                  ? ' — the finest grid your clicks stay fast on with this device.'
-                  : ' — sized from your click scatter; the timing fit was too noisy to find a knee.',
-            ),
-          ]),
-          ...(this.calibCandidates.length ? [this.candidateCurve(this.calibCandidates, cal.chosenGrid)] : []),
-        ])
-      : el('p', { class: 'subtitle', text: 'Calibrate first (~25 s) to size the grid to this device — it doubles as warm-up. Practice is available anytime.' });
 
     this.root.append(
       el('div', { class: 'screen config' }, [
         el('h1', { class: 'title', text: 'Bit-Rate Maximizer' }),
         el('p', { class: 'subtitle', text: 'Click the highlighted cell as fast and as accurately as you can. Correct clicks add bits; errors subtract — so accuracy is worth about twice raw speed.' }),
         ...(msg ? [el('div', { class: 'field-error', text: msg })] : []),
-        status,
-        el('div', { class: 'config-grid' }, [
-          field(cal ? 'Grid size (change)' : 'Grid size', gridSize, 'More cells = more bits per correct click, but smaller targets.'),
-          field('This machine', label, 'Names the runs from this display. Screen and window size are recorded automatically.'),
-        ]),
-        el('div', { class: 'field-note', text: cal ? 'Duration is locked to 60 s for scored runs.' : 'The scored run unlocks after calibration. Duration is locked to 60 s.' }),
-        el('div', { class: 'buttons' }, [calibrate, practice, scored]),
+        // State the alphabet on screen. It is fixed now, so the player cannot read it off a
+        // control — and N is half the score: B = log2(N−1)·(Sc−Si)/t.
+        el('p', { class: 'field-note mono-note', text: `${this.config.gridSize} × ${this.config.gridSize}  ·  N = ${n.toLocaleString('en-US')}  ·  ${Math.log2(n - 1).toFixed(2)} bits per correct click` }),
+        el('div', { class: 'field-note', text: 'Duration is locked to 60 s for scored runs. Practice runs until you press Esc.' }),
+        el('div', { class: 'buttons' }, [practice, scored]),
         el('p', { class: 'consent', text: 'Runs are saved locally and never transmitted anywhere.' }),
       ]),
     );
-    (cal ? scored : calibrate).focus();
-  }
-
-  // The B_est curve across candidate grids, with the played grid marked. Deliberately unlabelled on
-  // the y axis: it is a relative shape from ~24 clicks, and printing values would claim a precision
-  // the estimate does not have.
-  private candidateCurve(candidates: CandidateEstimate[], chosen: number): HTMLElement {
-    const W = 260;
-    const H = 54;
-    const values = candidates.map((c) => c.bEst);
-    const lo = Math.min(...values);
-    const span = Math.max(Math.max(...values) - lo, 1e-6);
-    const xOf = (i: number): number => (candidates.length < 2 ? W / 2 : (i / (candidates.length - 1)) * W);
-    const yOf = (v: number): number => H - 8 - ((v - lo) / span) * (H - 18);
-
-    const svg = svgEl('svg', { class: 'calib-curve-svg', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none' }, [
-      svgEl('polyline', { class: 'calib-curve-line', points: candidates.map((c, i) => `${xOf(i).toFixed(1)},${yOf(c.bEst).toFixed(1)}`).join(' ') }),
-      ...candidates.flatMap((c, i) =>
-        c.grid === chosen ? [svgEl('circle', { class: 'calib-curve-pick', cx: xOf(i).toFixed(1), cy: yOf(c.bEst).toFixed(1), r: '4' })] : [],
-      ),
-    ]);
-    return el('details', { class: 'calib-curve' }, [
-      el('summary', { text: 'estimated bit rate by grid size' }),
-      svg,
-      el('div', { class: 'calib-curve-axis' }, candidates.map((c) => el('span', { text: String(c.grid) }))),
-    ]);
+    scored.focus();
   }
 
   private commit(c: GameConfig): void {
@@ -609,13 +492,6 @@ export class App {
 
   // ------------------------------------------------------------------ run ----
   private startRun(timed: boolean, immediate = false): void {
-    // Grid scored runs require a valid calibration (also enforced by the disabled button, but a
-    // report's "Run again" and any other caller route through here). Practice and dev auto-runs
-    // (immediate) are never gated.
-    if (this.config.grid && !this.config.scope && timed && !immediate && !this.calibration) {
-      this.showConfig('Calibrate before starting a scored run.');
-      return;
-    }
     if (this.config.scope) {
       this.startScopeRun(timed, immediate);
       return;
@@ -721,20 +597,6 @@ export class App {
     this.root.append(screen);
 
     const gridView = new GridRenderer(engine, stripRoot);
-    // Calibration is only valid at the geometry it was measured at: if the play field has drifted
-    // > 10% since calibrating (window resize / zoom), invalidate it and bounce a scored run back to
-    // config with a recalibrate prompt. Checked here against the real field size, not flaky window
-    // dims. Practice is never gated.
-    if (timed && this.calibration && this.calibration.fieldPx > 0) {
-      const drift = Math.abs(gridView.fieldPx - this.calibration.fieldPx) / this.calibration.fieldPx;
-      if (drift > 0.1) {
-        this.calibration = null;
-        this.calibrationV2 = null;
-        this.calibCandidates = [];
-        this.showConfig('The play area changed size since calibration — please recalibrate.');
-        return;
-      }
-    }
     const canvas = gridView.element;
     canvas.style.cursor = 'crosshair';
     // pointer input lives on the canvas element, so it is torn down automatically when the screen
@@ -1069,15 +931,13 @@ export class App {
     const gridLog = pointing ? this.buildGridLog(rc) : undefined;
     const scopeLog = rc.scope ? this.buildScopeLog(rc) : undefined;
     const pointerPath = pointing ? rc.recorder.buildPointerPath() : undefined;
-    const calibration = rc.grid && this.calibration ? this.calibration : undefined; // session calibration
-    const calibrationV2 = rc.grid && this.calibrationV2 ? this.calibrationV2 : undefined;
     // Consume the arm only now, on a run that actually completed and will be logged. Advancing at
     // run START would let an abandoned run eat one half of a pair and leave the block lopsided.
     if (rc.ab) {
       this.abState = abAdvance(this.abState);
       saveAbState(this.abState);
     }
-    void this.completeRun(rc, result, gridLog, pointerPath, scopeLog, calibration, rc.ab ?? undefined, calibrationV2);
+    void this.completeRun(rc, result, gridLog, pointerPath, scopeLog, rc.ab ?? undefined);
   }
 
   // Assemble the GRID MODE section of the log. The Fitts difficulty of every selection depends on
@@ -1126,9 +986,7 @@ export class App {
     grid?: RunLog['grid'],
     pointerPath?: RunLog['pointerPath'],
     scope?: RunLog['scope'],
-    calibration?: RunLog['calibration'],
     ab?: RunLog['ab'],
-    calibrationV2?: RunLog['calibrationV2'],
   ): Promise<void> {
     const machine = this.machine ?? (await this.machinePromise);
     const log = buildReport(rc.engine, result, {
@@ -1140,8 +998,6 @@ export class App {
       grid,
       pointerPath,
       scope,
-      calibration,
-      calibrationV2,
       ab,
     });
     this.run = null;

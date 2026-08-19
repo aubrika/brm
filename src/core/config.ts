@@ -93,7 +93,9 @@ export const DEFAULT_CONFIG: GameConfig = {
 
 const STORAGE_KEY = 'brm.config.v21'; // ghost:boolean → lookaheadDepth:0|1|2
 
-export const GRID_SIZES = [8, 16, 24, 32, 64, 128] as const; // cells per side offered on the config screen
+// No longer offered anywhere — the game is fixed at DEFAULT_CONFIG.gridSize. Kept as the set of
+// sizes the canvas renderer is tested against (v2/view.test.ts), which is a geometry question.
+export const GRID_SIZES = [8, 16, 24, 32, 64, 128] as const;
 export const LOOKAHEAD_DEPTHS = [0, 1, 2] as const; // upcoming targets previewed
 export const SCOPE_GRID_SIZES = [128, 256] as const; // fine grid sizes for scope mode
 export const MAGNIFICATIONS = [4, 8, 12] as const; // lens zoom factors for scope mode

@@ -789,13 +789,13 @@ function gridSizeRows(scored) {
   return { rows, law, ratio: fit.length ? mean(fit.map((r) => r.sigmaOverCell)) : NaN };
 }
 
-// -------------------------------------------- [14] calibration v2 validity ----
-// Two questions the knee calibrator has to answer for itself.
+// ---------------------------------------------- [14] calibration, retired ----
+// The game no longer calibrates; this section is the post-mortem, kept because the logs it reads
+// still exist and because the question it asks is the one that killed the feature.
 //
-// VALIDITY: does its predicted B_est curve pick the grid that actually scores best? Measured B by
-// grid comes from the sweep; B_est comes from that machine's own calibration. If the predicted
-// argmax lands on the measured plateau, the calibrator is validated for players who cannot be
-// swept — which is everyone but the author.
+// VALIDITY: did the old knee calibrator's predicted B_est curve pick the grid that actually scores
+// best? Measured B by grid comes from the sweep; B_est comes from that machine's own calibration.
+// It answered "sometimes", with a spread of 12²–48² for one hand on one display inside an hour.
 //
 // KNEE VISIBILITY: fit each machine's Fitts line on its COARSEST grids and project it forward. The
 // breakdown the whole method is built on shows up as fine-grid points sitting above that line; if
@@ -1051,15 +1051,15 @@ function printReport(logs, analysis) {
       );
     }
     if (m.law) {
-      // The calibration assumes scatter is a fixed px property of the hand (slope 0). A slope near 1
-      // means it is a fixed FRACTION of the target instead, which makes the calibration's central
-      // equation cellPx = 4.133·σ true at every grid size — i.e. it has no unique solution.
-      // A slope that FALLS below 1 at the fine end is the device noise floor appearing, which is
-      // where the calibration would start to be a real measurement again.
+      // v1's calibration assumed scatter is a fixed px property of the hand (slope 0). The measured
+      // slope is ~1: it is a fixed FRACTION of the target instead, which makes that calibration's
+      // central equation cellPx = 4.133·σ true at EVERY grid size — no unique solution, which is
+      // why it was retired. A slope that FALLS below 1 at the fine end would be the device noise
+      // floor appearing, and is the one thing that could make σ a real measurement again.
       L.push('');
       L.push(`    scatter law:  log σ = ${m.law.intercept.toFixed(2)} + ${m.law.slope.toFixed(3)}·log cellPx   (R² ${m.law.r2.toFixed(3)}, ${m.rows.filter((r) => Number.isFinite(r.sigmaPx)).length} grid sizes)`);
       L.push(`    mean σ/cellPx = ${m.ratio.toFixed(3)}   →  We = 4.133σ = ${(4.133 * m.ratio).toFixed(2)}·cellPx`);
-      L.push('    slope 0 = fixed scatter (what the calibration assumes); slope 1 = scatter scales with the target.');
+      L.push('    slope 0 = fixed scatter (what v1 calibration assumed); slope 1 = scatter scales with the target.');
     }
     L.push('');
     }
@@ -1067,7 +1067,7 @@ function printReport(logs, analysis) {
   L.push('');
 
   const cv = analysis.calibrationV2;
-  L.push('  [14] CALIBRATION v2 — is the knee real, and does the calibrator find it?');
+  L.push('  [14] CALIBRATION (retired) — the knee the old calibrator looked for, and whether it was there');
   if (!cv || (!cv.validity.length && !cv.knee.some((k) => k.rows.length))) {
     L.push('    no v2 calibrations and too few grid sizes played to look for a knee');
   } else {
