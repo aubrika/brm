@@ -1,19 +1,39 @@
-// Minimal DOM builders for the report screen. Deliberately tiny and dependency-free: the report is
-// built once, from a finished log, so there is no need for a framework or a diffing layer.
+// The app's DOM builders. Deliberately tiny and dependency-free: every screen is built once, from
+// finished state, so there is nothing for a framework or a diffing layer to do.
 //
-// `el` and `svgEl` take (tag, attrs, children) and return the element, which lets a whole subtree be
-// written as one nested expression instead of a run of intermediate `const` bindings. `text` and
-// `class` are spelled out as attribute keys because they are by far the most common.
+// `el` and `svgEl` take (tag, props, children) and return the element, which lets a whole subtree be
+// written as one nested expression instead of a run of intermediate `const` bindings.
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 
-export function el(tag: string, attrs?: Record<string, string>, children?: Array<Node | string>): HTMLElement {
+/** Props accepted by `el`. Three keys are special-cased because they are what a builder is
+ *  overwhelmingly used for: `class` and `text` set the property rather than an attribute, and any
+ *  `onX` function is attached as a listener. Everything else becomes an attribute; a `true` boolean
+ *  becomes a bare attribute and a `false` one is omitted, matching how HTML spells them. */
+type Props = Record<string, string | number | boolean | EventListener>;
+
+/** Build an element and its subtree in one expression. Generic over the tag so the return type is
+ *  the real element interface — `el('input', …)` is an HTMLInputElement, not an HTMLElement, which
+ *  is what lets a caller read `.value` without a cast. */
+export function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  props?: Props,
+  children?: Array<Node | string>,
+): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
-  if (attrs) {
-    for (const [k, v] of Object.entries(attrs)) {
-      if (k === 'class') node.className = v;
-      else if (k === 'text') node.textContent = v;
-      else node.setAttribute(k, v);
+  if (props) {
+    for (const [key, val] of Object.entries(props)) {
+      if (key.startsWith('on') && typeof val === 'function') {
+        node.addEventListener(key.slice(2).toLowerCase(), val);
+      } else if (key === 'class') {
+        node.className = String(val);
+      } else if (key === 'text') {
+        node.textContent = String(val);
+      } else if (typeof val === 'boolean') {
+        if (val) node.setAttribute(key, '');
+      } else {
+        node.setAttribute(key, String(val));
+      }
     }
   }
   if (children) for (const c of children) node.append(c);

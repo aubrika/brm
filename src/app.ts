@@ -16,35 +16,10 @@ import { buildReport, downloadReport } from './io/report.js';
 import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './io/logging.js';
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
+import { el } from './ui/dom.js';
 import { loadConfig, saveConfig, DEFAULT_CONFIG, type GameConfig } from './core/config.js';
 import { validateAlphabet } from './core/alphabet.js';
 import type { MachineMeta, RunLog } from './core/stats.js';
-
-type Props = Record<string, string | number | boolean | EventListener>;
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props?: Props,
-  children?: Array<Node | string>,
-): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (props) {
-    for (const [key, val] of Object.entries(props)) {
-      if (key.startsWith('on') && typeof val === 'function') {
-        e.addEventListener(key.slice(2).toLowerCase(), val);
-      } else if (key === 'class') {
-        e.className = String(val);
-      } else if (key === 'text') {
-        e.textContent = String(val);
-      } else if (typeof val === 'boolean') {
-        if (val) e.setAttribute(key, '');
-      } else {
-        e.setAttribute(key, String(val));
-      }
-    }
-  }
-  if (children) for (const c of children) e.append(c);
-  return e;
-}
 
 const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps frame was skipped
 
