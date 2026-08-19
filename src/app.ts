@@ -54,24 +54,17 @@ const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps 
 // top row / chords / challenge / audio experiments. All ongoing work targets v2.
 const VARIANT: 'v1' | 'v2' = (typeof __APP_VARIANT__ !== 'undefined' && __APP_VARIANT__ === 'v1' ? 'v1' : 'v2');
 
-interface RunCtx {
-  engine: Engine | GridEngine; // GridEngine in GRID MODE; both expose the loop-facing surface
-  strip: StripRenderer | GridRenderer; // both expose render(now) + resize()
-  gridView: GridRenderer | null; // non-null in GRID MODE (also held as `strip`), for pointer wiring
-  grid: boolean; // this run is a pointing (grid) run rather than the v1 keyboard game
+/** What every run has, whichever game it is. `phase` is the only state machine: a run waits in
+ *  `ready` until the first selection starts its clock, then `playing`, then `done`. */
+interface RunCtxBase {
   recorder: RunRecorder;
   timed: boolean;
-  phase: 'ready' | 'playing' | 'done'; // ready = waiting for the first selection to start the clock
+  phase: 'ready' | 'playing' | 'done';
   startedAt: string; // ISO, stamped when play begins
   droppedFrames: number;
   lastFrameMs: number;
-  pendingDownT: number; // run-relative t of a keydown awaiting its paint (latency sample)
+  pendingDownT: number; // run-relative t of a selection awaiting its paint (latency sample)
   pendingDown: boolean;
-  pendingPointer: { t: number; x: number; y: number } | null; // GRID: one path sample per frame
-  pointerType: string; // GRID: modal pointer type across the run
-  ghostAdjacent: number[]; // GRID: per down-event, was the next target within a couple cells
-  pointerTypes: string[]; // GRID: per down-event pointer type
-  touchSized: boolean; // GRID: the grid was sized for a fingertip, not fixed at the desktop N
   rafId: number;
   ui: {
     time: HTMLElement;
@@ -81,6 +74,30 @@ interface RunCtx {
     stripRoot: HTMLElement;
   };
 }
+
+/** GRID MODE: a pointing run. Everything here is meaningless to the keyboard game, which is why it
+ *  is a separate arm rather than a pile of nullable fields — `if (rc.grid)` narrows `engine` to
+ *  GridEngine and `gridView` to non-null, so the run loop needs no casts and no null checks. */
+interface GridRunCtx extends RunCtxBase {
+  grid: true;
+  engine: GridEngine;
+  strip: GridRenderer;
+  gridView: GridRenderer; // the same object as `strip`, named for the pointer wiring
+  pendingPointer: { t: number; x: number; y: number } | null; // one path sample per frame
+  pointerType: string; // modal pointer type across the run
+  ghostAdjacent: number[]; // per down-event, was the next target within a couple cells
+  pointerTypes: string[]; // per down-event pointer type
+  touchSized: boolean; // the grid was sized for a fingertip, not fixed at the desktop N
+}
+
+/** The v1 keyboard game: falling lanes, scored on keydown. */
+interface KeyRunCtx extends RunCtxBase {
+  grid: false;
+  engine: Engine;
+  strip: StripRenderer;
+}
+
+type RunCtx = GridRunCtx | KeyRunCtx;
 
 export class App {
   private mode: 'config' | 'run' | 'report' = 'config';
@@ -168,8 +185,8 @@ export class App {
     const tick = (): void => {
       const rc = this.run;
       if (!rc || rc.phase === 'done') return;
-      if (rc.phase === 'playing' && rc.gridView) {
-        const eng = rc.engine as GridEngine;
+      if (rc.phase === 'playing' && rc.grid) {
+        const eng = rc.engine;
         const gv = rc.gridView;
         let cell = eng.target();
         if (Math.random() < errorRate) cell = (cell + 1) % eng.cells; // an adjacent miss now and then
@@ -192,11 +209,11 @@ export class App {
     const tick = (): void => {
       const rc = this.run;
       if (!rc || rc.phase === 'done') return;
-      if (rc.phase === 'playing') {
-        const eng = rc.engine as Engine;
+      if (rc.phase === 'playing' && !rc.grid) {
+        const eng = rc.engine;
         let key = eng.target();
         if (Math.random() < errorRate) {
-          const others = eng.chars.filter((c) => c !== key);
+          const others = eng.chars.filter((c: string) => c !== key);
           key = others[Math.floor(Math.random() * others.length)] ?? key;
         }
         window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
@@ -218,7 +235,7 @@ export class App {
     const rc = this.run;
     if (rc.phase === 'done') return;
     if (rc.grid) return; // GRID MODE scores on pointerdown, not keys
-    const eng0 = rc.engine as Engine;
+    const eng0 = rc.engine;
     // No countdown: the run's clock starts when you first type an in-alphabet target. This same
     // keydown then falls through and is scored as the first selection.
     if (rc.phase === 'ready') {
@@ -252,7 +269,7 @@ export class App {
   private onKeyUp = (e: KeyboardEvent): void => {
     const rc = this.run;
     if (this.mode !== 'run' || !rc || rc.phase !== 'playing' || rc.grid) return;
-    const eng0 = rc.engine as Engine;
+    const eng0 = rc.engine;
     if (!eng0.alphaSet.has(e.key)) return;
     const now = performance.now();
     rc.recorder.recordUp(e.key, eng0.index, now - eng0.startMs);
@@ -265,10 +282,10 @@ export class App {
   // as the keyboard path, then falls through to score that first pointerdown.
   private onGridPointerDown = (e: PointerEvent): void => {
     const rc = this.run;
-    if (this.mode !== 'run' || !rc || !rc.grid || rc.phase === 'done' || !rc.gridView) return;
+    if (this.mode !== 'run' || !rc || !rc.grid || rc.phase === 'done') return;
     if (e.ctrlKey || e.metaKey || e.altKey) return; // ignore modified clicks (spec §1)
     e.preventDefault();
-    const eng = rc.engine as GridEngine;
+    const eng = rc.engine;
     if (rc.phase === 'ready') {
       rc.phase = 'playing';
       eng.start(performance.now());
@@ -306,7 +323,7 @@ export class App {
   // field-local so the log is self-contained for Fitts analysis.
   private onGridPointerMove = (e: PointerEvent): void => {
     const rc = this.run;
-    if (this.mode !== 'run' || !rc || !rc.grid || !rc.gridView) return;
+    if (this.mode !== 'run' || !rc || !rc.grid) return;
     rc.gridView.hoverCell = rc.gridView.cellAt(e.clientX, e.clientY);
     if (rc.phase === 'playing') {
       const p = rc.gridView.localPoint(e.clientX, e.clientY);
@@ -486,9 +503,7 @@ export class App {
     this.run = {
       engine,
       strip,
-      gridView: null,
       grid: false,
-      touchSized: false,
       recorder: new RunRecorder(),
       timed,
       phase: immediate ? 'playing' : 'ready',
@@ -497,10 +512,6 @@ export class App {
       lastFrameMs: -1,
       pendingDownT: 0,
       pendingDown: false,
-      pendingPointer: null,
-      pointerType: '',
-      ghostAdjacent: [],
-      pointerTypes: [],
       rafId: 0,
       ui: { time, rate, stats, countdown, stripRoot },
     };
@@ -701,7 +712,7 @@ export class App {
   // Assemble the GRID MODE section of the log. The Fitts difficulty of every selection depends on
   // cellPx/fieldPx/dpr, so they are recorded from the live renderer; the two per-selection arrays
   // line up with the grid `down` events in order.
-  private buildGridLog(rc: RunCtx): RunLog['grid'] {
+  private buildGridLog(rc: GridRunCtx): RunLog['grid'] {
     const v = rc.gridView;
     return {
       enabled: true,
