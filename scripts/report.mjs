@@ -32,12 +32,13 @@ function ms(v) {
   return v ? `${Math.round(v)}ms` : '—';
 }
 
+// ---- one function per section ------------------------------------------------
+// Each takes the analysis and returns its own lines. Numbers keep their historical gaps
+// ([6] to [9] to [11]) because the README and several commit messages cite them.
 
-export function printReport(logs, analysis) {
+/** Run identity: which machines, over what range, and every run in order. */
+function reportIdentity(logs) {
   const L = [];
-  L.push('════════════════════════════════════════════════════════════');
-  L.push('  Bit-Rate Maximizer — cross-run analysis');
-  L.push('════════════════════════════════════════════════════════════');
   const dates = logs.map((l) => l.meta.startedAt).sort();
   L.push(`  runs: ${logs.length}`);
   const byMachine = new Map();
@@ -57,7 +58,11 @@ export function printReport(logs, analysis) {
     L.push(`    ${tag} ${String(l.summary.bitsPerSecond.toFixed(2)).padStart(6)}   ${commit} ${l.__file}`);
   }
   L.push('');
+  return L;
+}
 
+function section01Transitions(analysis) {
+  const L = [];
   L.push('  [1] IKI by transition type (correct pairs), per machine');
   for (const [label, b] of Object.entries(analysis.transitions)) {
     L.push(`  ${label}:`);
@@ -66,25 +71,41 @@ export function printReport(logs, analysis) {
     L.push(bucketLine('cross hand', b.crossHand));
   }
   L.push('');
+  return L;
+}
 
+function section02Quartiles(analysis) {
+  const L = [];
   L.push('  [2] Within-run quartiles (median IKI per quarter)');
   for (const q of analysis.quartiles) L.push(`    Q${q.quarter}  median ${ms(q.median).padStart(6)}  n=${q.count}`);
   L.push('');
+  return L;
+}
 
+function section03PostError(analysis) {
+  const L = [];
   L.push('  [3] Post-error slowing, by error feedback');
   for (const [fb, g] of Object.entries(analysis.postError)) {
     const sign = g.inflationMs >= 0 ? '+' : '';
     L.push(`    ${fb.padEnd(14)} baseline ${ms(g.baselineMedian).padStart(6)}  post-error ${ms(g.postErrorMedian).padStart(6)}  (${sign}${Math.round(g.inflationMs)}ms, n=${g.postErrorCount})`);
   }
   L.push('');
+  return L;
+}
 
+function section04Confusion(analysis) {
+  const L = [];
   L.push('  [4] Error confusion (target → pressed), top 12');
   if (analysis.confusion.total === 0) L.push('    no errors recorded');
   for (const p of analysis.confusion.pairs.slice(0, 12)) {
     L.push(`    ${p.target} → ${p.pressed}   ${p.count}`);
   }
   L.push('');
+  return L;
+}
 
+function section05Histogram(analysis) {
+  const L = [];
   L.push('  [5] IKI histogram (25 ms bins)');
   const hist = analysis.histogram;
   const maxCount = Math.max(1, ...hist.bins);
@@ -97,7 +118,11 @@ export function printReport(logs, analysis) {
   if (hist.overflow) L.push(`    ${String(hist.maxMs).padStart(4)}+  (overflow) ${hist.overflow}`);
   L.push(`    median ${ms(hist.median)}   p90 ${ms(hist.p90)}   n=${hist.total}`);
   L.push('');
+  return L;
+}
 
+function section06Digraphs(analysis) {
+  const L = [];
   const dg = analysis.digraphs;
   const KIND = { sameFinger: 'same-finger', sameHand: 'same-hand', crossHand: 'cross-hand', null: '—' };
   const dgLine = (r) =>
@@ -123,13 +148,21 @@ export function printReport(logs, analysis) {
     L.push(pf('fastest', dg.fastestProfile));
   }
   L.push('');
+  return L;
+}
 
+function section09ByBuild(analysis) {
+  const L = [];
   L.push('  [9] bits/s by build (commit), oldest first');
   for (const r of analysis.byBuild) {
     L.push(`    ${r.commit.padEnd(12)} v${String(r.version).padEnd(6)} median ${r.medianBps.toFixed(2).padStart(6)}  mean ${r.meanBps.toFixed(2).padStart(6)}  n=${String(r.n).padStart(3)}  ${String(r.first).slice(0, 10)}`);
   }
   L.push('');
+  return L;
+}
 
+function section11GridMode(analysis) {
+  const L = [];
   const gr = analysis.grid;
   L.push('  [11] GRID MODE (pointing) — Fitts throughput, dwell, next-target adjacency');
   if (!gr) {
@@ -163,7 +196,11 @@ export function printReport(logs, analysis) {
     );
   }
   L.push('');
+  return L;
+}
 
+function section12GhostAb(analysis) {
+  const L = [];
   const ab = analysis.ghostAb;
   L.push('  [12] GHOST A/B — does the next-target preview raise bit rate? (paired, within-block)');
   if (!ab || ab.runs === 0) {
@@ -209,7 +246,11 @@ export function printReport(logs, analysis) {
     L.push(`      ghost off  near ${pct(near(ab.adjacency.off) / 100)}%  far ${pct(far(ab.adjacency.off) / 100)}%   (off should show NO gap — T+1 is invisible)`);
   }
   L.push('');
+  return L;
+}
 
+function section13GridSizes(analysis) {
+  const L = [];
   const gs = analysis.gridSizes;
   L.push('  [13] GRID SIZE SWEEP — what resolution costs and buys (scored, depth-1 geometry)');
   if (!gs) {
@@ -243,7 +284,17 @@ export function printReport(logs, analysis) {
     }
   }
   L.push('');
+  return L;
+}
 
+function section14Calibration(analysis) {
+  const L = [];
+
+  return L;
+}
+
+function section15TouchSized(analysis) {
+  const L = [];
   const cv = analysis.calibrationV2;
   L.push('  [14] CALIBRATION (retired) — the knee the old calibrator looked for, and whether it was there');
   if (!cv || (!cv.validity.length && !cv.knee.some((k) => k.rows.length))) {
@@ -297,6 +348,29 @@ export function printReport(logs, analysis) {
     L.push('    flat in N (9.07 bits/s at 8², 13.37 at 24²), and a thumb is not a mouse.');
   }
   L.push('');
-  L.push('════════════════════════════════════════════════════════════');
+  return L;
+}
+
+/** The whole report, as an ordered list of sections — which is all this function should be. */
+export function printReport(logs, analysis) {
+  const L = [
+    '════════════════════════════════════════════════════════════',
+    '  Bit-Rate Maximizer — cross-run analysis',
+    '════════════════════════════════════════════════════════════',
+    ...reportIdentity(logs),
+    ...section01Transitions(analysis),
+    ...section02Quartiles(analysis),
+    ...section03PostError(analysis),
+    ...section04Confusion(analysis),
+    ...section05Histogram(analysis),
+    ...section06Digraphs(analysis),
+    ...section09ByBuild(analysis),
+    ...section11GridMode(analysis),
+    ...section12GhostAb(analysis),
+    ...section13GridSizes(analysis),
+    ...section14Calibration(analysis),
+    ...section15TouchSized(analysis),
+    '════════════════════════════════════════════════════════════',
+  ];
   console.log(L.join('\n'));
 }
