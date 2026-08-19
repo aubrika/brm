@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { runLogPlugin } from './vite-plugin-runlog.js';
+import { runLogPlugin } from './scripts/vite-plugin-runlog.js';
 
 // Build stamp, baked into each run log so runs can be grouped by the exact build that produced
 // them (which feature was live). Resolved once at config load; falls back gracefully when git or
@@ -33,7 +33,7 @@ const appCommit = (() => {
 // Which app this build is. 'v2' (default) is the delivered game: GRID MODE + calibration. 'v1' is
 // the legacy falling-lanes keyboard game, kept only as a demonstrable artifact of how the design
 // arrived at a grid alphabet — built to dist/v1 and served at /brm/v1. See `npm run build:v1`.
-const appVariant = process.env.BRM_VARIANT === 'v1' ? 'v1' : 'v2';
+const appVariant = process.env['BRM_VARIANT'] === 'v1' ? 'v1' : 'v2';
 
 export default defineConfig({
   base: './',

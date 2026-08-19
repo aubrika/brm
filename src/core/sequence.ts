@@ -31,13 +31,9 @@ export function makeRandInt(source: Uint32Source = cryptoSource): (n: number) =>
   };
 }
 
-// i.i.d. uniform sample with replacement. Back-to-back repeats are NOT filtered — doing so
-// would break i.i.d.; the expected adjacent-repeat rate is exactly 1/N (tested).
-export function generateSequence(alphabet: string, count: number, randInt: (n: number) => number): string[] {
-  return sampleSequence([...alphabet], count, randInt);
-}
-
-// i.i.d. uniform sample with replacement from an arbitrary symbol list.
+// i.i.d. uniform sample with replacement from an arbitrary symbol list. Back-to-back repeats are
+// NOT filtered — doing so would break i.i.d.; the expected adjacent-repeat rate is exactly 1/N
+// (tested).
 export function sampleSequence(symbols: readonly string[], count: number, randInt: (n: number) => number): string[] {
   const n = symbols.length;
   const out: string[] = new Array<string>(count);

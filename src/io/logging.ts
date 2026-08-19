@@ -118,7 +118,7 @@ export class RunRecorder {
 
 export interface PostResult {
   ok: boolean;
-  path?: string;
+  path?: string | undefined;
   reason?: string;
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bitRate } from './bitrate.js';
-import { makeRandInt, generateSequence, type Uint32Source } from './sequence.js';
+import { makeRandInt, sampleSequence, type Uint32Source } from './sequence.js';
 import { momentaryRate } from './stats.js';
 import type { RunLog, RawEvent } from './stats.js';
 
@@ -49,7 +49,7 @@ describe('RNG uniformity (deterministic source)', () => {
     const randInt = makeRandInt(mulberry32Source(0x1234 + n));
     const total = 100_000;
     const counts = new Map<string, number>();
-    const seq = generateSequence(alphabet, total, randInt);
+    const seq = sampleSequence([...alphabet], total, randInt);
     for (const s of seq) counts.set(s, (counts.get(s) ?? 0) + 1);
     // every category present, none missing
     expect(counts.size).toBe(n);
@@ -63,7 +63,7 @@ describe('RNG uniformity (deterministic source)', () => {
     const n = 8;
     const randInt = makeRandInt(mulberry32Source(99));
     const total = 200_000;
-    const seq = generateSequence('asdfjkl;', total, randInt);
+    const seq = sampleSequence([...'asdfjkl;'], total, randInt);
     let repeats = 0;
     for (let i = 1; i < seq.length; i++) if (seq[i] === seq[i - 1]) repeats++;
     const rate = repeats / (total - 1);

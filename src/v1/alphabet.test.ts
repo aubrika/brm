@@ -14,7 +14,9 @@ describe('alphabet validation', () => {
     expect(validateAlphabet('asdfjkl;')).toEqual({ ok: true, alphabet: 'asdfjkl;' });
   });
   it('rejects < 3 keys', () => {
-    expect(validateAlphabet('ab')).toEqual({ ok: false, error: expect.stringContaining('at least 3') });
+    const r = validateAlphabet('ab');
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.error).toContain('at least 3');
   });
   it('rejects repeats', () => {
     const r = validateAlphabet('aab');

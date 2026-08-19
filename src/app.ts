@@ -552,7 +552,9 @@ export class App {
       // How N was chosen. 'touch' runs played a coarser grid with a different input device, so they
       // are a separate modality and the analyzer must never pool them with 'fixed' runs.
       sizing: rc.touchSized ? 'touch' : 'fixed',
-      minCellPx: rc.touchSized ? TOUCH_MIN_CELL_PX : undefined,
+      // omitted (not undefined) on fixed runs: JSON.stringify drops undefined, so omission is what
+      // the written artifact always contained
+      ...(rc.touchSized ? { minCellPx: TOUCH_MIN_CELL_PX } : {}),
       fieldPx: v.fieldPx,
       cellPx: v.cellPx,
       devicePixelRatio: v.dpr,

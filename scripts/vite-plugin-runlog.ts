@@ -110,7 +110,7 @@ function handleIndex(req: IncomingMessage, res: ServerResponse): void {
       for (const line of lines) {
         try {
           const row = JSON.parse(line) as Record<string, unknown>;
-          if (!installId || row.installId === installId) rows.push(row);
+          if (!installId || row['installId'] === installId) rows.push(row);
         } catch {
           /* skip malformed line */
         }

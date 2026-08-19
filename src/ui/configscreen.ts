@@ -19,7 +19,7 @@ export interface ConfigHandlers<C> {
  *  under test regardless of the environment's matchMedia. */
 export interface ConfigOpts {
   coarsePointer: boolean;
-  message?: string; // an error to surface above the controls (e.g. a rejected alphabet)
+  message?: string | undefined; // an error to surface above the controls (e.g. a rejected alphabet)
 }
 
 // ------------------------------------------------------------- GRID MODE ----

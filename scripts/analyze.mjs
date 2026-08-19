@@ -71,12 +71,11 @@ function loadLogs(args) {
   return logs;
 }
 
-// small array helpers for the pacer analyses
+// small array helpers for the pacer analyses. The quantile interpolation itself lives in
+// core/stats.js; this adds only the sort and the empty→NaN guard the shared helper lacks
+// (quantile returns 0 on [], but an absent median must not print as a real 0 ms).
 function median(arr) {
-  if (!arr.length) return NaN;
-  const s = [...arr].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  return arr.length ? quantile([...arr].sort((a, b) => a - b), 0.5) : NaN;
 }
 function mean(arr) {
   return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : NaN;

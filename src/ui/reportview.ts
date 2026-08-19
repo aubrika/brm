@@ -20,8 +20,8 @@ import { colOf, rowOf } from '../core/grid.js';
 
 export interface LogInfo {
   available: boolean;
-  path?: string;
-  reason?: string;
+  path?: string | undefined;
+  reason?: string | undefined;
 }
 
 export interface ReportCallbacks {
@@ -169,6 +169,11 @@ function tapeLayout(barCount: number): { barWidth: number; xOf: (i: number) => n
   };
 }
 
+/** The 0s → end-of-run axis row under a full-width chart (the run tape and the momentary rate). */
+function timeAxis(durationS: number): HTMLElement {
+  return el('div', { class: 'r-tape-axis' }, [el('span', { text: '0s' }), el('span', { text: `${durationS}s` })]);
+}
+
 /** How one selection reads in a tooltip. A grid run's sequence entries are cell indices, shown as
  *  (x, y) tuples — far more legible than a raw cell number. Keyboard runs keep the glyph. */
 function makeSelectionFormatter(log: RunLog): (value: string) => string {
@@ -250,10 +255,7 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): AnimatedPanel {
   const durationS = Math.round((log.summary.elapsedS * 1000 || log.meta.config.durationMs) / 1000);
   const node = section(
     'The run',
-    el('div', { class: 'r-tape' }, [
-      el('div', { class: 'r-tape-plot' }, [svg, ...missDots]),
-      el('div', { class: 'r-tape-axis' }, [el('span', { text: '0s' }), el('span', { text: `${durationS}s` })]),
-    ]),
+    el('div', { class: 'r-tape' }, [el('div', { class: 'r-tape-plot' }, [svg, ...missDots]), timeAxis(durationS)]),
     tip,
   );
 
@@ -377,10 +379,7 @@ function momentaryRateSection(log: RunLog): AnimatedPanel | null {
 
   const node = section(
     'Momentary rate',
-    el('div', { class: 'r-mom' }, [
-      plot,
-      el('div', { class: 'r-tape-axis' }, [el('span', { text: '0s' }), el('span', { text: `${chart.durationS}s` })]),
-    ]),
+    el('div', { class: 'r-mom' }, [plot, timeAxis(chart.durationS)]),
   );
 
   const animate = (): void => {
@@ -426,17 +425,22 @@ function histogramSvg(hist: Histogram, meanMs: number): SVGElement {
   return svg;
 }
 
+/** One label-over-value cell of a stat strip — the Transitions and Movement panels are both rows
+ *  of these. `sub` adds the small n= line; when a panel has no sub-line, omit the argument rather
+ *  than passing '' — .r-trans-n reserves a line of height even when empty. */
+function statCell(label: string, value: string, sub?: string): HTMLElement {
+  const kids = [el('span', { class: 'r-trans-label', text: label }), el('span', { class: 'r-trans-ms', text: value })];
+  if (sub !== undefined) kids.push(el('span', { class: 'r-trans-n', text: sub }));
+  return el('div', { class: 'r-trans-cell' }, kids);
+}
+
 /** Mean interval split by transition class — the concrete cost structure of a keyboard run.
- *  Cross-hand transitions dominate and run slowest; a same-key repeat is cheapest. A class with no
- *  samples shows a dash rather than a fake 0 ms. */
+ *  Cross-hand transitions dominate and run slowest; a class with no samples shows a dash rather
+ *  than a fake 0 ms. */
 function transitionMeansPanel(log: RunLog, downs: DownEvent[]): HTMLElement {
   const means = transitionMeans(downs, log.meta.config.alphabet ?? '');
   const cell = (label: string, m: { mean: number; count: number }): HTMLElement =>
-    el('div', { class: 'r-trans-cell' }, [
-      el('span', { class: 'r-trans-label', text: label }),
-      el('span', { class: 'r-trans-ms', text: m.count ? `${Math.round(m.mean)} ms` : '—' }),
-      el('span', { class: 'r-trans-n', text: m.count ? `n=${m.count}` : '' }),
-    ]);
+    statCell(label, m.count ? `${Math.round(m.mean)} ms` : '—', m.count ? `n=${m.count}` : '');
   return el('div', { class: 'r-trans' }, [
     cell('same key', means.sameKey),
     cell('same hand', means.sameHand),
@@ -548,13 +552,7 @@ function movementStats(log: RunLog): Array<[string, string]> {
 }
 
 function movementSection(log: RunLog): HTMLElement {
-  const cells = movementStats(log).map(([label, value]) =>
-    el('div', { class: 'r-trans-cell' }, [
-      el('span', { class: 'r-trans-label', text: label }),
-      el('span', { class: 'r-trans-ms', text: value }),
-    ]),
-  );
-  return section('Movement', el('div', { class: 'r-trans' }, cells));
+  return section('Movement', el('div', { class: 'r-trans' }, movementStats(log).map(([label, value]) => statCell(label, value))));
 }
 
 // ------------------------------------------------------------ v1: misses ----
