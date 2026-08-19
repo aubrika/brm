@@ -2,7 +2,6 @@
 // './stats.js' and resolve to these declarations; Node imports the .js directly and needs
 // no types. The runtime file is stats.js — keep the two in sync by hand (the API is small).
 
-import type { AbAssignment } from './ab.js';
 
 // ---- retired calibration shapes, read-only -----------------------------------
 // The game no longer calibrates. These two interfaces stay because logs/ holds runs written while
@@ -128,8 +127,14 @@ export interface GridLog {
   pointerTypes?: string[]; // per down-event pointer type
 }
 
-/** SCOPE MODE's log section — a grid run under pointer lock with a hold-to-magnify lens. Present
- *  (enabled) only on scope runs, alongside the `grid` section (scope is a grid variant). */
+// ---- retired mode + experiment shapes, read-only ------------------------------
+// Same rule as the calibration shapes above: SCOPE MODE and the ghost A/B are gone from the game,
+// but logs/ holds runs from both, and analyze.mjs reads them — it FILTERS on `scope.enabled` to
+// keep a 256×256 pointer-lock run out of the grid sweep, and §[12] still reports the ghost result
+// these `ab` tags made possible (+2.46 bits/s, the reason the ghost is now unconditional). Delete
+// these types and that analysis stops compiling against its own data.
+
+/** SCOPE MODE's log section — a grid run under pointer lock with a hold-to-magnify lens. */
 export interface ScopeActivation {
   tDown: number; // run-relative ms the scope was engaged
   tUp: number | null; // released (null if still held at run end)
@@ -162,17 +167,16 @@ export interface RunLog {
   latencySamples: Array<{ t: number; downToPaintMs: number }>;
   summary: RunSummary;
   grid?: GridLog; // present only on GRID MODE runs
-  scope?: ScopeLog; // present only on SCOPE MODE runs (a grid variant)
+  scope?: ScopeLog; // retired mode; present only on logs written while it existed
   /** Grid mode: the session's calibration, when there was one. Present only on logs written while
    *  the game still calibrated — see the note above these two interfaces. Two separate keys, never
    *  one reused key, so a stored log always means exactly what the calibrator that wrote it meant. */
   calibration?: CalibrationResult;
   calibrationV2?: CalibrationV2;
-  pointerPath?: Array<[number, number, number]>; // GRID/SCOPE: [t, x, y] field-local (virtual) samples
-  /** A/B arm, when the run was assigned one by the harness (core/ab.ts). Recording block+position
-   *  rather than just the arm is what lets the analyzer pair runs EXACTLY — pairing by timestamp
-   *  would silently mis-pair the moment a run is abandoned or the browser is reloaded mid-pair. */
-  ab?: AbAssignment;
+  pointerPath?: Array<[number, number, number]>; // GRID: [t, x, y] field-local pointer samples
+  /** Retired ghost A/B arm. Block+position rather than just the arm is what let the analyzer pair
+   *  runs EXACTLY — pairing by timestamp would mis-pair the moment a run was abandoned. */
+  ab?: { experiment: string; arm: 'on' | 'off'; block: number; position: number };
 }
 
 export interface FingerInfo {

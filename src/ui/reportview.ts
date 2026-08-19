@@ -65,12 +65,11 @@ function heroSection(log: RunLog): AnimatedPanel {
 
   // Under the A/B harness the run's condition is part of what the number means, so it belongs on
   // the same line as N and the counts — otherwise two reports differing only by arm look identical.
-  const ab = log.ab ? ` · ${log.ab.experiment} ${log.ab.arm}` : '';
 
   const node = el('div', { class: 'r-hero' }, [
     scoreNode,
     el('div', { class: 'r-hero-unit', text: 'bits per second' }),
-    el('div', { class: 'r-hero-util', text: `N ${n} · Sc ${sc} · Si ${si} · ${elapsedS.toFixed(1)} s${ab}` }),
+    el('div', { class: 'r-hero-util', text: `N ${n} · Sc ${sc} · Si ${si} · ${elapsedS.toFixed(1)} s` }),
   ]);
 
   const animate = (): void => {
@@ -541,9 +540,6 @@ function movementStats(log: RunLog): Array<[string, string]> {
   if (grid) {
     rows.push(['grid', `${grid.gridSize}×${grid.gridSize}`]);
     if (isDeep) rows.push(['layers', `${depth} (orange→blue)`]);
-    if (log.scope?.enabled) {
-      rows.push(['scope', `${log.scope.magnification}×`], ['scope holds', String(log.scope.activations.length)]);
-    }
     rows.push(['input', grid.pointerType]);
   }
   rows.push([isDeep ? 'selections' : 'moves', String(isDeep ? corrects.length : fitts?.count ?? corrects.length)]);

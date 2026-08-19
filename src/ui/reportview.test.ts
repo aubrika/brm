@@ -237,19 +237,18 @@ describe('renderReport', () => {
     expect(r.querySelector('.r-hero-num')?.textContent).toBeTruthy();
   });
 
-  it('names the A/B arm on the hero line, and says nothing when there is no arm', () => {
-    // Two reports from the same A/B differ only in the ghost. Without the arm on the screen they
-    // are indistinguishable, and a saved run cannot be attributed to a condition after the fact.
+  it('states N, the counts and the clock on the hero line — and nothing conditional', () => {
+    // The game has one configuration now, so the hero line has nothing to disambiguate: no A/B arm,
+    // no mode tag. If a variant is ever reintroduced it has to be named here, because two reports
+    // that differ only in a hidden condition cannot be attributed after the fact.
     const plain = root();
     render(plain, synthGridLog(32, 60, 8), [], info, cb);
-    expect(plain.querySelector('.r-hero-util')?.textContent).not.toContain('ghost');
-
-    const tagged = root();
-    const log = synthGridLog(32, 60, 8);
-    log.ab = { experiment: 'ghost', arm: 'off', block: 2, position: 1 };
-    log.grid!.ghost = false;
-    render(tagged, log, [], info, cb);
-    expect(tagged.querySelector('.r-hero-util')?.textContent).toContain('ghost off');
+    const hero = plain.querySelector('.r-hero-util')?.textContent ?? '';
+    expect(hero).toContain('N 1024');
+    expect(hero).toContain('Sc 60');
+    expect(hero).toContain('Si 7'); // 60 selections, an error every 8th
+    expect(hero).toContain('60.0 s');
+    expect(hero).not.toContain('ghost');
   });
 
   it('charts the momentary rate as one curve plus the final-score rule', () => {

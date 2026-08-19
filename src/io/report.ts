@@ -22,8 +22,6 @@ export interface BuildOpts {
   droppedFrames: number;
   grid?: RunLog['grid']; // GRID / SCOPE MODE
   pointerPath?: RunLog['pointerPath']; // GRID / SCOPE MODE
-  scope?: RunLog['scope']; // SCOPE MODE only
-  ab?: RunLog['ab']; // A/B arm, when the harness assigned one
 }
 
 // A grid run has no keyboard alphabet/finger structure, so buildReport accepts either engine and
@@ -96,9 +94,7 @@ export function buildReport(engine: ReportEngine, result: RunResult, opts: Build
       outOfAlphabet: opts.recorder.outOfAlphabet,
     },
     ...(opts.grid ? { grid: opts.grid } : {}),
-    ...(opts.scope ? { scope: opts.scope } : {}),
     ...(opts.pointerPath ? { pointerPath: opts.pointerPath } : {}),
-    ...(opts.ab ? { ab: opts.ab } : {}),
   };
 }
 

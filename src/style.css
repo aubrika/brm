@@ -91,14 +91,6 @@ code { font-family: var(--mono); }
 
 .btn:disabled { opacity: 0.4; cursor: not-allowed; filter: grayscale(0.3); }
 
-/* SCOPE MODE: click-to-(re)lock overlay covering the play area */
-.scope-overlay {
-  position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
-  background: rgba(6, 8, 12, 0.72); color: var(--ink); font-size: clamp(1rem, 3vmin, 1.5rem); font-weight: 600;
-  letter-spacing: 0.01em; cursor: pointer; text-align: center; padding: 0 24px;
-}
-.scope-overlay.hidden { display: none; }
-
 /* DDR lanes: fixed VERTICAL column dividers (one lane per finger) + HORIZONTAL chunk
    dividers every four rows that scroll down with the flow (via --vy). */
 /* One lane block per hand (left/width set from JS); the empty gap between the two blocks
@@ -201,7 +193,6 @@ code { font-family: var(--mono); }
 .practice-tag { font-family: var(--mono); font-size: 13px; color: var(--accent); letter-spacing: 0.1em; }
 /* A/B arm, named on the run screen: a missing ghost must read as the experiment, not a bug.
    Muted, not accent — it is a label about the run, and must not compete with the play field. */
-.ab-tag { font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.1em; }
 
 .consent { max-width: 620px; color: var(--muted); font-size: 12px; line-height: 1.5; margin: 2px 0 0; }
 
