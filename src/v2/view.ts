@@ -44,11 +44,31 @@ export { cellIndexAt, cellsApart } from '../core/grid.js';
 // on EVERY click, and fitGridGeometry fixes the cell size W that every logged Fitts number depends
 // on. See view.test.ts.
 
-/** Cell sizes below this are not reliably tappable with a fingertip — Apple HIG says 44pt, Material
- *  48dp, and a contact patch is ~40px wide. Only consulted on coarse pointers. */
-export const TOUCH_MIN_CELL_PX = 44;
-/** Grid sizes the touch fitter may choose from, coarsest first. */
-export const TOUCH_GRID_LADDER = [4, 6, 8, 10, 12, 16, 20, 24, 32] as const;
+/** Smallest cell a fingertip can be asked to hit, in CSS px. Only consulted on coarse pointers.
+ *
+ *  WHY TOUCH NEEDS AN ABSOLUTE FLOOR AT ALL, when the desktop grid is fixed at 32² regardless of
+ *  how big its cells come out: the measured mouse scatter law is σ = 0.226·cellPx (R² 0.999) — the
+ *  scatter scales WITH the target, so accuracy is grid-invariant and cell size is free to float.
+ *  That cannot carry over to a finger. A contact patch is a fixed physical size, so σ stays roughly
+ *  constant in px while the cell shrinks, and every px off the cell is paid for in accuracy.
+ *
+ *  WHY 56 AND NOT THE 44 THIS STARTED AT. 44 came from the platform guidelines (Apple HIG 44pt,
+ *  Material 48dp ≈ 7.0–7.6mm). Those are minimums for DISCRETE CONTROLS separated by dead space,
+ *  where a miss lands on background and costs nothing but a retry. Neither holds here: the cells are
+ *  contiguous, so a miss lands on a NEIGHBOURING CELL and scores as an error — and an error
+ *  SUBTRACTS from B, making it worth about twice a unit of speed. The same slip that a settings
+ *  screen absorbs costs a selection here. Touch-pointing studies of serial tapping put reliable
+ *  acquisition nearer 9–10mm than 7mm for exactly this reason.
+ *
+ *  It was also never measured: logs/ contains zero touch runs, so 44 was borrowed, not verified.
+ *  The first real evidence was a playtest reporting frequent misclicks on a phone that had landed on
+ *  8² at 46px — and 46px is what the OLD floor produces, because the fitter takes the finest grid
+ *  that clears it and therefore lands as close to it as the ladder allows. 56px ≈ 8.9mm. */
+export const TOUCH_MIN_CELL_PX = 56;
+/** Grid sizes the touch fitter may choose from, coarsest first. 5 exists because the gap from 6 to 4
+ *  is the difference between N = 36 and N = 16 — 5.13 bits per selection against 3.91 — and a small
+ *  phone that just misses the 6² floor should not fall the whole way. 5² is 4.64 bits. */
+export const TOUCH_GRID_LADDER = [4, 5, 6, 8, 10, 12, 16, 20, 24, 32] as const;
 
 /** The square the field is fitted into, from the play area's dimensions. The grid is a SQUARE, so
  *  the smaller dimension always binds — on a portrait phone that is the width, and in landscape it
