@@ -83,15 +83,15 @@ code { font-family: var(--mono); }
   font-family: var(--mono); font-size: 40px; font-variant-numeric: tabular-nums;
   color: var(--muted); letter-spacing: 0.02em; min-height: 48px;
 }
-.strip-wrap {
+.play-wrap {
   position: relative; width: 100%; flex: 1 1 auto; min-height: 300px;
   overflow: hidden;
 }
-.strip-root { position: absolute; inset: 0; }
+.play-root { position: absolute; inset: 0; }
 .strip-layer { position: absolute; inset: 0; z-index: 2; }
 
 /* GRID MODE: centre the canvas in the play area; it is a fixed square sized in JS. */
-.strip-root.grid-root { display: flex; align-items: center; justify-content: center; }
+.play-root.grid-root { display: flex; align-items: center; justify-content: center; }
 .grid-canvas { display: block; touch-action: none; }
 
 .btn:disabled { opacity: 0.4; cursor: not-allowed; filter: grayscale(0.3); }
@@ -177,16 +177,18 @@ code { font-family: var(--mono); }
   font-family: var(--mono); font-weight: 700; line-height: 1;
 }
 
-.countdown {
+/* Nothing counts down — the run's clock starts on the first selection. This is the line that says
+   so, centred over the play area and hidden the moment play begins. It was called .countdown and
+   carried a min(48vmin, 88vh) numeral size from a 3-2-1 countdown that was cut before release; the
+   size was overridden by a second class every time it was used. */
+.start-prompt {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--mono); font-weight: 700; color: var(--ink);
-  font-size: min(48vmin, 88vh); line-height: 1;
-  opacity: 0.5; pointer-events: none; /* huge, translucent, over the whole interface */
+  font-family: var(--mono); color: var(--ink);
+  font-size: clamp(1rem, 3.4vmin, 1.6rem); font-weight: 500; line-height: 1;
+  opacity: 0.6; pointer-events: none;
 }
-.countdown.hidden { display: none; }
-/* the pre-start prompt (no countdown): a small line, not the giant number */
-.countdown.hint { font-size: clamp(1rem, 3.4vmin, 1.6rem); font-weight: 500; opacity: 0.6; }
+.start-prompt.hidden { display: none; }
 
 .readout { display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 92px; }
 .rate {

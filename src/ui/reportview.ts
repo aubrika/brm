@@ -325,7 +325,7 @@ function computeMomentary(log: RunLog): MomentChart | null {
   };
 }
 
-function momentumSection(log: RunLog): AnimatedPanel | null {
+function momentaryRateSection(log: RunLog): AnimatedPanel | null {
   const chart = computeMomentary(log);
   if (!chart) return null;
   const { samples, xs, ys } = chart;
@@ -696,7 +696,7 @@ export function renderReport(
 
   const hero = heroSection(log);
   const tape = runTapeSection(log, downs);
-  const momentum = momentumSection(log);
+  const momentary = momentaryRateSection(log);
 
   // A grid run gets pointing-appropriate panels: the interval distribution + movement stats, in
   // place of the keyboard finger/lane transitions and miss-confusion (both meaningless here).
@@ -707,7 +707,7 @@ export function renderReport(
 
   const runAgain = actionButton('btn primary', 'Run again', cb.onRunAgain);
   const panels: Node[] = [hero.node, tape.node];
-  if (momentum) panels.push(momentum.node);
+  if (momentary) panels.push(momentary.node);
   panels.push(twoCol);
   const misses = isGrid ? null : missesSection(log);
   if (misses) panels.push(misses);
@@ -729,7 +729,7 @@ export function renderReport(
 
   hero.animate();
   tape.animate();
-  momentum?.animate();
+  momentary?.animate();
   // Enter restarts (every extra click between runs costs practice data) — but preventScroll so
   // mount doesn't jump the view down to the button; the reader lands on their score.
   runAgain.focus({ preventScroll: true });

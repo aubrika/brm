@@ -1,5 +1,5 @@
 // Screen router + run loop, and nothing else. Three screens (config, run, report); a run waits in a
-// "ready" state and its clock starts on the first selection, with no countdown.
+// "ready" state and its clock starts on the first selection, with no startPrompt.
 //
 // What lives here is what has to: the single window keydown listener (attached once,
 // { passive: false }) and the canvas pointer handlers, which during play are the latency-critical
@@ -51,8 +51,8 @@ interface RunCtxBase {
     time: HTMLElement;
     rate: HTMLElement;
     stats: HTMLElement;
-    countdown: HTMLElement;
-    stripRoot: HTMLElement;
+    startPrompt: HTMLElement;
+    playRoot: HTMLElement;
   };
 }
 
@@ -62,8 +62,8 @@ interface RunCtxBase {
 interface GridRunCtx extends RunCtxBase {
   grid: true;
   engine: GridEngine;
-  strip: GridRenderer;
-  gridView: GridRenderer; // the same object as `strip`, named for the pointer wiring
+  view: GridRenderer;
+  gridView: GridRenderer; // the same object as `view`, named for the pointer wiring
   pendingPointer: { t: number; x: number; y: number } | null; // one path sample per frame
   pointerType: string; // modal pointer type across the run
   ghostAdjacent: number[]; // per down-event, was the next target within a couple cells
@@ -75,7 +75,7 @@ interface GridRunCtx extends RunCtxBase {
 interface KeyRunCtx extends RunCtxBase {
   grid: false;
   engine: Engine;
-  strip: StripRenderer;
+  view: StripRenderer;
 }
 
 type RunCtx = GridRunCtx | KeyRunCtx;
@@ -119,7 +119,7 @@ export class App {
     // one listener each for the whole app; game input is handled synchronously here.
     window.addEventListener('keydown', this.onKey, { passive: false });
     window.addEventListener('keyup', this.onKeyUp);
-    window.addEventListener('resize', () => this.run?.strip.resize());
+    window.addEventListener('resize', () => this.run?.view.resize());
 
     // Dev aid: ?auto=practice|scored skips the config screen; add &demo to auto-type
     // (dispatches real keydowns, so it drives the same input path a human would).
@@ -173,17 +173,17 @@ export class App {
     const rc = this.run;
     if (rc.phase === 'done') return;
     if (rc.grid) return; // GRID MODE scores on pointerdown, not keys
-    const eng0 = rc.engine;
-    // No countdown: the run's clock starts when you first type an in-alphabet target. This same
-    // keydown then falls through and is scored as the first selection.
+    const eng = rc.engine;
+    // No countdown, no 3-2-1: the run's clock starts when you first type an in-alphabet target,
+    // and this same
+    // keydown falls through and is scored as the first selection.
     if (rc.phase === 'ready') {
-      if (!eng0.alphaSet.has(e.key) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if (!eng.alphaSet.has(e.key) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
       rc.phase = 'playing';
-      eng0.start(performance.now());
+      eng.start(performance.now());
       rc.startedAt = new Date().toISOString();
-      rc.ui.countdown.classList.add('hidden');
+      rc.ui.startPrompt.classList.add('hidden');
     }
-    const eng = eng0;
     const inAlpha = eng.alphaSet.has(e.key);
     const modified = e.ctrlKey || e.metaKey || e.altKey;
     if (inAlpha && !modified) e.preventDefault();
@@ -207,10 +207,10 @@ export class App {
   private onKeyUp = (e: KeyboardEvent): void => {
     const rc = this.run;
     if (this.mode !== 'run' || !rc || rc.phase !== 'playing' || rc.grid) return;
-    const eng0 = rc.engine;
-    if (!eng0.alphaSet.has(e.key)) return;
+    const eng = rc.engine;
+    if (!eng.alphaSet.has(e.key)) return;
     const now = performance.now();
-    rc.recorder.recordUp(e.key, eng0.index, now - eng0.startMs);
+    rc.recorder.recordUp(e.key, eng.index, now - eng.startMs);
   };
 
   // ------------------------------------------------------- GRID MODE input ----
@@ -228,7 +228,7 @@ export class App {
       rc.phase = 'playing';
       eng.start(performance.now());
       rc.startedAt = new Date().toISOString();
-      rc.ui.countdown.classList.add('hidden');
+      rc.ui.startPrompt.classList.add('hidden');
     }
     const now = performance.now();
     this.latency.markKey(now);
@@ -315,26 +315,26 @@ export class App {
     const engine = new Engine(config, timed);
     engine.onError = () => this.audio.error();
 
-    const stripRoot = el('div', { class: 'strip-root' });
+    const playRoot = el('div', { class: 'play-root' });
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
     const stats = el('div', { class: 'stats' });
-    // shown until the first keypress: the run's clock starts when you type, no 3-2-1 countdown
-    const countdown = el('div', { class: 'countdown hint', text: 'type the highlighted key to start' });
+    // shown until the first keypress: the run's clock starts when you type, no 3-2-1 startPrompt
+    const startPrompt = el('div', { class: 'start-prompt', text: 'type the highlighted key to start' });
 
     const screen = el('div', { class: 'screen run' }, [
       time,
-      el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
+      el('div', { class: 'play-wrap' }, [playRoot, startPrompt]),
       el('div', { class: 'readout' }, [rate, stats]),
       ...(timed ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
     ]);
     this.root.append(screen);
 
-    const strip = new StripRenderer(engine, stripRoot);
+    const strip = new StripRenderer(engine, playRoot);
     const now0 = performance.now();
     this.run = {
       engine,
-      strip,
+      view: strip,
       grid: false,
       recorder: new RunRecorder(),
       timed,
@@ -345,12 +345,12 @@ export class App {
       pendingDownT: 0,
       pendingDown: false,
       rafId: 0,
-      ui: { time, rate, stats, countdown, stripRoot },
+      ui: { time, rate, stats, startPrompt, playRoot },
     };
     if (immediate) {
       engine.start(now0);
       this.run.startedAt = new Date().toISOString();
-      countdown.classList.add('hidden');
+      startPrompt.classList.add('hidden');
     }
     this.run.rafId = requestAnimationFrame(this.loop);
   }
@@ -363,7 +363,7 @@ export class App {
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock(); // the Start-button click is the unlocking gesture
 
-    const stripRoot = el('div', { class: 'strip-root grid-root' });
+    const playRoot = el('div', { class: 'play-root grid-root' });
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
     const stats = el('div', { class: 'stats' });
@@ -371,9 +371,9 @@ export class App {
     // with a real orange square already drawn on it, so naming the thing beats describing it. A
     // playtester read "the highlighted cell" and could not tell which of the two marked cells it
     // meant — the filled one or the outlined preview.
-    // Wrapped in one span because .countdown is a flex container: as three direct children the
+    // Wrapped in one span because .startPrompt is a flex container: as three direct children the
     // text nodes become flex items and the spaces between them are dropped ("click theorangesquare").
-    const countdown = el('div', { class: 'countdown hint' }, [
+    const startPrompt = el('div', { class: 'start-prompt' }, [
       el('span', {}, [
         document.createTextNode('click the '),
         el('span', { class: 'ink-target', text: 'orange' }),
@@ -383,7 +383,7 @@ export class App {
 
     const screen = el('div', { class: 'screen run' }, [
       time,
-      el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
+      el('div', { class: 'play-wrap' }, [playRoot, startPrompt]),
       el('div', { class: 'readout' }, [rate, stats]),
       ...(timed ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
     ]);
@@ -400,7 +400,7 @@ export class App {
     //
     // This is chosen ONCE, at run start, and held for the whole run: N is in the score, so a grid
     // that resized mid-run (rotating the phone) would make the run's own bit rate meaningless.
-    const avail = availableFieldPx(stripRoot.clientWidth || window.innerWidth, stripRoot.clientHeight || 360);
+    const avail = availableFieldPx(playRoot.clientWidth || window.innerWidth, playRoot.clientHeight || 360);
     const coarse = this.coarsePointer();
     const gridSize = coarse ? fitTouchGrid(avail) : config.gridSize;
     const runConfig: GridConfig = gridSize === config.gridSize ? config : { ...config, gridSize };
@@ -409,7 +409,7 @@ export class App {
     engine.onCorrect = () => this.audio.bloop(); // hit: rising bloop (+ particle burst in the renderer)
     // no wrong-cell buzzer — the red flash (drawn by the renderer) is the only miss feedback
 
-    const gridView = new GridRenderer(engine, stripRoot);
+    const gridView = new GridRenderer(engine, playRoot);
     const canvas = gridView.element;
     canvas.style.cursor = 'crosshair';
     // pointer input lives on the canvas element, so it is torn down automatically when the screen
@@ -422,7 +422,7 @@ export class App {
     const now0 = performance.now();
     this.run = {
       engine,
-      strip: gridView,
+      view: gridView,
       gridView,
       grid: true,
       recorder: new RunRecorder(),
@@ -439,12 +439,12 @@ export class App {
       pointerTypes: [],
       touchSized: coarse,
       rafId: 0,
-      ui: { time, rate, stats, countdown, stripRoot },
+      ui: { time, rate, stats, startPrompt, playRoot },
     };
     if (immediate) {
       engine.start(now0);
       this.run.startedAt = new Date().toISOString();
-      countdown.classList.add('hidden');
+      startPrompt.classList.add('hidden');
     }
     this.run.rafId = requestAnimationFrame(this.loop);
   }
@@ -485,7 +485,7 @@ export class App {
       this.updateHud(now, rc);
     }
 
-    rc.strip.render(now);
+    rc.view.render(now);
     // GRID: flush the at-most-one pointer sample taken since the last frame
     if (rc.grid && rc.pendingPointer) {
       rc.recorder.recordPointer(rc.pendingPointer.t, rc.pendingPointer.x, rc.pendingPointer.y);
