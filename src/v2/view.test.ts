@@ -3,7 +3,10 @@
 // size W that every logged Fitts number is derived from, so both are worth pinning down exactly.
 
 import { describe, it, expect } from 'vitest';
-import { fitGridGeometry, cellIndexAt, cellsApart, visibleLookahead } from './view.js';
+import {
+  fitGridGeometry, cellIndexAt, cellsApart, visibleLookahead,
+  availableFieldPx, fitTouchGrid, TOUCH_MIN_CELL_PX, TOUCH_GRID_LADDER,
+} from './view.js';
 import { GRID_SIZES } from '../core/config.js';
 
 describe('fitGridGeometry', () => {
@@ -91,5 +94,67 @@ describe('visibleLookahead', () => {
   it('handles the end of the sequence and a lookahead of zero', () => {
     expect(visibleLookahead(5, [])).toEqual([]);
     expect(visibleLookahead(5, [-1])).toEqual([false]);
+  });
+});
+
+describe('availableFieldPx', () => {
+  // The grid is a square, so the SMALLER viewport dimension binds — the fact that makes "just fill
+  // the width on mobile" impossible: on a portrait phone the width already is the smaller one.
+  it('is bounded by the smaller dimension, in either orientation', () => {
+    expect(availableFieldPx(342, 643)).toBe(availableFieldPx(643, 342));
+    expect(availableFieldPx(800, 300)).toBeLessThan(availableFieldPx(800, 800));
+  });
+
+  it('never returns a field too small to draw', () => {
+    expect(availableFieldPx(0, 0)).toBeGreaterThanOrEqual(64);
+    expect(availableFieldPx(10, 10)).toBeGreaterThanOrEqual(64);
+  });
+});
+
+describe('fitTouchGrid', () => {
+  // Measured play areas from emulated devices; the expectations are what a fingertip can hit.
+  const DEVICES: Array<[string, number]> = [
+    ['iPhone SE portrait', 327],
+    ['iPhone 14 portrait', 342],
+    ['iPhone 14 landscape', 300],
+    ['iPad portrait', 772],
+  ];
+
+  it('never returns a grid whose cells are below the touch floor', () => {
+    for (const [, avail] of DEVICES) {
+      const g = fitTouchGrid(avail);
+      expect(Math.floor(avail / g)).toBeGreaterThanOrEqual(TOUCH_MIN_CELL_PX);
+    }
+  });
+
+  it('returns the FINEST grid that still clears the floor, not merely a safe one', () => {
+    for (const [, avail] of DEVICES) {
+      const g = fitTouchGrid(avail);
+      const finer = (TOUCH_GRID_LADDER as readonly number[]).filter((x) => x > g);
+      for (const f of finer) expect(Math.floor(avail / f)).toBeLessThan(TOUCH_MIN_CELL_PX);
+    }
+  });
+
+  it('gives a phone a coarse grid and a tablet a finer one', () => {
+    expect(fitTouchGrid(342)).toBeLessThan(fitTouchGrid(772));
+  });
+
+  it('falls back to the coarsest rung rather than an unhittable grid', () => {
+    expect(fitTouchGrid(50)).toBe(TOUCH_GRID_LADDER[0]);
+  });
+
+  it('stays on the ladder at every size, so N is always one of the known values', () => {
+    for (let avail = 64; avail <= 2000; avail += 7) {
+      expect(TOUCH_GRID_LADDER as readonly number[]).toContain(fitTouchGrid(avail));
+    }
+  });
+
+  it('is monotonic: a bigger screen never gets a coarser grid', () => {
+    let prev = 0;
+    for (let avail = 64; avail <= 2000; avail += 7) {
+      const g = fitTouchGrid(avail);
+      expect(g).toBeGreaterThanOrEqual(prev);
+      prev = g;
+    }
   });
 });

@@ -37,6 +37,38 @@ const GHOST_ADJACENT = 2; // Chebyshev distance flagged as "next target is close
 // on EVERY click, and fitGridGeometry fixes the cell size W that every logged Fitts number depends
 // on. See gridview.test.ts.
 
+/** Cell sizes below this are not reliably tappable with a fingertip — Apple HIG says 44pt, Material
+ *  48dp, and a contact patch is ~40px wide. Only consulted on coarse pointers. */
+export const TOUCH_MIN_CELL_PX = 44;
+/** Grid sizes the touch fitter may choose from, coarsest first. */
+export const TOUCH_GRID_LADDER = [4, 6, 8, 10, 12, 16, 20, 24, 32] as const;
+
+/** The square the field is fitted into, from the play area's dimensions. The grid is a SQUARE, so
+ *  the smaller dimension always binds — on a portrait phone that is the width, and in landscape it
+ *  is the height. Exported so the run can size its grid from the same number resize() will use;
+ *  computing it twice by different routes is how a run ends up with cells it did not plan for. */
+export function availableFieldPx(w: number, h: number): number {
+  const side = Math.min(w, h);
+  // The margin is a fixed 20px inset on a roomy screen, but on a small one it is a real fraction of
+  // the field and the cost is measured in grid rungs: at 300px (a phone in landscape) the full 40px
+  // is the difference between a 6×6 grid and a 4×4 one — 5.13 bits per selection against 3.91.
+  // Capping it at 4% of the side leaves desktop untouched — measured: a 1600×900 scored run has a
+  // 720px short side, 4% of which is 29, so the cap never binds and the field is 680px either way.
+  // The existing dataset keeps its geometry; the cap only bites where the inset was expensive.
+  const margin = Math.min(MARGIN, Math.round(side * 0.04));
+  return Math.max(64, side - margin * 2);
+}
+
+/** The finest grid on the ladder whose cells clear `minCellPx`, or the coarsest rung if none do.
+ *  This is the whole of the touch adaptation: fewer, bigger cells. Widening the field cannot
+ *  substitute for it — on a phone the field is already as wide as the viewport, and 32×32 there is
+ *  a 9px cell against a ~40px fingertip. */
+export function fitTouchGrid(availPx: number, minCellPx = TOUCH_MIN_CELL_PX, ladder: readonly number[] = TOUCH_GRID_LADDER): number {
+  let best = ladder[0];
+  for (const g of ladder) if (Math.floor(availPx / g) >= minCellPx) best = g;
+  return best;
+}
+
 /** Largest integer-cell square fitting `availPx`. Integer cellPx keeps gridlines crisp.
  *  The floor is 1px, not 2: the play field is clipped by its container, so a field wider than the
  *  space would push cells off-screen where they cannot be clicked but can still be TARGETS — an
@@ -111,7 +143,7 @@ export class GridRenderer {
   resize(): void {
     const w = this.root.clientWidth || window.innerWidth;
     const h = this.root.clientHeight || 360;
-    const avail = Math.max(64, Math.min(w, h) - MARGIN * 2);
+    const avail = availableFieldPx(w, h);
     // integer cell px keeps gridlines crisp; min 2px so large grids (64/128) still fit the field
     // instead of overflowing it (floor keeps fieldPx ≤ avail).
     const geom = fitGridGeometry(avail, this.gridSize);

@@ -597,7 +597,9 @@ function armRunMetrics(l) {
 
 function analyzeGhostAb(logs) {
   const eligible = logs.filter(
-    (l) => l.ab && l.ab.experiment === 'ghost' && l.grid && l.grid.enabled && !(l.scope && l.scope.enabled) && l.meta.mode === 'scored' && (l.grid.depth ?? 1) === 1,
+    (l) =>
+      l.ab && l.ab.experiment === 'ghost' && l.grid && l.grid.enabled && !(l.scope && l.scope.enabled) &&
+      l.meta.mode === 'scored' && (l.grid.depth ?? 1) === 1 && (l.grid.sizing ?? 'fixed') !== 'touch',
   );
   if (eligible.length === 0) return { pairs: [], runs: 0, dropped: [] };
 
@@ -728,7 +730,12 @@ function machineLine(logs) {
 }
 
 function analyzeGridSizes(logs) {
-  const scored = logs.filter((l) => l.grid?.enabled && !l.scope?.enabled && l.meta.mode === 'scored' && (l.grid.depth ?? 1) === 1);
+  // Touch runs played a coarser grid with a fingertip: a different N AND a different input device.
+  // Pooling them into a per-grid-size sweep would put one 6×6 thumb run alongside the mouse runs and
+  // read as evidence about grid size. They are reported separately below.
+  const scored = logs.filter(
+    (l) => l.grid?.enabled && !l.scope?.enabled && l.meta.mode === 'scored' && (l.grid.depth ?? 1) === 1 && (l.grid.sizing ?? 'fixed') !== 'touch',
+  );
   if (!scored.length) return null;
   // Split by machine FIRST. A 700px laptop field and a 1750px desktop field put the same `16²`
   // setting 2.5× apart in cell size; pooling them fits the scatter law straight through two
@@ -849,6 +856,29 @@ function analyzeCalibrationV2(logs, gridSizes) {
     }
   }
   return { validity, knee };
+}
+
+// -------------------------------------------------- [15] touch-sized runs ----
+// Runs where a coarse pointer was detected and the grid was fitted to a fingertip. Kept out of
+// every mouse analysis above, and reported here on their own so they are visible rather than
+// merely missing — a run that silently vanishes from a report is worse than one that is labelled.
+function analyzeTouch(logs) {
+  const rows = [];
+  for (const l of logs) {
+    if ((l.grid?.sizing ?? 'fixed') !== 'touch') continue;
+    rows.push({
+      file: l.__file,
+      grid: l.grid.gridSize,
+      cellPx: l.grid.cellPx,
+      minCellPx: l.grid.minCellPx ?? null,
+      pointerType: l.grid.pointerType,
+      bps: l.summary.bitsPerSecond,
+      accuracy: l.summary.accuracy,
+      cycleMs: l.summary.medianIkiMs,
+      mode: l.meta.mode,
+    });
+  }
+  return { rows };
 }
 
 function gridArmLine(a) {
@@ -1101,6 +1131,24 @@ function printReport(logs, analysis) {
       }
     }
   }
+  const touch = analysis.touch;
+  L.push('  [15] TOUCH-SIZED RUNS — coarse pointer, grid fitted to a fingertip');
+  if (!touch || !touch.rows.length) {
+    L.push('    none logged. (Touch runs are excluded from every analysis above by design: a');
+    L.push('    different N on a different input device is a separate modality, not another point');
+    L.push('    on the grid-size sweep.)');
+  } else {
+    L.push('    grid   cellPx   input   bits/s    acc     cycle   mode');
+    for (const r of touch.rows) {
+      L.push(
+        `    ${String(r.grid).padStart(4)}²  ${String(r.cellPx).padStart(6)}  ${String(r.pointerType).padStart(6)}  ` +
+          `${r.bps.toFixed(2).padStart(6)}  ${(100 * r.accuracy).toFixed(1).padStart(5)}%  ${String(Math.round(r.cycleMs)).padStart(5)}ms  ${r.mode}`,
+      );
+    }
+    L.push('    Not comparable with the runs above: B divides by log2(N-1), but measured B is not');
+    L.push('    flat in N (9.07 bits/s at 8², 13.37 at 24²), and a thumb is not a mouse.');
+  }
+  L.push('');
   L.push('════════════════════════════════════════════════════════════');
   console.log(L.join('\n'));
 }
@@ -1128,6 +1176,7 @@ function main() {
     ghostAb: analyzeGhostAb(logs),
     gridSizes: analyzeGridSizes(logs),
     calibrationV2: null, // filled below; it reads the grid-size sweep
+    touch: analyzeTouch(logs),
   };
   analysis.calibrationV2 = analyzeCalibrationV2(logs, analysis.gridSizes);
   printReport(logs, analysis);

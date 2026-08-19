@@ -195,7 +195,13 @@ code { font-family: var(--mono); }
 }
 .rate .unit { font-size: 20px; color: var(--muted); font-weight: 400; }
 .stats { font-family: var(--mono); font-size: 15px; color: var(--muted); letter-spacing: 0.03em; }
-.practice-tag { font-family: var(--mono); font-size: 13px; color: var(--accent); letter-spacing: 0.1em; }
+/* A real button, so it can be tapped on a device with no Esc key — styled as the plain label it
+   has always been, and sized to the 44px touch floor the grid itself is fitted to. */
+.practice-tag {
+  font-family: var(--mono); font-size: 13px; color: var(--accent); letter-spacing: 0.1em;
+  background: none; border: 0; cursor: pointer; padding: 12px 16px; min-height: 44px;
+}
+.practice-tag:hover { color: var(--ink); }
 /* A/B arm, named on the run screen: a missing ghost must read as the experiment, not a bug.
    Muted, not accent — it is a label about the run, and must not compete with the play field. */
 

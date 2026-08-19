@@ -529,6 +529,11 @@ function movementStats(log: RunLog): Array<[string, string]> {
   if (grid) {
     rows.push(['grid', `${grid.gridSize}×${grid.gridSize}`]);
     rows.push(['input', grid.pointerType]);
+    // A touch run played a coarser grid with a different input device. B divides by log2(N−1) so
+    // the two are on the same scale in principle, but measured B is not actually flat in N, so the
+    // score is not a like-for-like against a desktop one. Saying so on the report is the only place
+    // a player would ever find out.
+    if (grid.sizing === 'touch') rows.push(['sized for', `touch · not comparable to mouse runs`]);
   }
   rows.push(['moves', String(fitts?.count ?? corrects.length)]);
 

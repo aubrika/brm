@@ -128,6 +128,14 @@ export interface GridLog {
   pointerType: string; // modal pointer type across the run ('mouse' | 'touch' | 'pen')
   ghostAdjacent?: number[]; // per down-event: 1 if the next target was within a couple cells of this one
   pointerTypes?: string[]; // per down-event pointer type
+  /** How the grid size was chosen. 'fixed' is the desktop game: 32×32 for everyone, which is what
+   *  makes two scores comparable. 'touch' means a coarse pointer was detected and the grid was
+   *  sized down until its cells cleared a fingertip — a different N on a different input device, so
+   *  a separate modality. Analyses must not pool the two; B is not invariant to N in the measured
+   *  data (9.07 bits/s at 8², 13.37 at 24²). Absent on logs written before touch sizing existed,
+   *  all of which are 'fixed'. */
+  sizing?: 'fixed' | 'touch';
+  minCellPx?: number; // the touch floor the grid was fitted to, when sizing is 'touch'
 }
 
 // ---- retired mode + experiment shapes, read-only ------------------------------

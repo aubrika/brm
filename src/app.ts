@@ -9,7 +9,7 @@
 import { Engine, type KeyInput } from './v1/engine.js';
 import { GridEngine } from './v2/engine.js';
 import { StripRenderer } from './v1/view.js';
-import { GridRenderer } from './v2/view.js';
+import { GridRenderer, availableFieldPx, fitTouchGrid, TOUCH_MIN_CELL_PX } from './v2/view.js';
 import { AudioFeedback } from './ui/audio.js';
 import { LatencyOverlay } from './ui/latency.js';
 import { buildReport, downloadReport } from './io/report.js';
@@ -71,6 +71,7 @@ interface RunCtx {
   pointerType: string; // GRID: modal pointer type across the run
   ghostAdjacent: number[]; // GRID: per down-event, was the next target within a couple cells
   pointerTypes: string[]; // GRID: per down-event pointer type
+  touchSized: boolean; // GRID: the grid was sized for a fingertip, not fixed at the desktop N
   rafId: number;
   ui: {
     time: HTMLElement;
@@ -433,7 +434,12 @@ export class App {
           document.createTextNode(' target square will appear.'),
         ]),
         ...(msg ? [el('div', { class: 'field-error', text: msg })] : []),
-        el('div', { class: 'field-note', text: 'Duration is locked to 60 s for scored runs. Practice runs will continue until you press ESC.' }),
+        el('div', {
+          class: 'field-note',
+          text: this.coarsePointer()
+            ? 'Duration is locked to 60 s for scored runs. Practice runs will continue until you tap Exit.'
+            : 'Duration is locked to 60 s for scored runs. Practice runs will continue until you press ESC.',
+        }),
         el('div', { class: 'buttons' }, [practice, scored]),
         el('p', { class: 'consent', text: 'Runs are saved locally and never transmitted anywhere.' }),
       ]),
@@ -471,7 +477,7 @@ export class App {
       time,
       el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
       el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+      ...(timed ? [] : [this.practiceTag()]),
     ]);
     this.root.append(screen);
 
@@ -482,6 +488,7 @@ export class App {
       strip,
       gridView: null,
       grid: false,
+      touchSized: false,
       recorder: new RunRecorder(),
       timed,
       phase: immediate ? 'playing' : 'ready',
@@ -513,9 +520,6 @@ export class App {
     this.root.replaceChildren();
     if (this.config.sound) this.audio.unlock(); // the Start-button click is the unlocking gesture
 
-    const engine = new GridEngine(this.config, timed);
-    engine.onCorrect = () => this.audio.bloop(); // hit: rising bloop (+ particle burst in the renderer)
-    // no wrong-cell buzzer — the red flash (drawn by the renderer) is the only miss feedback
     const stripRoot = el('div', { class: 'strip-root grid-root' });
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
@@ -538,9 +542,29 @@ export class App {
       time,
       el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
       el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+      ...(timed ? [] : [this.practiceTag()]),
     ]);
     this.root.append(screen);
+
+    // Size the grid AFTER the screen is in the document, because on a coarse pointer the choice
+    // depends on how much room there actually is — and only a laid-out element knows that.
+    //
+    // WHY THE GRID SHRINKS ON TOUCH. 32×32 on a phone is a 9px cell against a ~40px fingertip: not
+    // hard, unplayable. And widening the field cannot fix it — the grid is a square, so the smaller
+    // viewport dimension binds, and on a portrait phone that is already the full width. The only
+    // lever is fewer, bigger cells, so a coarse pointer gets the finest grid whose cells still clear
+    // TOUCH_MIN_CELL_PX (≈ 6² on a phone, ≈ 16² on a tablet).
+    //
+    // This is chosen ONCE, at run start, and held for the whole run: N is in the score, so a grid
+    // that resized mid-run (rotating the phone) would make the run's own bit rate meaningless.
+    const avail = availableFieldPx(stripRoot.clientWidth || window.innerWidth, stripRoot.clientHeight || 360);
+    const coarse = this.coarsePointer();
+    const gridSize = coarse ? fitTouchGrid(avail) : this.config.gridSize;
+    const runConfig = gridSize === this.config.gridSize ? this.config : { ...this.config, gridSize };
+
+    const engine = new GridEngine(runConfig, timed);
+    engine.onCorrect = () => this.audio.bloop(); // hit: rising bloop (+ particle burst in the renderer)
+    // no wrong-cell buzzer — the red flash (drawn by the renderer) is the only miss feedback
 
     const gridView = new GridRenderer(engine, stripRoot);
     const canvas = gridView.element;
@@ -570,6 +594,7 @@ export class App {
       pointerType: '',
       ghostAdjacent: [],
       pointerTypes: [],
+      touchSized: coarse,
       rafId: 0,
       ui: { time, rate, stats, countdown, stripRoot },
     };
@@ -579,6 +604,30 @@ export class App {
       countdown.classList.add('hidden');
     }
     this.run.rafId = requestAnimationFrame(this.loop);
+  }
+
+  /** The practice-run exit. It has to be TAPPABLE, not just an Esc binding: touch sizing made the
+   *  game playable on a phone, and a phone has no Esc key — a practice run there would have been
+   *  inescapable short of reloading the page. Esc still works where there is a keyboard. */
+  private practiceTag(): HTMLElement {
+    const coarse = this.coarsePointer();
+    return el('button', {
+      class: 'practice-tag',
+      type: 'button',
+      onclick: () => this.abortRun(),
+      text: coarse ? 'PRACTICE · tap to exit' : 'PRACTICE · Esc to exit',
+    });
+  }
+
+  /** Is the primary pointer a finger? `(pointer: coarse)` asks about INPUT, not screen size, so a
+   *  touchscreen laptop and a small desktop window are classified correctly where a width
+   *  breakpoint would get both wrong. matchMedia is absent in some headless/test environments. */
+  private coarsePointer(): boolean {
+    try {
+      return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    } catch {
+      return false;
+    }
   }
 
   // rAF passes a timestamp, but we read performance.now() directly so the render loop and
@@ -659,6 +708,10 @@ export class App {
       gridSize: v ? v.gridSize : this.config.gridSize,
       depth: 1, // one cell per selection. Kept in the log so the analyzer can still filter the
       // stacked-layer runs in logs/ out of the grid sweep — see GridLog.depth.
+      // How N was chosen. 'touch' runs played a coarser grid with a different input device, so they
+      // are a separate modality and the analyzer must never pool them with 'fixed' runs.
+      sizing: rc.touchSized ? 'touch' : 'fixed',
+      minCellPx: rc.touchSized ? TOUCH_MIN_CELL_PX : undefined,
       fieldPx: v ? v.fieldPx : 0,
       cellPx: v ? v.cellPx : 0,
       devicePixelRatio: v ? v.dpr : 1,
