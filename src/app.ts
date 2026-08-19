@@ -426,7 +426,7 @@ export class App {
         el('p', { class: 'subtitle' }, [
           document.createTextNode('Click the '),
           el('span', { class: 'ink-target', text: 'orange' }),
-          document.createTextNode(' squares as fast and as accurately as you can. Correct clicks add to your score, while errors subtract. The line drawn from the '),
+          document.createTextNode(' squares as quickly and as accurately as you can. Correct clicks add to your score, while errors subtract from your score. The line drawn from the '),
           el('span', { class: 'ink-target', text: 'orange' }),
           document.createTextNode(' target square to the white outlined square indicates where the next '),
           el('span', { class: 'ink-target', text: 'orange' }),
@@ -520,7 +520,19 @@ export class App {
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
     const stats = el('div', { class: 'stats' });
-    const countdown = el('div', { class: 'countdown hint', text: 'click the highlighted cell to start' });
+    // Same vocabulary as the start page, and the same colour on the word: this sits over the field
+    // with a real orange square already drawn on it, so naming the thing beats describing it. A
+    // playtester read "the highlighted cell" and could not tell which of the two marked cells it
+    // meant — the filled one or the outlined preview.
+    // Wrapped in one span because .countdown is a flex container: as three direct children the
+    // text nodes become flex items and the spaces between them are dropped ("click theorangesquare").
+    const countdown = el('div', { class: 'countdown hint' }, [
+      el('span', {}, [
+        document.createTextNode('click the '),
+        el('span', { class: 'ink-target', text: 'orange' }),
+        document.createTextNode(' square to start'),
+      ]),
+    ]);
 
     const screen = el('div', { class: 'screen run' }, [
       time,

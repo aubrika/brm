@@ -8,7 +8,7 @@ export interface GameConfig {
   label: string; // free-text machine name, stamped into each log's filename + meta
 
   // ---- GRID MODE (pointing; mouse/trackpad — see bitrate-grid-mode-spec.md) ----
-  // A separate targeting modality: click the highlighted cell of a large grid, N = cell count, so a
+  // A separate targeting modality: click the orange square on a large grid, N = cell count, so a
   // 32×32 grid scores log2(1023) ≈ 10 bits/selection. Its own engine + canvas renderer; when on it
   // replaces the keyboard game entirely (the alphabet/finger machinery is unused).
   grid: boolean; // GRID MODE on
