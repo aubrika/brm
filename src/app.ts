@@ -179,10 +179,7 @@ export class App {
     // keydown falls through and is scored as the first selection.
     if (rc.phase === 'ready') {
       if (!eng.alphaSet.has(e.key) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
-      rc.phase = 'playing';
-      eng.start(performance.now());
-      rc.startedAt = new Date().toISOString();
-      rc.ui.startPrompt.classList.add('hidden');
+      this.beginPlay(rc);
     }
     const inAlpha = eng.alphaSet.has(e.key);
     const modified = e.ctrlKey || e.metaKey || e.altKey;
@@ -224,12 +221,7 @@ export class App {
     if (e.ctrlKey || e.metaKey || e.altKey) return; // ignore modified clicks (spec §1)
     e.preventDefault();
     const eng = rc.engine;
-    if (rc.phase === 'ready') {
-      rc.phase = 'playing';
-      eng.start(performance.now());
-      rc.startedAt = new Date().toISOString();
-      rc.ui.startPrompt.classList.add('hidden');
-    }
+    if (rc.phase === 'ready') this.beginPlay(rc);
     const now = performance.now();
     this.latency.markKey(now);
     const cell = rc.gridView.cellAt(e.clientX, e.clientY);
@@ -316,42 +308,15 @@ export class App {
     engine.onError = () => this.audio.error();
 
     const playRoot = el('div', { class: 'play-root' });
-    const time = el('div', { class: 'time' });
-    const rate = el('div', { class: 'rate' });
-    const stats = el('div', { class: 'stats' });
-    // shown until the first keypress: the run's clock starts when you type, no 3-2-1 startPrompt
+    // shown until the first keypress: the run's clock starts when you type, no 3-2-1 countdown
     const startPrompt = el('div', { class: 'start-prompt', text: 'type the highlighted key to start' });
 
-    const screen = el('div', { class: 'screen run' }, [
-      time,
-      el('div', { class: 'play-wrap' }, [playRoot, startPrompt]),
-      el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
-    ]);
+    const { screen, ...ui } = this.runScreen(timed, playRoot, startPrompt);
     this.root.append(screen);
 
     const strip = new StripRenderer(engine, playRoot);
-    const now0 = performance.now();
-    this.run = {
-      engine,
-      view: strip,
-      grid: false,
-      recorder: new RunRecorder(),
-      timed,
-      phase: immediate ? 'playing' : 'ready',
-      startedAt: '',
-      droppedFrames: 0,
-      lastFrameMs: -1,
-      pendingDownT: 0,
-      pendingDown: false,
-      rafId: 0,
-      ui: { time, rate, stats, startPrompt, playRoot },
-    };
-    if (immediate) {
-      engine.start(now0);
-      this.run.startedAt = new Date().toISOString();
-      startPrompt.classList.add('hidden');
-    }
+    this.run = { engine, view: strip, grid: false, ...this.baseRunCtx(timed, immediate, ui) };
+    if (immediate) this.beginPlay(this.run);
     this.run.rafId = requestAnimationFrame(this.loop);
   }
 
@@ -364,9 +329,6 @@ export class App {
     if (this.config.sound) this.audio.unlock(); // the Start-button click is the unlocking gesture
 
     const playRoot = el('div', { class: 'play-root grid-root' });
-    const time = el('div', { class: 'time' });
-    const rate = el('div', { class: 'rate' });
-    const stats = el('div', { class: 'stats' });
     // Same vocabulary as the start page, and the same colour on the word: this sits over the field
     // with a real orange square already drawn on it, so naming the thing beats describing it. A
     // playtester read "the highlighted cell" and could not tell which of the two marked cells it
@@ -381,12 +343,7 @@ export class App {
       ]),
     ]);
 
-    const screen = el('div', { class: 'screen run' }, [
-      time,
-      el('div', { class: 'play-wrap' }, [playRoot, startPrompt]),
-      el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
-    ]);
+    const { screen, ...ui } = this.runScreen(timed, playRoot, startPrompt);
     this.root.append(screen);
 
     // Size the grid AFTER the screen is in the document, because on a coarse pointer the choice
@@ -419,33 +376,19 @@ export class App {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.style.touchAction = 'none'; // no scroll/zoom gestures stealing the pointerdown
 
-    const now0 = performance.now();
     this.run = {
       engine,
       view: gridView,
       gridView,
       grid: true,
-      recorder: new RunRecorder(),
-      timed,
-      phase: immediate ? 'playing' : 'ready',
-      startedAt: '',
-      droppedFrames: 0,
-      lastFrameMs: -1,
-      pendingDownT: 0,
-      pendingDown: false,
       pendingPointer: null,
       pointerType: '',
       ghostAdjacent: [],
       pointerTypes: [],
       touchSized: coarse,
-      rafId: 0,
-      ui: { time, rate, stats, startPrompt, playRoot },
+      ...this.baseRunCtx(timed, immediate, ui),
     };
-    if (immediate) {
-      engine.start(now0);
-      this.run.startedAt = new Date().toISOString();
-      startPrompt.classList.add('hidden');
-    }
+    if (immediate) this.beginPlay(this.run);
     this.run.rafId = requestAnimationFrame(this.loop);
   }
 
@@ -458,6 +401,47 @@ export class App {
     } catch {
       return false;
     }
+  }
+
+  /** Start the clock. There is no countdown: a run sits in `ready` until the first selection, and
+   *  that same event is then scored — so this fires from BOTH input paths (keydown for v1, and
+   *  pointerdown for the grid) and has to mean exactly the same thing in each. */
+  private beginPlay(rc: RunCtx): void {
+    rc.phase = 'playing';
+    rc.engine.start(performance.now());
+    rc.startedAt = new Date().toISOString();
+    rc.ui.startPrompt.classList.add('hidden');
+  }
+
+  /** The run screen's chrome — clock, play area, readout, and the practice exit. Identical for both
+   *  games; only the thing mounted into `playRoot` differs. */
+  private runScreen(timed: boolean, playRoot: HTMLElement, startPrompt: HTMLElement): RunCtx['ui'] & { screen: HTMLElement } {
+    const time = el('div', { class: 'time' });
+    const rate = el('div', { class: 'rate' });
+    const stats = el('div', { class: 'stats' });
+    const screen = el('div', { class: 'screen run' }, [
+      time,
+      el('div', { class: 'play-wrap' }, [playRoot, startPrompt]),
+      el('div', { class: 'readout' }, [rate, stats]),
+      ...(timed ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
+    ]);
+    return { time, rate, stats, startPrompt, playRoot, screen };
+  }
+
+  /** The fields every run starts with, whichever game it is. */
+  private baseRunCtx(timed: boolean, immediate: boolean, ui: RunCtx['ui']): Omit<RunCtxBase, 'recorder'> & { recorder: RunRecorder } {
+    return {
+      recorder: new RunRecorder(),
+      timed,
+      phase: immediate ? 'playing' : 'ready',
+      startedAt: '',
+      droppedFrames: 0,
+      lastFrameMs: -1,
+      pendingDownT: 0,
+      pendingDown: false,
+      rafId: 0,
+      ui,
+    };
   }
 
   // rAF passes a timestamp, but we read performance.now() directly so the render loop and

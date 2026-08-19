@@ -12,6 +12,7 @@
 
 import type { GridEngine } from './engine.js';
 import type { GridConfig } from '../core/config.js';
+import { cellIndexAt, cellsApart, colOf, rowOf } from '../core/grid.js';
 
 const MARGIN = 20; // px inset from the smaller viewport dimension
 // The target's fill, and the crosshair tint (same hue at low alpha). Okabe-Ito orange. The config
@@ -33,7 +34,12 @@ const REPEAT_FLASH_MS = 200; // white confirm-flash when the next target repeats
 const PULSE_HZ = 2;
 const GHOST_ADJACENT = 2; // Chebyshev distance flagged as "next target is close" (logged, not suppressed)
 
-// ---- pure geometry (no DOM) -------------------------------------------------
+// Cell arithmetic lives in core/grid.js — shared with the offline analyzer so the hit test that
+// scores a click and the one that analyses it cannot drift. Re-exported here because this is where
+// callers look for grid geometry.
+export { cellIndexAt, cellsApart } from '../core/grid.js';
+
+// ---- view geometry (no DOM) -------------------------------------------------
 // Extracted so the load-bearing arithmetic is unit-testable: cellIndexAt decides correct-vs-error
 // on EVERY click, and fitGridGeometry fixes the cell size W that every logged Fitts number depends
 // on. See view.test.ts.
@@ -77,19 +83,6 @@ export function fitTouchGrid(availPx: number, minCellPx = TOUCH_MIN_CELL_PX, lad
 export function fitGridGeometry(availPx: number, gridSize: number): { cellPx: number; fieldPx: number } {
   const cellPx = Math.max(1, Math.floor(availPx / gridSize));
   return { cellPx, fieldPx: cellPx * gridSize };
-}
-
-/** Field-local px → cell index, or -1 outside the grid. Pure arithmetic; never per-cell DOM. */
-export function cellIndexAt(x: number, y: number, cellPx: number, gridSize: number): number {
-  const col = Math.floor(x / cellPx);
-  const row = Math.floor(y / cellPx);
-  if (col < 0 || col >= gridSize || row < 0 || row >= gridSize) return -1;
-  return row * gridSize + col;
-}
-
-/** Chebyshev distance between two cells, in cells. */
-export function cellsApart(a: number, b: number, gridSize: number): number {
-  return Math.max(Math.abs((a % gridSize) - (b % gridSize)), Math.abs(Math.floor(a / gridSize) - Math.floor(b / gridSize)));
 }
 
 /** Which lookahead outlines to actually draw. The i.i.d. sequence repeats a cell every 1/N
@@ -173,10 +166,10 @@ export class GridRenderer {
   }
 
   private col(idx: number): number {
-    return idx % this.gridSize;
+    return colOf(idx, this.gridSize);
   }
   private row(idx: number): number {
-    return Math.floor(idx / this.gridSize);
+    return rowOf(idx, this.gridSize);
   }
   private centerX(idx: number): number {
     return (this.col(idx) + 0.5) * this.cellPx;

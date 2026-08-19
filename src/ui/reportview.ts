@@ -16,6 +16,7 @@ import { reportStats, digraphStats, transitionMeans, confusion, ikiList, quantil
 import { laneColors } from '../core/config.js';
 import type { IndexRow } from '../io/logging.js';
 import { el, svgEl, section, prefersReducedMotion, animateOver } from './dom.js';
+import { colOf, rowOf } from '../core/grid.js';
 
 export interface LogInfo {
   available: boolean;
@@ -175,7 +176,7 @@ function makeSelectionFormatter(log: RunLog): (value: string) => string {
   if (!gridSize) return fmtKey;
   return (value) => {
     const cell = Number(value);
-    return Number.isFinite(cell) ? `(${cell % gridSize}, ${Math.floor(cell / gridSize)})` : value;
+    return Number.isFinite(cell) ? `(${colOf(cell, gridSize)}, ${rowOf(cell, gridSize)})` : value;
   };
 }
 

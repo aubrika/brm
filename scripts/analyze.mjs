@@ -23,6 +23,7 @@ import {
   medianIki,
   gridFitts,
 } from '../src/core/stats.js';
+import { cellIndexAt, cellCentre } from '../src/core/grid.js';
 
 const SCHEMA = 3;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -327,13 +328,6 @@ function olsFit(xs, ys) {
   return { n, slope, intercept: my - slope * mx, r2: sxx > 0 && syy > 0 ? (sxy * sxy) / (sxx * syy) : 0 };
 }
 
-function cellOfXY(x, y, cellPx, gridSize) {
-  const col = Math.floor(x / cellPx);
-  const row = Math.floor(y / cellPx);
-  if (col < 0 || col >= gridSize || row < 0 || row >= gridSize) return -1;
-  return row * gridSize + col;
-}
-
 // Verify/dwell time per correct selection: (down time) − (first pointer sample that entered the
 // target cell in this selection's window). This is where the hover pulse earns its place (shorter
 // dwell, same accuracy) or doesn't.
@@ -352,7 +346,7 @@ function dwellTimes(log) {
     for (const [pt, px, py] of path) {
       if (pt <= prevT) continue;
       if (pt > downT) break;
-      if (cellOfXY(px, py, g.cellPx, g.gridSize) === cell) {
+      if (cellIndexAt(px, py, g.cellPx, g.gridSize) === cell) {
         entryT = pt;
         break;
       }
@@ -696,8 +690,9 @@ function endpointScatter(log) {
       if (Math.abs(path[j][0] - d.t) < Math.abs(path[best][0] - d.t)) best = j;
     }
     if (Math.abs(path[best][0] - d.t) > 25) continue; // no sample close enough in time to be the endpoint
-    const dx = path[best][1] - ((aim % g) + 0.5) * cellPx;
-    const dy = path[best][2] - (Math.floor(aim / g) + 0.5) * cellPx;
+    const centre = cellCentre(aim, g, cellPx);
+    const dx = path[best][1] - centre.x;
+    const dy = path[best][2] - centre.y;
     if (Math.hypot(dx, dy) > 4 * cellPx) continue; // gross lapse, as the calibration rejects too
     dxs.push(dx);
     dys.push(dy);
