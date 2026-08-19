@@ -1,10 +1,15 @@
-// Screen router + run loop. Three screens (config, run, report); a run waits in a "ready" state
-// and its clock starts on the first keypress (no countdown). A single window keydown listener
-// (attached once, { passive:false }) drives the whole app; during play it is the latency-critical
-// path — classify, count, advance,
-// synchronously — while a separate rAF loop reads state and draws. Alongside the scoring
-// log, a RunRecorder buffers a richer event log (down+up, verdict, live idx) entirely from
-// primitives, written to logs/ once at run end — never during the 60 s.
+// Screen router + run loop, and nothing else. Three screens (config, run, report); a run waits in a
+// "ready" state and its clock starts on the first selection, with no countdown.
+//
+// What lives here is what has to: the single window keydown listener (attached once,
+// { passive: false }) and the canvas pointer handlers, which during play are the latency-critical
+// path — classify, count, advance, synchronously — plus the rAF loop that reads that state and
+// draws. Alongside the scoring log, a RunRecorder buffers a richer event log (down+up, verdict,
+// live idx) entirely from primitives, written to logs/ once at run end, never during the 60 s.
+//
+// What does NOT live here: the config screens (ui/configscreen.ts, pure view functions), the
+// auto-players (ui/demo.ts), the log assembly (io/report.ts), the report screen
+// (ui/reportview.ts). Each was moved out because it could be — none of them needs the run loop.
 
 import { Engine, type KeyInput } from './v1/engine.js';
 import { GridEngine } from './v2/engine.js';
@@ -17,8 +22,9 @@ import { RunRecorder, postLog, probeHealth, fetchIndex, type IndexRow } from './
 import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
 import { el } from './ui/dom.js';
-import { loadConfig, saveConfig, DEFAULT_GRID_CONFIG, DEFAULT_KEYBOARD_CONFIG, type GameConfig, type GridConfig, type KeyboardConfig } from './core/config.js';
-import { validateAlphabet } from './core/alphabet.js';
+import { gridConfigScreen, keyboardConfigScreen, practiceTag } from './ui/configscreen.js';
+import { startGridDemo, startKeyboardDemo } from './ui/demo.js';
+import { loadConfig, saveConfig, DEFAULT_GRID_CONFIG, type GameConfig, type GridConfig } from './core/config.js';
 import type { MachineMeta, RunLog } from './core/stats.js';
 
 const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps frame was skipped
@@ -139,57 +145,21 @@ export class App {
       }
       this.startRun(auto === 'scored', true); // start immediately (skip the ready wait) for headless capture
       if (params.has('demo')) {
-        if (this.config.mode === 'grid') this.startGridDemo();
-        else this.startDemoTyper();
+        // The source closures let the demo end itself when the run does, without it holding a
+        // reference to a RunCtx that finishRun has already replaced with null.
+        if (this.config.mode === 'grid') {
+          startGridDemo(() => {
+            const rc = this.run;
+            return rc?.grid && rc.phase !== 'done' ? { engine: rc.engine, view: rc.gridView } : null;
+          });
+        } else {
+          startKeyboardDemo(() => {
+            const rc = this.run;
+            return rc && !rc.grid && rc.phase === 'playing' ? rc.engine : null;
+          });
+        }
       }
     }
-  }
-
-  // Dev-only demo driver for GRID MODE: dispatches a real pointerdown at the current target's
-  // centre (plus a pointermove, so hover/pulse and path sampling exercise the same path a hand
-  // would). Drives the identical input code as a human click.
-  private startGridDemo(): void {
-    const errorRate = 0.05;
-    const tick = (): void => {
-      const rc = this.run;
-      if (!rc || rc.phase === 'done') return;
-      if (rc.phase === 'playing' && rc.grid) {
-        const eng = rc.engine;
-        const gv = rc.gridView;
-        let cell = eng.target();
-        if (Math.random() < errorRate) cell = (cell + 1) % eng.cells; // an adjacent miss now and then
-        const r = gv.element.getBoundingClientRect();
-        const col = cell % eng.gridSize;
-        const row = Math.floor(cell / eng.gridSize);
-        const cx = r.left + (col + 0.5) * gv.cellPx;
-        const cy = r.top + (row + 0.5) * gv.cellPx;
-        const opts = { clientX: cx, clientY: cy, bubbles: true, pointerType: 'mouse' } as PointerEventInit;
-        gv.element.dispatchEvent(new PointerEvent('pointermove', opts));
-        gv.element.dispatchEvent(new PointerEvent('pointerdown', opts));
-      }
-      window.setTimeout(tick, 90 + Math.random() * 60);
-    };
-    window.setTimeout(tick, 200);
-  }
-
-  private startDemoTyper(): void {
-    const errorRate = 0.06;
-    const tick = (): void => {
-      const rc = this.run;
-      if (!rc || rc.phase === 'done') return;
-      if (rc.phase === 'playing' && !rc.grid) {
-        const eng = rc.engine;
-        let key = eng.target();
-        if (Math.random() < errorRate) {
-          const others = eng.chars.filter((c: string) => c !== key);
-          key = others[Math.floor(Math.random() * others.length)] ?? key;
-        }
-        window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
-        window.setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })), 30);
-      }
-      window.setTimeout(tick, 70 + Math.random() * 80);
-    };
-    window.setTimeout(tick, 200);
   }
 
   // ---------------------------------------------------------------- input ----
@@ -299,140 +269,30 @@ export class App {
     }
   };
 
-  // ------------------------------------------------------ v1 legacy config ----
-  // The original falling-lanes keyboard game, frozen. Only the two home rows are configurable
-  // (N = 8); there is no grid and none of the retired experiments. It exists to demonstrate the
-  // design lineage that led to the grid alphabet — see the Development Process section of README.md.
-  private showLegacyConfig(msg?: string): void {
-    // This screen only ever runs in the v1 bundle, where the config is a KeyboardConfig by
-    // construction. The fallback keeps it honest rather than asserting.
-    const cfg: KeyboardConfig = this.config.mode === 'keyboard' ? this.config : DEFAULT_KEYBOARD_CONFIG;
-    const keyInput = (value: string): HTMLInputElement =>
-      el('input', { type: 'text', class: 'field-input mono', value, spellcheck: false, autocomplete: 'off', autocapitalize: 'off' });
-    const leftFingers = keyInput(cfg.leftFingers || 'asdf');
-    const rightFingers = keyInput(cfg.rightFingers || 'jkl;');
-    const err = el('div', { class: 'field-error' });
-
-    // Machine name. Free text, persisted, and stamped into every log's filename and meta. It exists
-    // because cell size in px — the unit every Fitts number and the scatter law live in — is set by
-    // the window, so runs from a laptop and a desktop are not comparable and pooling them would
-    // manufacture results. installId separates browser profiles, but a name is what makes the
-    // separation legible in the analyzer without cross-referencing a token.
-    const label = el('input', { class: 'field-input', type: 'text', maxlength: '24', placeholder: 'e.g. laptop', value: cfg.label });
-    label.addEventListener('change', () => {
-      this.config = { ...this.config, label: label.value.trim().slice(0, 24) };
-      saveConfig(this.config);
-    });
-
-    const field = (label: string, control: Node, hint?: string): HTMLElement =>
-      el('label', { class: 'field' }, [
-        el('span', { class: 'field-label', text: label }),
-        control,
-        ...(hint ? [el('span', { class: 'field-hint', text: hint })] : []),
-      ]);
-
-    const collect = (): KeyboardConfig | null => {
-      const parts = { leftFingers: leftFingers.value, rightFingers: rightFingers.value };
-      const v = validateAlphabet(parts.leftFingers + parts.rightFingers);
-      if (!v.ok) {
-        err.textContent = v.error;
-        return null;
-      }
-      err.textContent = '';
-      return { ...DEFAULT_KEYBOARD_CONFIG, ...parts, alphabet: v.alphabet, label: cfg.label };
-    };
-    const start = (timed: boolean) => (): void => {
-      const c = collect();
-      if (!c) return;
-      this.commit(c);
-      this.startRun(timed);
-    };
-
-    this.root.append(
-      el('div', { class: 'screen config' }, [
-        el('h1', { class: 'title', text: 'Bit-Rate Maximizer — v1' }),
-        el('p', { class: 'subtitle', text: 'The original keyboard version: type the highlighted key as it falls down its finger’s lane. Correct keys add bits; errors subtract. Kept as a demo of where the design started — the current version is the grid game.' }),
-        ...(msg ? [el('div', { class: 'field-error', text: msg })] : []),
-        el('div', { class: 'config-grid' }, [
-          field('Left hand', leftFingers, 'Keys the left hand types, outside-in.'),
-          field('Right hand', rightFingers, 'Keys the right hand types, inside-out.'),
-        ]),
-        err,
-        el('div', { class: 'field-note', text: 'N = 8 (one key per finger). Duration is locked to 60 s for scored runs.' }),
-        el('div', { class: 'buttons' }, [
-          el('button', { class: 'btn ghost', onclick: start(false), text: 'Practice' }),
-          el('button', { class: 'btn primary', onclick: start(true), text: 'Start scored run' }),
-        ]),
-        el('p', { class: 'consent', text: 'Runs are saved locally and never transmitted anywhere.' }),
-      ]),
-    );
-    leftFingers.focus();
-  }
-
   // --------------------------------------------------------------- config ----
+  // Routing only: pick the screen this variant configures, hand it the current config and the one
+  // callback it needs, and mount it. The screens themselves are pure view functions in
+  // ui/configscreen.ts and know nothing about App.
   private showConfig(msg?: string): void {
     this.mode = 'config';
     this.run = null;
     this.root.replaceChildren();
-    if (VARIANT === 'v1') {
-      this.showLegacyConfig(msg);
-      return;
-    }
-
-    // THE GAME IS 32×32. There is no grid-size control, and that is the design, not an omission:
-    // one fixed N is what makes two scores comparable, and B is only a fair comparison across
-    // players if they are all answering the same question. Three successive calibrators tried to
-    // personalise it and all three were retired (see core/stats.d.ts); the reason they could be
-    // dropped without cost is that measured B is nearly flat across the middle of the ladder —
-    // 13.37 at 24², 13.33 at 32², 13.03 at 48² — so a per-player choice was never worth more than
-    // a few percent, and no measurement cheap enough to put in front of a 60 s run can resolve a
-    // few percent. There is no override left, not even a URL parameter — see the constructor.
-    const gridCfg: GridConfig = this.config.mode === 'grid' ? this.config : DEFAULT_GRID_CONFIG;
-    const collect = (): GridConfig => ({
-      ...DEFAULT_GRID_CONFIG,
-      gridSize: gridCfg.gridSize, // always DEFAULT_GRID_CONFIG.gridSize; nothing can change it
-      label: gridCfg.label, // not editable on screen; kept so an existing name survives
-    });
-
-    // Practice is offered, never required. Gating the scored run behind anything costs a minute of
-    // the exact activity being scored, and the run-order data does not show a warm-up deficit to
-    // pay that for: across sessions the FIRST run tends to be the best one (+6.0% over the rest of
-    // the session in the one clean 13-run session; two other sessions agree in sign but change
-    // grid size partway through). So when to warm up is the player's call, not the app's.
-    const practice = el('button', { class: 'btn ghost', onclick: () => { this.commit(collect()); this.startRun(false); }, text: 'Practice' });
-    const scored = el('button', {
-      class: 'btn primary',
-      onclick: () => { this.commit(collect()); this.startRun(true); },
-      text: 'Start scored run',
-    });
-
+    const opts = { coarsePointer: this.coarsePointer(), message: msg };
     this.root.append(
-      el('div', { class: 'screen config' }, [
-        el('h1', { class: 'title', text: 'Bit-Rate Maximizer' }),
-        // "orange" is painted in the target's own colour, so the word points at the thing rather
-        // than describing it. --target tracks TARGET_COLOR in v2/view.ts; if one moves so must the
-        // other, or the instructions name a colour the game does not draw.
-        el('p', { class: 'subtitle' }, [
-          document.createTextNode('Click the '),
-          el('span', { class: 'ink-target', text: 'orange' }),
-          document.createTextNode(' squares as quickly and as accurately as you can. Correct clicks add to your score, while errors subtract from your score. The line drawn from the '),
-          el('span', { class: 'ink-target', text: 'orange' }),
-          document.createTextNode(' target square to the white outlined square indicates where the next '),
-          el('span', { class: 'ink-target', text: 'orange' }),
-          document.createTextNode(' target square will appear.'),
-        ]),
-        ...(msg ? [el('div', { class: 'field-error', text: msg })] : []),
-        el('div', {
-          class: 'field-note',
-          text: this.coarsePointer()
-            ? 'Duration is locked to 60 s for scored runs. Practice runs will continue until you tap Exit.'
-            : 'Duration is locked to 60 s for scored runs. Practice runs will continue until you press ESC.',
-        }),
-        el('div', { class: 'buttons' }, [practice, scored]),
-        el('p', { class: 'consent', text: 'Runs can be saved locally, but are never transmitted anywhere.' }),
-      ]),
+      this.config.mode === 'keyboard'
+        ? keyboardConfigScreen(this.config, opts, {
+            onStart: (config, timed) => {
+              this.commit(config);
+              this.startRun(timed);
+            },
+          })
+        : gridConfigScreen(this.config, opts, {
+            onStart: (config, timed) => {
+              this.commit(config);
+              this.startRun(timed);
+            },
+          }),
     );
-    scored.focus();
   }
 
   private commit(c: GameConfig): void {
@@ -466,7 +326,7 @@ export class App {
       time,
       el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
       el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [this.practiceTag()]),
+      ...(timed ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
     ]);
     this.root.append(screen);
 
@@ -525,7 +385,7 @@ export class App {
       time,
       el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
       el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [this.practiceTag()]),
+      ...(timed ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
     ]);
     this.root.append(screen);
 
@@ -587,19 +447,6 @@ export class App {
       countdown.classList.add('hidden');
     }
     this.run.rafId = requestAnimationFrame(this.loop);
-  }
-
-  /** The practice-run exit. It has to be TAPPABLE, not just an Esc binding: touch sizing made the
-   *  game playable on a phone, and a phone has no Esc key — a practice run there would have been
-   *  inescapable short of reloading the page. Esc still works where there is a keyboard. */
-  private practiceTag(): HTMLElement {
-    const coarse = this.coarsePointer();
-    return el('button', {
-      class: 'practice-tag',
-      type: 'button',
-      onclick: () => this.abortRun(),
-      text: coarse ? 'PRACTICE · tap to exit' : 'PRACTICE · Esc to exit',
-    });
   }
 
   /** Is the primary pointer a finger? `(pointer: coarse)` asks about INPUT, not screen size, so a
