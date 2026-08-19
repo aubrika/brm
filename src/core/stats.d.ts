@@ -114,7 +114,10 @@ export interface RunSummary {
 export interface GridLog {
   enabled: boolean;
   gridSize: number; // cells per side
-  depth?: number; // stacked layers per selection (1 default; 2 = orange+blue pair, N = (gridSize²)²)
+  /** Cells per selection. Always 1 on a current log. logs/ holds a batch of runs from the retired
+   *  stacked-layer variant where it was 2 (N = (gridSize²)²), and analyze.mjs filters on it to keep
+   *  those out of the grid sweep — they are not the same game. */
+  depth?: number;
   fieldPx: number; // play-field side in CSS px
   cellPx: number; // target width W (px) — the Fitts term
   devicePixelRatio: number;

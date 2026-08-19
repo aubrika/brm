@@ -169,24 +169,18 @@ function tapeLayout(barCount: number): { barWidth: number; xOf: (i: number) => n
 }
 
 /** How one selection reads in a tooltip. A grid run's sequence entries are cell indices, shown as
- *  (x, y) tuples — far more legible than a raw cell number; a depth>1 selection is a joined "o,b"
- *  pair, shown as two tuples. Keyboard runs keep the glyph. */
+ *  (x, y) tuples — far more legible than a raw cell number. Keyboard runs keep the glyph. */
 function makeSelectionFormatter(log: RunLog): (value: string) => string {
   const gridSize = log.grid?.enabled ? log.grid.gridSize : 0;
   if (!gridSize) return fmtKey;
-  return (value) =>
-    value
-      .split(',')
-      .map((part) => {
-        const cell = Number(part);
-        return Number.isFinite(cell) ? `(${cell % gridSize}, ${Math.floor(cell / gridSize)})` : part;
-      })
-      .join(' + ');
+  return (value) => {
+    const cell = Number(value);
+    return Number.isFinite(cell) ? `(${cell % gridSize}, ${Math.floor(cell / gridSize)})` : value;
+  };
 }
 
-function barTooltip(bar: Bar, fmtSel: (v: string) => string, isDeepGrid: boolean): string {
-  // depth>1 grid: a "pair → pair" transition is too long to read, so show only this selection.
-  const transition = isDeepGrid || !bar.from ? fmtSel(bar.label) : `${fmtSel(bar.from)} → ${fmtSel(bar.label)}`;
+function barTooltip(bar: Bar, fmtSel: (v: string) => string): string {
+  const transition = !bar.from ? fmtSel(bar.label) : `${fmtSel(bar.from)} → ${fmtSel(bar.label)}`;
   const errors = bar.errCount
     ? ` · ${Math.round(bar.errorDelay)}ms lost to ${bar.errCount} error${bar.errCount > 1 ? 's' : ''}` +
       ` (pressed ${bar.errKeys.map(fmtSel).join(', ')})`
@@ -231,7 +225,6 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): AnimatedPanel {
   const bars = buildBars(log, downs, log.summary.medianIkiMs || 250);
   const { barWidth, xOf } = tapeLayout(bars.length);
   const fmtSel = makeSelectionFormatter(log);
-  const isDeepGrid = (log.grid?.enabled ? log.grid.depth ?? 1 : 0) > 1;
 
   // Declared before the bars so their hover handlers close over an initialised binding.
   const tip = el('div', {
@@ -243,7 +236,7 @@ function runTapeSection(log: RunLog, downs: DownEvent[]): AnimatedPanel {
   const missDots: HTMLElement[] = [];
   bars.forEach((bar, i) => {
     const x = xOf(i);
-    const tooltip = barTooltip(bar, fmtSel, isDeepGrid);
+    const tooltip = barTooltip(bar, fmtSel);
     ticks.append(tapeBar(bar, x, barWidth, tooltip, () => { tip.textContent = tooltip; }));
     if (bar.errCount) missDots.push(missDot(x));
   });
@@ -525,10 +518,6 @@ function transitionsColumn(log: RunLog): HTMLElement {
 /** The Movement panel's rows, as plain label/value pairs. */
 function movementStats(log: RunLog): Array<[string, string]> {
   const grid = log.grid;
-  const depth = grid?.depth ?? 1;
-  const isDeep = depth > 1;
-  // gridFitts measures per-move distance between single cells; a depth>1 selection is a joined pair,
-  // so it yields no distance and we fall back to plain selection cadence.
   const fitts = gridFitts(log);
   const corrects = reportStats(log).downs.filter((d) => d.verdict === 'ok');
 
@@ -539,15 +528,16 @@ function movementStats(log: RunLog): Array<[string, string]> {
   const rows: Array<[string, string]> = [];
   if (grid) {
     rows.push(['grid', `${grid.gridSize}×${grid.gridSize}`]);
-    if (isDeep) rows.push(['layers', `${depth} (orange→blue)`]);
     rows.push(['input', grid.pointerType]);
   }
-  rows.push([isDeep ? 'selections' : 'moves', String(isDeep ? corrects.length : fitts?.count ?? corrects.length)]);
+  rows.push(['moves', String(fitts?.count ?? corrects.length)]);
 
-  const hasDistances = !isDeep && fitts && fitts.count > 0;
+  // gridFitts needs a per-move distance between cells; it comes back empty on a keyboard run, and
+  // then plain selection cadence is the only cadence there is.
+  const hasDistances = fitts && fitts.count > 0;
   if (hasDistances) rows.push(['mean distance', `${fitts.meanDistCells.toFixed(1)} cells`]);
   const meanTimeMs = hasDistances ? fitts.meanMt : meanIntervalMs;
-  if (meanTimeMs > 0) rows.push([isDeep ? 'mean selection time' : 'mean move time', `${Math.round(meanTimeMs)} ms`]);
+  if (meanTimeMs > 0) rows.push(['mean move time', `${Math.round(meanTimeMs)} ms`]);
   return rows;
 }
 
