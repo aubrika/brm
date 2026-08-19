@@ -431,11 +431,20 @@ export class App {
     const time = el('div', { class: 'time' });
     const rate = el('div', { class: 'rate' });
     const stats = el('div', { class: 'stats' });
-    const screen = el('div', { class: 'screen run' }, [
+    // The clock, the live bit rate and the practice exit go in ONE container so the stylesheet can
+    // put them either above/below the field (portrait) or beside it (landscape). Which matters more
+    // than it looks: the field is a SQUARE, so on a landscape screen its HEIGHT binds and its width
+    // is surplus. Every pixel of chrome stacked above or below the field therefore comes straight
+    // out of the cell size, while the space to the left of the field goes unused — 230px of stacked
+    // chrome was costing a 1512×945 laptop 7px per cell.
+    const side = el('div', { class: 'run-side' }, [
       time,
-      el('div', { class: 'play-wrap' }, [playRoot, startPrompt]),
       el('div', { class: 'readout' }, [rate, stats]),
       ...(scored ? [] : [practiceTag(this.coarsePointer(), () => this.abortRun())]),
+    ]);
+    const screen = el('div', { class: 'screen run' }, [
+      side,
+      el('div', { class: 'play-wrap' }, [playRoot, startPrompt]),
     ]);
     return { time, rate, stats, startPrompt, playRoot, screen };
   }
@@ -505,7 +514,11 @@ export class App {
     }
     rc.ui.rate.innerHTML = `${eng.liveBitRate(now).toFixed(2)}<span class="unit"> bits/s</span>`;
     const acc = Math.round(eng.liveAccuracy() * 100);
-    rc.ui.stats.textContent = `Sc ${eng.sc} · Si ${eng.si} · N ${eng.n} · acc ${acc}%`;
+    // Non-breaking spaces INSIDE each stat, ordinary ones around the separators: in the sidebar
+    // layout this line is 190px wide, and an ordinary space let it break as "N / 1024".
+    // Still one text node, so this stays a textContent write rather than an HTML parse per frame.
+    const nb = '\u00a0'; // an escape, so no invisible character ever enters the source
+    rc.ui.stats.textContent = `Sc${nb}${eng.sc} · Si${nb}${eng.si} · N${nb}${eng.n} · acc${nb}${acc}%`;
   }
 
   private abortRun(): void {

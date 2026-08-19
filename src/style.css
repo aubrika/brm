@@ -66,7 +66,11 @@ code { font-family: var(--mono); }
 .btn.ghost:hover { background: var(--panel); }
 
 /* --------------------------------------------------------------------- run -- */
+/* Default (portrait, or any screen too narrow to spare the width): HUD stacked above and below the
+   field, which is where it lived for the whole measured dataset. */
 .screen.run { align-items: center; justify-content: center; gap: 6px; padding: 14px 24px; }
+.run-side { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
 .time {
   font-family: var(--mono); font-size: 40px; font-variant-numeric: tabular-nums;
   color: var(--muted); letter-spacing: 0.02em; min-height: 48px;
@@ -333,4 +337,58 @@ code { font-family: var(--mono); }
 
 @media (prefers-reduced-motion: reduce) {
   .btn { transition: none; }
+}
+
+/* ============================ responsive run layout ============================
+   Last in the file on purpose: every rule here overrides a base rule declared above at
+   the same specificity, so source order is what makes it win. Moved here after the
+   sidebar silently failed to apply — aspect-ratio took effect while `flex` did not,
+   because the base .play-wrap rule came later and restored `flex: 1 1 auto`.
+   ============================================================================ */
+
+/* Landscape with width to spare: HUD BESIDE the field instead of above and below it.
+   The field is a square fitted to min(width, height), so on a landscape screen the height binds and
+   the width is surplus. Stacked chrome spends the scarce dimension to save the plentiful one, which
+   is exactly backwards: 230px of clock + readout + tag cost a 1512×945 laptop 7px of every cell,
+   while ~800px sat unused beside the field. Moving them left is free — the sidebar is drawn from
+   the surplus.
+   The guard is deliberately conservative. The sidebar only pays if the field stays height-bound
+   after it is subtracted, so it engages only where there is genuinely room; below that the stacked
+   layout is still the better of the two, and a phone keeps the layout it was tuned on. */
+@media (min-aspect-ratio: 4 / 3) {
+  .screen.run { flex-direction: row; align-items: center; justify-content: center; gap: 24px; padding: 12px 20px; }
+  .run-side { flex: 0 0 auto; width: 190px; min-width: 0; align-items: flex-start; gap: 16px; text-align: left; }
+  /* A SQUARE box sized by the available height, rather than a greedy flex child. Both fit the same
+     canvas, but a greedy child absorbs all the surplus width and centres the canvas inside it,
+     which strands the HUD ~400px away at the far edge of the screen. Sized to the field, the row
+     centres the pair together and the readout sits beside the grid it describes. */
+  .play-wrap { flex: 0 1 auto; width: auto; height: 100%; aspect-ratio: 1 / 1; max-width: 100%; min-width: 0; }
+  .practice-tag { white-space: nowrap; padding-left: 0; text-align: left; }
+}
+
+/* Short landscape — a half-height browser window, or a phone turned sideways. The sidebar is what
+   rescues these: stacked, ~230px of chrome against a 390px-tall viewport left the field 276px and
+   overflowing the screen. Beside the field it costs nothing vertical, so the shrink is only in the
+   type. */
+@media (min-aspect-ratio: 4 / 3) and (max-height: 620px) {
+  .run-side { width: 150px; gap: 10px; }
+  .time { font-size: 26px; min-height: 30px; }
+  .rate { font-size: 32px; }
+  .rate .unit { font-size: 13px; }
+  .stats { font-size: 12px; }
+  .readout { min-height: 0; }
+  .practice-tag { padding: 8px 10px; }
+}
+
+/* Phones keep the HUD stacked, and that costs nothing: a portrait field is bound by the WIDTH, so
+   the height spent above and below it is height the grid could not have used anyway. It only has to
+   stay out of the way, so the readout is scaled to the screen rather than to a desktop monitor —
+   a 56px bit rate over a 342px-wide field is most of a phone's remaining room. */
+@media (max-width: 560px) {
+  .screen.run { padding: 8px 12px; }
+  .time { font-size: 28px; min-height: 34px; }
+  .rate { font-size: 38px; }
+  .rate .unit { font-size: 15px; }
+  .stats { font-size: 13px; }
+  .readout { min-height: 62px; }
 }
