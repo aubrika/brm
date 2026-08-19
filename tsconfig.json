@@ -21,5 +21,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts", "scripts/vite-plugin-runlog.ts"]
+  "include": ["src", "tests", "vite.config.ts", "scripts/vite-plugin-runlog.ts"]
 }

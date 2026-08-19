@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   fitGridGeometry, cellIndexAt, cellsApart, visibleLookahead,
   availableFieldPx, fitTouchGrid, TOUCH_MIN_CELL_PX, TOUCH_GRID_LADDER,
-} from './view.js';
+} from '../../src/v2/view.js';
 /** Grid sizes the canvas renderer is swept against. A geometry question, not a game setting —
  *  the game itself is fixed at 32×32 — so the list lives with the test that uses it. */
 const GRID_SIZES = [8, 16, 24, 32, 64, 128] as const;

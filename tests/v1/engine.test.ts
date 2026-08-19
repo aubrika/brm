@@ -3,8 +3,8 @@
 // /brm/v1, so its scoring is worth pinning down.
 
 import { describe, it, expect } from 'vitest';
-import { KeyboardEngine } from './engine.js';
-import { DEFAULT_KEYBOARD_CONFIG } from './config.js';
+import { KeyboardEngine } from '../../src/v1/engine.js';
+import { DEFAULT_KEYBOARD_CONFIG } from '../../src/v1/config.js';
 
 const cfg = { ...DEFAULT_KEYBOARD_CONFIG, alphabet: 'asdfjkl;', durationMs: 60_000 };
 const key = (k: string) => ({ key: k, repeat: false, ctrlKey: false, metaKey: false, altKey: false });

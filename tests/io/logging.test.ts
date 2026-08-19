@@ -6,7 +6,7 @@
 // comes out of here.
 
 import { describe, it, expect } from 'vitest';
-import { RunRecorder } from './logging.js';
+import { RunRecorder } from '../../src/io/logging.js';
 
 const CAP = 2048; // mirrors the private cap in logging.ts
 const PCAP = 4608;

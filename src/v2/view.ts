@@ -42,7 +42,7 @@ export { cellIndexAt, cellsApart } from '../core/grid.js';
 // ---- view geometry (no DOM) -------------------------------------------------
 // Extracted so the load-bearing arithmetic is unit-testable: cellIndexAt decides correct-vs-error
 // on EVERY click, and fitGridGeometry fixes the cell size W that every logged Fitts number depends
-// on. See view.test.ts.
+// on. See tests/v2/view.test.ts.
 
 /** Smallest cell a fingertip can be asked to hit, in CSS px. Only consulted on coarse pointers.
  *

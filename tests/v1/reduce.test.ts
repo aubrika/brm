@@ -1,12 +1,12 @@
 // reduceLog is v1's authoritative score: the fold over the raw keydown log that the report screen
 // and the exported log both derive from, so what a player sees and what the file recomputes to
 // cannot disagree. These pin the retry-until-correct rule and one hand-computed end-to-end value.
-// They moved here from core/core.test.ts with the reducer they cover — v2 counts selections in its
+// They moved out of core/core.test.ts with the reducer they cover — v2 counts selections in its
 // engine and has no equivalent fold.
 
 import { describe, it, expect } from 'vitest';
-import { reduceLog } from './reduce.js';
-import type { RawKey } from './alphabet.js';
+import { reduceLog } from '../../src/v1/reduce.js';
+import type { RawKey } from '../../src/v1/alphabet.js';
 
 function rawKey(key: string, tMs: number, over: Partial<RawKey> = {}): RawKey {
   return { key, tMs, repeat: false, ctrlKey: false, metaKey: false, altKey: false, ...over };

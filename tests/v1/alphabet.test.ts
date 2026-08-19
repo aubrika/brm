@@ -1,9 +1,9 @@
 // v1's input rules: which key sets a player may choose, and which keydowns count as selections.
-// Both are v1-only — the grid game answers the same questions with a hit test — so these moved out
-// of core/core.test.ts alongside the module they cover.
+// Both are v1-only — the grid game answers the same questions with a hit test — so they live with the v1 tests
+// rather than in tests/core/core.test.ts, mirroring the module they cover (src/v1/alphabet.ts).
 
 import { describe, it, expect } from 'vitest';
-import { validateAlphabet, isSelection, type RawKey } from './alphabet.js';
+import { validateAlphabet, isSelection, type RawKey } from '../../src/v1/alphabet.js';
 
 function rawKey(key: string, tMs: number, over: Partial<RawKey> = {}): RawKey {
   return { key, tMs, repeat: false, ctrlKey: false, metaKey: false, altKey: false, ...over };

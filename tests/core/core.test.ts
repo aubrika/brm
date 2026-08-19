@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { bitRate } from './bitrate.js';
-import { makeRandInt, sampleSequence, type Uint32Source } from './sequence.js';
-import { momentaryRate } from './stats.js';
-import type { RunLog, RawEvent } from './stats.js';
+import { bitRate } from '../../src/core/bitrate.js';
+import { makeRandInt, sampleSequence, type Uint32Source } from '../../src/core/sequence.js';
+import { momentaryRate } from '../../src/core/stats.js';
+import type { RunLog, RawEvent } from '../../src/core/stats.js';
 
 // A deterministic 32-bit word source (mulberry32) so the statistical tests are reproducible
 // — they exercise OUR rejection-sampling / modulo pipeline for uniformity, given a uniform

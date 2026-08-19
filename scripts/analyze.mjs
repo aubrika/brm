@@ -894,7 +894,7 @@ function main() {
   console.log(`\nWrote ${path.join(args.logsDir, 'analysis.json')}`);
 }
 
-// Only run when invoked as a script. The statistics above are exported so scripts/stats.test.mjs
+// Only run when invoked as a script. The statistics above are exported so tests/stats.test.mjs
 // can check them against published t-table values — a wrong p-value here would not fail loudly,
 // it would just quietly produce a confident wrong answer about the ghost.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

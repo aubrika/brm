@@ -8,8 +8,8 @@
 // broken transitive dependency in this repo's hoisted node_modules. Zero deps, deterministic.
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { renderReport, type LogInfo } from './reportview.js';
-import type { RunLog, RawEvent } from '../core/stats.js';
+import { renderReport, type LogInfo } from '../../src/ui/reportview.js';
+import type { RunLog, RawEvent } from '../../src/core/stats.js';
 
 // --------------------------------------------------------------- DOM shim ----
 class TextNode {

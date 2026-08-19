@@ -7,7 +7,7 @@
 // to a hand-computable example.
 
 import { describe, it, expect } from 'vitest';
-import { tTwoSided, tQuantile, pairedTest, analyzeGhostAb, machineKey } from './analyze.mjs';
+import { tTwoSided, tQuantile, pairedTest, analyzeGhostAb, machineKey } from '../scripts/analyze.mjs';
 
 describe('t distribution', () => {
   // Published two-sided 5% critical values (any statistics table).
