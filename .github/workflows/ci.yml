@@ -1,0 +1,26 @@
+# Typecheck, lint, test and build on every push and pull request.
+#
+# The build step is not redundant with the others: `npm run build` runs `tsc --noEmit` over the
+# app AND produces both bundles, so it is the only step that would catch a Vite config or asset
+# problem that the type checker and the tests cannot see.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build

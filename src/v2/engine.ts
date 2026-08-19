@@ -48,7 +48,7 @@ export class GridEngine {
     this.gridSize = config.gridSize;
     this.cells = this.gridSize * this.gridSize;
     this.n = this.cells;
-    this.sequence = new Array(SEQUENCE_LENGTH);
+    this.sequence = new Array<number>(SEQUENCE_LENGTH);
     for (let i = 0; i < SEQUENCE_LENGTH; i++) this.sequence[i] = randInt(this.cells);
     this.logBits = Math.log2(this.n - 1);
   }

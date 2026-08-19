@@ -40,7 +40,7 @@ export function generateSequence(alphabet: string, count: number, randInt: (n: n
 // i.i.d. uniform sample with replacement from an arbitrary symbol list.
 export function sampleSequence(symbols: readonly string[], count: number, randInt: (n: number) => number): string[] {
   const n = symbols.length;
-  const out: string[] = new Array(count);
+  const out: string[] = new Array<string>(count);
   for (let i = 0; i < count; i++) out[i] = symbols[randInt(n)];
   return out;
 }
@@ -49,7 +49,7 @@ export function sampleSequence(symbols: readonly string[], count: number, randIn
 // sampleSequence (uniform, with replacement, injectable source) — a repeated cell can occur with
 // probability 1/cellCount, exactly as the keyboard sequence allows adjacent repeats.
 export function sampleCells(cellCount: number, count: number, randInt: (n: number) => number): number[] {
-  const out: number[] = new Array(count);
+  const out: number[] = new Array<number>(count);
   for (let i = 0; i < count; i++) out[i] = randInt(cellCount);
   return out;
 }

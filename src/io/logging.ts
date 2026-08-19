@@ -17,7 +17,7 @@ export class RunRecorder {
   // event columns, stored column-wise as primitives
   private readonly et = new Float64Array(CAP); // t (ms, run-relative)
   private readonly etype = new Uint8Array(CAP); // 0 = down, 1 = up
-  private readonly ekey: string[] = new Array(CAP);
+  private readonly ekey: string[] = new Array<string>(CAP);
   private readonly eidx = new Int32Array(CAP);
   private readonly ev = new Int8Array(CAP); // verdict: 0 ok, 1 err, -1 none (up)
   private ec = 0;
@@ -75,7 +75,7 @@ export class RunRecorder {
 
   // Assemble the array-of-arrays event log. Called once, at run end.
   buildEvents(): RawEvent[] {
-    const out: RawEvent[] = new Array(this.ec);
+    const out: RawEvent[] = new Array<RawEvent>(this.ec);
     for (let i = 0; i < this.ec; i++) {
       const t = Math.round(this.et[i] * 1000) / 1000;
       const type = this.etype[i] === 0 ? 'down' : 'up';
@@ -86,7 +86,7 @@ export class RunRecorder {
   }
 
   buildLatency(): Array<{ t: number; downToPaintMs: number }> {
-    const out = new Array(this.lc);
+    const out = new Array<{ t: number; downToPaintMs: number }>(this.lc);
     for (let i = 0; i < this.lc; i++) {
       out[i] = { t: Math.round(this.lt[i] * 1000) / 1000, downToPaintMs: Math.round(this.lms[i] * 100) / 100 };
     }
@@ -96,7 +96,7 @@ export class RunRecorder {
   // GRID MODE pointer path as [t, x, y] triples (t to 0.1 ms, coords to 0.1 px). Empty for
   // keyboard runs. Called once, at run end.
   buildPointerPath(): Array<[number, number, number]> {
-    const out: Array<[number, number, number]> = new Array(this.pc);
+    const out: Array<[number, number, number]> = new Array<[number, number, number]>(this.pc);
     for (let i = 0; i < this.pc; i++) {
       out[i] = [Math.round(this.pt[i] * 10) / 10, Math.round(this.px[i] * 10) / 10, Math.round(this.py[i] * 10) / 10];
     }

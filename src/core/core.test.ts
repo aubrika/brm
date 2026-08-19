@@ -242,7 +242,7 @@ function paceLog(gapMs: number, durationS = 60, n = 256, missEvery = 0): RunLog 
     sequence: seq, eventColumns: ['t', 'type', 'key', 'idx', 'verdict'], events, latencySamples: [],
     summary: { bitsPerSecond: 0, n, sc, si, elapsedS: durationS, accuracy: sc / (sc + si),
       grossKeysPerSec: 0, netSelectionsPerSec: 0, medianIkiMs: gapMs, rollovers: 0, droppedFrames: 0, outOfAlphabet: 0 },
-  } as RunLog;
+  };
 }
 
 describe('momentaryRate', () => {
@@ -257,7 +257,7 @@ describe('momentaryRate', () => {
   it('follows a change of pace rather than averaging it away', () => {
     // fast for 30 s, then half speed — the cumulative HUD number would barely move here
     const fast = paceLog(400, 30).events;
-    const slow = paceLog(800, 30).events.map(([t, ...rest]) => [(t as number) + 30_000, ...rest] as RawEvent);
+    const slow = paceLog(800, 30).events.map(([t, ...rest]) => [(t) + 30_000, ...rest] as RawEvent);
     const log = paceLog(400, 60);
     log.events = [...fast, ...slow];
     const { samples } = momentaryRate(log);

@@ -371,7 +371,7 @@ function momentumSection(log: RunLog): AnimatedPanel | null {
     plot.classList.add('is-hovered');
   };
 
-  plot.addEventListener('pointermove', (e) => show((e as PointerEvent).clientX));
+  plot.addEventListener('pointermove', (e) => show((e).clientX));
   plot.addEventListener('pointerleave', hide);
 
   const node = section(

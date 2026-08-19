@@ -87,7 +87,7 @@ describe('buildReport — the verifiability guarantee', () => {
   it('emits a sequence whose entries match the keys of the events that answered them', () => {
     const { log } = playGrid(10, 0);
     const oks = log.events.filter((e) => e[1] === 'down' && e[4] === 'ok');
-    for (const e of oks) expect(log.sequence[e[3] as number]).toBe(e[2]);
+    for (const e of oks) expect(log.sequence[e[3]]).toBe(e[2]);
   });
 
   it('includes the unfinished target, so the sequence is one longer than the completed count', () => {

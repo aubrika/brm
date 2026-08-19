@@ -8,7 +8,8 @@ import { runLogPlugin } from './vite-plugin-runlog.js';
 // package.json is unavailable, and never fails the build.
 const appVersion = (() => {
   try {
-    return JSON.parse(readFileSync('package.json', 'utf8')).version ?? '0.0.0';
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { version?: string };
+    return pkg.version ?? '0.0.0';
   } catch {
     return '0.0.0';
   }

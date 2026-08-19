@@ -103,7 +103,7 @@ function handleIndex(req: IncomingMessage, res: ServerResponse): void {
   } catch {
     /* ignore */
   }
-  let rows: Array<Record<string, unknown>> = [];
+  const rows: Array<Record<string, unknown>> = [];
   try {
     if (fs.existsSync(INDEX_FILE)) {
       const lines = fs.readFileSync(INDEX_FILE, 'utf8').split('\n').filter(Boolean);

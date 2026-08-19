@@ -30,7 +30,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (props) {
     for (const [key, val] of Object.entries(props)) {
       if (key.startsWith('on') && typeof val === 'function') {
-        e.addEventListener(key.slice(2).toLowerCase(), val as EventListener);
+        e.addEventListener(key.slice(2).toLowerCase(), val);
       } else if (key === 'class') {
         e.className = String(val);
       } else if (key === 'text') {
@@ -337,7 +337,7 @@ export class App {
   // design lineage that led to the grid alphabet — see the Development Process section of README.md.
   private showLegacyConfig(msg?: string): void {
     const keyInput = (value: string): HTMLInputElement =>
-      el('input', { type: 'text', class: 'field-input mono', value, spellcheck: false, autocomplete: 'off', autocapitalize: 'off' }) as HTMLInputElement;
+      el('input', { type: 'text', class: 'field-input mono', value, spellcheck: false, autocomplete: 'off', autocapitalize: 'off' });
     const leftFingers = keyInput(this.config.leftFingers || 'asdf');
     const rightFingers = keyInput(this.config.rightFingers || 'jkl;');
     const err = el('div', { class: 'field-error' });
@@ -347,7 +347,7 @@ export class App {
     // the window, so runs from a laptop and a desktop are not comparable and pooling them would
     // manufacture results. installId separates browser profiles, but a name is what makes the
     // separation legible in the analyzer without cross-referencing a token.
-    const label = el('input', { class: 'field-input', type: 'text', maxlength: '24', placeholder: 'e.g. laptop', value: this.config.label }) as HTMLInputElement;
+    const label = el('input', { class: 'field-input', type: 'text', maxlength: '24', placeholder: 'e.g. laptop', value: this.config.label });
     label.addEventListener('change', () => {
       this.config = { ...this.config, label: label.value.trim().slice(0, 24) };
       saveConfig(this.config);

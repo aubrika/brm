@@ -483,12 +483,18 @@ function analyzeGrid(logs) {
 // exact t p-value. Without it this script could only report point estimates, which invites reading
 // a difference into what is noise.
 function logGamma(x) {
+  // The published Lanczos coefficients (Numerical Recipes, gammln). Three of these carry more
+  // decimal digits than a double holds, so JS rounds them on parse — kept verbatim anyway, because
+  // the canonical form is what makes them checkable against the source, and the rounding is ~1e-16
+  // against a series accurate to ~1e-10.
+  // eslint-disable-next-line no-loss-of-precision
   const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
   let y = x;
   let tmp = x + 5.5;
   tmp -= (x + 0.5) * Math.log(tmp);
   let ser = 1.000000000190015;
   for (let j = 0; j < 6; j++) ser += c[j] / ++y;
+  // eslint-disable-next-line no-loss-of-precision -- sqrt(2*pi), same reasoning as the coefficients
   return -tmp + Math.log((2.5066282746310005 * ser) / x);
 }
 
