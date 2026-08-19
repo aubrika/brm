@@ -532,19 +532,21 @@ export class App {
   // cellPx/fieldPx/dpr, so they are recorded from the live renderer; the two per-selection arrays
   // line up with the grid `down` events in order.
   private buildGridLog(rc: GridRunCtx): RunLog['grid'] {
+    // The renderer is authoritative for what was actually drawn, and on a GridRunCtx it always
+    // exists — the union guarantees it, so there is no fallback to write.
     const v = rc.gridView;
     return {
       enabled: true,
-      gridSize: v ? v.gridSize : rc.engine.config.gridSize,
+      gridSize: v.gridSize,
       depth: 1, // one cell per selection. Kept in the log so the analyzer can still filter the
       // stacked-layer runs in logs/ out of the grid sweep — see GridLog.depth.
       // How N was chosen. 'touch' runs played a coarser grid with a different input device, so they
       // are a separate modality and the analyzer must never pool them with 'fixed' runs.
       sizing: rc.touchSized ? 'touch' : 'fixed',
       minCellPx: rc.touchSized ? TOUCH_MIN_CELL_PX : undefined,
-      fieldPx: v ? v.fieldPx : 0,
-      cellPx: v ? v.cellPx : 0,
-      devicePixelRatio: v ? v.dpr : 1,
+      fieldPx: v.fieldPx,
+      cellPx: v.cellPx,
+      devicePixelRatio: v.dpr,
       // `ghost` is the derived boolean the analyzer and every pre-existing log speak; `lookahead`
       // is the value itself. Read from the ENGINE, so the log states what was actually rendered.
       ghost: rc.engine.config.lookaheadDepth > 0,

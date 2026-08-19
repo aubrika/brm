@@ -53,17 +53,6 @@ code { font-family: var(--mono); }
 .field-input:focus { border-color: var(--accent); }
 .field-input[type="number"] { min-width: 90px; width: 110px; }
 .field-hint { font-size: 12px; color: var(--muted); max-width: 220px; line-height: 1.4; }
-/* Sized to sit on the same baseline as the grid-size select beside it, so the two fields read as
-   one row rather than a control and an afterthought. */
-.field-check { width: 20px; height: 20px; margin: 12px 0 10px; accent-color: var(--accent); }
-.toggles { gap: 10px; padding-top: 22px; }
-.toggle { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 15px; cursor: pointer; }
-.toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
-.toggle.inline select { margin-left: 6px; }
-/* GRID MODE options: a slightly recessed sub-group under the main toggles */
-.grid-options { padding-top: 12px; margin-top: 6px; border-top: 1px solid var(--line, rgba(255,255,255,0.08)); }
-.grid-options .field-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; margin-bottom: 4px; }
-.grid-options select.field-input { width: auto; padding: 4px 8px; }
 .field-error { color: var(--error); min-height: 20px; font-size: 14px; }
 .field-note { color: var(--muted); font-size: 13px; }
 .buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
@@ -75,7 +64,6 @@ code { font-family: var(--mono); }
 .btn.primary { background: var(--accent); color: #071019; border-color: var(--accent); font-weight: 600; }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.ghost:hover { background: var(--panel); }
-.strategy { max-width: 640px; color: var(--muted); font-size: 13px; line-height: 1.5; margin: 4px 0 0; }
 
 /* --------------------------------------------------------------------- run -- */
 .screen.run { align-items: center; justify-content: center; gap: 6px; padding: 14px 24px; }
@@ -232,7 +220,7 @@ code { font-family: var(--mono); }
 }
 .screen.report code, .screen.report .r-hero-num, .screen.report .r-hero-util,
 .screen.report .r-tape-axis, .screen.report .r-hist-axis, .screen.report .r-hist-med,
-.screen.report .r-bar-label, .screen.report .r-bar-val, .screen.report .r-tape-tip,
+.screen.report .r-tape-tip,
 .screen.report .r-saved, .screen.report .r-spark-legend, .screen.report .r-matrix {
   font-family: var(--mono); font-variant-numeric: tabular-nums;
 }

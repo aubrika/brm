@@ -7,7 +7,9 @@ import {
   fitGridGeometry, cellIndexAt, cellsApart, visibleLookahead,
   availableFieldPx, fitTouchGrid, TOUCH_MIN_CELL_PX, TOUCH_GRID_LADDER,
 } from './view.js';
-import { GRID_SIZES } from '../core/config.js';
+/** Grid sizes the canvas renderer is swept against. A geometry question, not a game setting —
+ *  the game itself is fixed at 32×32 — so the list lives with the test that uses it. */
+const GRID_SIZES = [8, 16, 24, 32, 64, 128] as const;
 
 describe('fitGridGeometry', () => {
   it('never overflows the available space, at any offered grid size', () => {

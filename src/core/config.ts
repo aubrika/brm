@@ -102,10 +102,6 @@ export const DEFAULT_GRID_CONFIG: GridConfig = {
 // start. Separate keys make that impossible rather than merely corrected.
 const STORAGE_KEY = { keyboard: 'brm.config.keyboard.v1', grid: 'brm.config.grid.v1' } as const;
 
-// No longer offered anywhere — the game is fixed at DEFAULT_GRID_CONFIG.gridSize. Kept as the set of
-// sizes the canvas renderer is tested against (v2/view.test.ts), which is a geometry question.
-export const GRID_SIZES = [8, 16, 24, 32, 64, 128] as const;
-
 export function loadConfig(mode: 'keyboard'): KeyboardConfig;
 export function loadConfig(mode: 'grid'): GridConfig;
 export function loadConfig(mode: 'keyboard' | 'grid'): GameConfig {

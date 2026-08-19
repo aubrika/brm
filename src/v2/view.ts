@@ -11,6 +11,7 @@
 // the log is self-contained for Fitts analysis without needing the viewport offset.
 
 import type { GridEngine } from './engine.js';
+import type { GridConfig } from '../core/config.js';
 
 const MARGIN = 20; // px inset from the smaller viewport dimension
 // The target's fill, and the crosshair tint (same hue at low alpha). Okabe-Ito orange. The config
@@ -196,77 +197,102 @@ export class GridRenderer {
     return cellsApart(t, g, this.gridSize) <= GHOST_ADJACENT;
   }
 
+  /** One frame, drawn back to front. Each layer is its own method: the ordering IS the design —
+   *  the target must sit on top of a lookahead outline that landed on the same cell, the flashes
+   *  must sit on top of the target, and the particles on top of everything — so a reader needs to
+   *  see the sequence without reading the drawing code, and a change to one layer should not be a
+   *  change inside a 130-line function. */
   render(nowMs: number): void {
     const ctx = this.ctx;
-    const f = this.fieldPx;
-    const cp = this.cellPx;
     const cfg = this.engine.config;
-    ctx.clearRect(0, 0, f, f);
+    const target = this.engine.target(); // the cell to click now
+    const lookahead = this.lookaheadCells(cfg);
 
-    // 1) gridlines — low contrast texture
+    ctx.clearRect(0, 0, this.fieldPx, this.fieldPx);
+    this.drawGridlines(ctx);
+    if (cfg.crosshair) this.drawCrosshair(ctx, target);
+    this.drawConnector(ctx, target, lookahead);
+    this.drawLookaheadOutlines(ctx, target, lookahead);
+    this.drawTarget(ctx, target);
+    this.drawRepeatFlash(ctx, target, nowMs);
+    this.drawErrorFlash(ctx, nowMs);
+    if (cfg.hoverPulse) this.drawHoverPulse(ctx, target, nowMs);
+    this.drawHitParticles(nowMs);
+  }
+
+  /** The previewed chain: T+1, then T+2 if the lookahead depth is 2. Clamped to the 0..2 the config
+   *  offers, and truncated at the end of the sequence (lookaheadTarget returns -1 there). */
+  private lookaheadCells(cfg: GridConfig): number[] {
+    const depth = Math.max(0, Math.min(LOOKAHEAD_BORDER.length, Math.round(cfg.lookaheadDepth)));
+    const out: number[] = [];
+    for (let k = 1; k <= depth; k++) {
+      const cell = this.engine.lookaheadTarget(k);
+      if (cell < 0) break;
+      out.push(cell);
+    }
+    return out;
+  }
+
+  /** 1) gridlines — low contrast texture. */
+  private drawGridlines(ctx: CanvasRenderingContext2D): void {
+    const f = this.fieldPx;
     ctx.lineWidth = 1;
     ctx.strokeStyle = 'rgba(200, 212, 235, 0.06)';
     ctx.beginPath();
     for (let i = 0; i <= this.gridSize; i++) {
-      const p = Math.round(i * cp) + 0.5; // +0.5 for a crisp 1px line
+      const p = Math.round(i * this.cellPx) + 0.5; // +0.5 for a crisp 1px line
       ctx.moveTo(p, 0);
       ctx.lineTo(p, f);
       ctx.moveTo(0, p);
       ctx.lineTo(f, p);
     }
     ctx.stroke();
+  }
 
-    const target = this.engine.target(); // the cell to click now
-    // The previewed chain: T+1, then T+2 if lookahead depth is 2. Clamped to the 0..2 the config
-    // offers, and truncated at the end of the sequence (lookaheadTarget returns -1 there).
-    const depth = Math.max(0, Math.min(LOOKAHEAD_BORDER.length, Math.round(cfg.lookaheadDepth ?? 0)));
-    const lookahead: number[] = [];
-    for (let k = 1; k <= depth; k++) {
-      const cell = this.engine.lookaheadTarget(k);
-      if (cell < 0) break;
-      lookahead.push(cell);
-    }
-    const showOutline = visibleLookahead(target, lookahead);
+  /** 2) crosshair locator — full-field hairlines through the target's centre, tinted with the
+   *  target's own colour so it reads as belonging to the cell you must click now (§2.1). */
+  private drawCrosshair(ctx: CanvasRenderingContext2D, target: number): void {
+    if (target < 0) return;
+    const cx = Math.round(this.centerX(target)) + 0.5;
+    const cy = Math.round(this.centerY(target)) + 0.5;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = TARGET_CROSSHAIR;
+    ctx.beginPath();
+    ctx.moveTo(0, cy);
+    ctx.lineTo(this.fieldPx, cy);
+    ctx.moveTo(cx, 0);
+    ctx.lineTo(cx, this.fieldPx);
+    ctx.stroke();
+  }
 
-    // 2) crosshair locator — full-field hairlines through the target's centre, tinted with the
-    //    target's own colour so it reads as belonging to the cell you must click now (§2.1)
-    if (cfg.crosshair && target >= 0) {
-      const cx = Math.round(this.centerX(target)) + 0.5;
-      const cy = Math.round(this.centerY(target)) + 0.5;
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = TARGET_CROSSHAIR;
+  /** 3) connector — target → T+1 → T+2, tracing the cursor travel the preview is promising.
+   *  Segments are drawn one at a time because each carries its own brightness: target→T+1 is
+   *  bright, T+1→T+2 is dim. One polyline could not say that, and the fade IS the information —
+   *  it is what makes the chain read in order rather than as two equal destinations. */
+  private drawConnector(ctx: CanvasRenderingContext2D, target: number, lookahead: number[]): void {
+    if (!lookahead.length || target < 0) return;
+    const pts: Array<[number, number]> = [[this.centerX(target), this.centerY(target)]];
+    for (const cell of lookahead) pts.push([this.centerX(cell), this.centerY(cell)]);
+    for (let i = 1; i < pts.length; i++) {
+      const step = i - 1;
+      ctx.lineWidth = LOOKAHEAD_LINE_PX[step] ?? 1;
+      ctx.strokeStyle = LOOKAHEAD_LINE[step] ?? LOOKAHEAD_LINE[LOOKAHEAD_LINE.length - 1];
       ctx.beginPath();
-      ctx.moveTo(0, cy);
-      ctx.lineTo(f, cy);
-      ctx.moveTo(cx, 0);
-      ctx.lineTo(cx, f);
+      ctx.moveTo(pts[i - 1][0], pts[i - 1][1]);
+      ctx.lineTo(pts[i][0], pts[i][1]);
       ctx.stroke();
     }
+  }
 
-    // 3) connector — target → T+1 → T+2, tracing the cursor travel the preview is promising.
-    //    Segments are drawn one at a time because each carries its own brightness: target→T+1 is
-    //    bright, T+1→T+2 is dim. One polyline could not say that, and the fade IS the information —
-    //    it is what makes the chain read in order rather than as two equal destinations.
-    if (lookahead.length > 0 && target >= 0) {
-      const pts: Array<[number, number]> = [[this.centerX(target), this.centerY(target)]];
-      for (const cell of lookahead) pts.push([this.centerX(cell), this.centerY(cell)]);
-      for (let i = 1; i < pts.length; i++) {
-        const step = i - 1;
-        ctx.lineWidth = LOOKAHEAD_LINE_PX[step] ?? 1;
-        ctx.strokeStyle = LOOKAHEAD_LINE[step] ?? LOOKAHEAD_LINE[LOOKAHEAD_LINE.length - 1];
-        ctx.beginPath();
-        ctx.moveTo(pts[i - 1][0], pts[i - 1][1]);
-        ctx.lineTo(pts[i][0], pts[i][1]);
-        ctx.stroke();
-      }
-    }
-
-    // 4) lookahead outlines — empty cells, grey, fading with distance. Always drawn (even adjacent
-    //    to the target), so they never flicker on/off between selections; skipped only where the
-    //    cell already carries an outline or the orange fill (see visibleLookahead). Drawn far-to-
-    //    near so that if two land on neighbouring pixels the brighter T+1 wins the overlap.
+  /** 4) lookahead outlines — empty cells, grey, fading with distance. Always drawn (even adjacent
+   *  to the target), so they never flicker on/off between selections; skipped only where the cell
+   *  already carries an outline or the orange fill (see visibleLookahead). Drawn far-to-near so
+   *  that if two land on neighbouring pixels the brighter T+1 wins the overlap. */
+  private drawLookaheadOutlines(ctx: CanvasRenderingContext2D, target: number, lookahead: number[]): void {
+    const visible = visibleLookahead(target, lookahead);
+    const cp = this.cellPx;
     for (let k = lookahead.length - 1; k >= 0; k--) {
-      if (!showOutline[k]) continue;
+      if (!visible[k]) continue;
       const gx = this.col(lookahead[k]) * cp;
       const gy = this.row(lookahead[k]) * cp;
       const w = LOOKAHEAD_BORDER_PX[k] ?? 1;
@@ -274,54 +300,60 @@ export class GridRenderer {
       ctx.strokeStyle = LOOKAHEAD_BORDER[k] ?? LOOKAHEAD_BORDER[LOOKAHEAD_BORDER.length - 1];
       ctx.strokeRect(gx + w / 2 + 0.5, gy + w / 2 + 0.5, cp - w - 1, cp - w - 1);
     }
+  }
 
-    // 5) the target fill — drawn after the outlines so it sits on top of a lookahead that landed
-    //    on the same cell.
-    if (target >= 0) {
-      ctx.fillStyle = TARGET_COLOR;
-      ctx.fillRect(this.col(target) * cp + 0.5, this.row(target) * cp + 0.5, cp - 1, cp - 1);
-    }
+  /** 5) the target fill — after the outlines, so it sits on top of a lookahead that landed on the
+   *  same cell. */
+  private drawTarget(ctx: CanvasRenderingContext2D, target: number): void {
+    if (target < 0) return;
+    ctx.fillStyle = TARGET_COLOR;
+    this.fillCell(ctx, target);
+  }
 
-    // 5b) repeated-target flash — the i.i.d. sequence can draw the same cell twice in a row (rate
-    //     1/N). Then the orange cell doesn't move on a correct click, so the hit would look like a
-    //     dead click; a brief white flash on the target makes the repeat legible. Only fires when the
-    //     just-completed cell IS the new target (i.e. an actual repeat), so normal play is unchanged.
-    const sinceCorrect = nowMs - this.engine.lastCorrectMs;
-    if (target >= 0 && this.engine.lastCorrectCell === target && sinceCorrect >= 0 && sinceCorrect < REPEAT_FLASH_MS) {
-      const tx = this.col(target) * cp;
-      const ty = this.row(target) * cp;
-      ctx.fillStyle = `rgba(255, 255, 255, ${(0.7 * (1 - sinceCorrect / REPEAT_FLASH_MS)).toFixed(3)})`;
-      ctx.fillRect(tx + 0.5, ty + 0.5, cp - 1, cp - 1);
-    }
+  /** 5b) repeated-target flash — the i.i.d. sequence can draw the same cell twice in a row (rate
+   *  1/N). Then the orange cell doesn't move on a correct click, so the hit would look like a dead
+   *  click; a brief white flash makes the repeat legible. Only fires when the just-completed cell
+   *  IS the new target, so normal play is unchanged. */
+  private drawRepeatFlash(ctx: CanvasRenderingContext2D, target: number, nowMs: number): void {
+    const since = nowMs - this.engine.lastCorrectMs;
+    if (target < 0 || this.engine.lastCorrectCell !== target || since < 0 || since >= REPEAT_FLASH_MS) return;
+    ctx.fillStyle = `rgba(255, 255, 255, ${(0.7 * (1 - since / REPEAT_FLASH_MS)).toFixed(3)})`;
+    this.fillCell(ctx, target);
+  }
 
-    // 6) wrong-cell flash — brief, no motion (monitoring-disruption findings: flash, never shake)
-    const sinceErr = nowMs - this.engine.lastErrorMs;
-    if (this.engine.lastErrorCell >= 0 && sinceErr >= 0 && sinceErr < FLASH_MS) {
-      const ex = this.col(this.engine.lastErrorCell) * cp;
-      const ey = this.row(this.engine.lastErrorCell) * cp;
-      ctx.fillStyle = `rgba(255, 91, 104, ${(0.55 * (1 - sinceErr / FLASH_MS)).toFixed(3)})`;
-      ctx.fillRect(ex + 0.5, ey + 0.5, cp - 1, cp - 1);
-    }
+  /** 6) wrong-cell flash — brief, no motion (monitoring-disruption findings: flash, never shake). */
+  private drawErrorFlash(ctx: CanvasRenderingContext2D, nowMs: number): void {
+    const since = nowMs - this.engine.lastErrorMs;
+    if (this.engine.lastErrorCell < 0 || since < 0 || since >= FLASH_MS) return;
+    ctx.fillStyle = `rgba(255, 91, 104, ${(0.55 * (1 - since / FLASH_MS)).toFixed(3)})`;
+    this.fillCell(ctx, this.engine.lastErrorCell);
+  }
 
-    // 7) hover pulse — pre-click confirmation: white border while the pointer is on the target
-    if (cfg.hoverPulse && target >= 0 && this.hoverCell === target) {
-      const tx = this.col(target) * cp;
-      const ty = this.row(target) * cp;
-      const a = this.reducedMotion ? 0.95 : 0.4 + 0.6 * (0.5 + 0.5 * Math.sin((nowMs / 1000) * PULSE_HZ * 2 * Math.PI));
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${a.toFixed(3)})`;
-      ctx.strokeRect(tx + 1, ty + 1, cp - 2, cp - 2);
-    }
+  /** 7) hover pulse — pre-click confirmation: a white border while the pointer is on the target. */
+  private drawHoverPulse(ctx: CanvasRenderingContext2D, target: number, nowMs: number): void {
+    if (target < 0 || this.hoverCell !== target) return;
+    const cp = this.cellPx;
+    const a = this.reducedMotion ? 0.95 : 0.4 + 0.6 * (0.5 + 0.5 * Math.sin((nowMs / 1000) * PULSE_HZ * 2 * Math.PI));
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(255, 255, 255, ${a.toFixed(3)})`;
+    ctx.strokeRect(this.col(target) * cp + 1, this.row(target) * cp + 1, cp - 2, cp - 2);
+  }
 
-    // 8) hit particles — spawn a burst at the just-completed cell on each correct click, then
-    //    animate them on top of everything. Skipped under reduced-motion (the flash/sound remain).
-    if (!this.reducedMotion) {
-      if (this.engine.lastCorrectMs > this.lastBurstMs && this.engine.lastCorrectCell >= 0) {
-        this.spawnBurst(this.engine.lastCorrectCell, nowMs);
-        this.lastBurstMs = this.engine.lastCorrectMs;
-      }
-      this.drawParticles(nowMs);
+  /** 8) hit particles — spawn a burst at the just-completed cell on each correct click, then
+   *  animate them on top of everything. Skipped under reduced-motion (the flash/sound remain). */
+  private drawHitParticles(nowMs: number): void {
+    if (this.reducedMotion) return;
+    if (this.engine.lastCorrectMs > this.lastBurstMs && this.engine.lastCorrectCell >= 0) {
+      this.spawnBurst(this.engine.lastCorrectCell, nowMs);
+      this.lastBurstMs = this.engine.lastCorrectMs;
     }
+    this.drawParticles(nowMs);
+  }
+
+  /** Fill one cell, inset half a pixel so adjacent fills do not bleed into each other. */
+  private fillCell(ctx: CanvasRenderingContext2D, cell: number): void {
+    const cp = this.cellPx;
+    ctx.fillRect(this.col(cell) * cp + 0.5, this.row(cell) * cp + 0.5, cp - 1, cp - 1);
   }
 
   private spawnBurst(cell: number, nowMs: number): void {
