@@ -7,4 +7,5 @@ node_modules/
 # Run logs contain colleagues' keystroke timings — never commit them. The folder ships
 # empty (just .gitkeep + README.md); logs are generated locally at play time.
 logs/*.json
+logs/**/*.json
 logs/index.jsonl
