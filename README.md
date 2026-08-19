@@ -7,7 +7,7 @@ To play the game, the player simply uses a mouse (for best results) or other poi
 Bit rate is calculated as follows:
 
 ```math
-B \;=\; \frac{\log_2\!\left(\textcolor{#5a8ad0}{N} - 1\right)\,\cdot\,\max\!\left(\textcolor{#b77e00}{S_c} - \textcolor{#eb5460}{S_i},\; 0\right)}{\textcolor{#838899}{t}} \rule[-2.1ex]{0pt}{4.4ex}
+B \;=\; \frac{\log_2\!\left(\textcolor{#5a8ad0}{N} - 1\right)\,\cdot\,\max\!\left(\textcolor{#b77e00}{S_c} - \textcolor{#eb5460}{S_i},\; 0\right)}{\textcolor{#838899}{t}} \rule[-3.4ex]{0pt}{5.7ex}
 ```
 
 
