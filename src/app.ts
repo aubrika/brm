@@ -441,7 +441,7 @@ export class App {
             : 'Duration is locked to 60 s for scored runs. Practice runs will continue until you press ESC.',
         }),
         el('div', { class: 'buttons' }, [practice, scored]),
-        el('p', { class: 'consent', text: 'Runs are saved locally and never transmitted anywhere.' }),
+        el('p', { class: 'consent', text: 'Runs can be saved locally, but are never transmitted anywhere.' }),
       ]),
     );
     scored.focus();
