@@ -22,7 +22,7 @@ The target sequences (in this case, sequences of various grid states) comprising
 
 ## Play It
 
-**→ [aubrika.github.io/brm](https://aubrika.github.io/brm/)** — the game. Nothing to install.
+**→ [aubrika.github.io/brm](https://aubrika.github.io/brm/)** — Nothing to install. Use a mouse for best results!
 
 To run it locally instead (which allows saving logged data):
 
@@ -74,11 +74,13 @@ First, I asked a simple question: if I were to make (only) a correct decision ev
 
 Various other improvements and experiments were attempted, including additional look-ahead targets (marginal or null improvement) and a "magnification" function to ostensibly allow for even larger $\textcolor{#5a8ad0}{N}$, but the additional time required for target acquisition nullified any advantage of the greater number of possible selections provided by a 128 x 128 grid, for example. Using a mouse, with a single highlighted target, and a single next target indicator, I am able to reliably hit bit rates of 12-13 bit/s, which exceeds the ceiling suggested by research of about 10 bit/s. Using a trackpad, however, my bit rate on the task never exceeded 10 bit/s, strongly recommending a mouse for optimal play.
 
-## Results
+## Logging
 
 The numbers below come from `logs/`, and `node scripts/analyze.mjs` recomputes all of them from that directory.
 
 **`logs/` only fills up when the game is run locally.** `./run.sh` starts a server that exposes a small logging endpoint, and each finished run is saved to `logs/` automatically — that is where this dataset came from. The hosted build has no such endpoint and **transmits nothing**: playing at the link above writes nothing, anywhere. The report screen offers a **Download run log** button instead, producing the identical file by hand, so a run played on the hosted site is just as verifiable — it just has to be saved deliberately.
+
+## Results
 
 **The lookahead "ghost" target is worth +2.46 bits/s.** This is the single design decision with the largest measured effect across my runs. The A/B runs were played in ABBA-counterbalanced blocks with the look-ahead on or off, then paired:
 
@@ -90,7 +92,7 @@ The numbers below come from `logs/`, and `node scripts/analyze.mjs` recomputes a
 
 The ghost target buys its gain entirely in **speed**, at no cost in accuracy — knowing where to go next removes search time, but does not make you sloppier. (13 matched pairs, powered to detect ≥0.60 bits/s. A randomisation check confirms the two arms drew equally difficult sequences: mean Fitts ID 3.082 on vs 3.102 off, p=0.513.)
 
-**$\textcolor{#5a8ad0}{N}$ = 1024 sits on a broad plateau, not a peak.** Results by grid size on my machine:
+**$\textcolor{#5a8ad0}{N}$ = 1024 sits on a broad plateau of bit rates, not a peak.** Results by grid size on my machine:
 
 | grid | cell px | bits/selection | measured B |
 |---|---|---|---|
@@ -128,7 +130,7 @@ I wasn't able to find any detailed research on, for example, typing speeds for I
 
 I was able to find and read W. E. Hick's *On the rate of gain of information* (1952), which indicated a bit rate ceiling of about 5 bit/s for a task roughly comparable to the one presented by my V1 implementation (using Morse paddles instead of a computer keyboard). This supports the plausibility of a 5-6 bit/s ceiling I hit, and also supports the decision to try a different implementation for higher bit rates.
 
-I credit Zheng & Meister's *The unbearable slowness of being: Why do we live at 10 bits/s?* for inspiring me to explicitly target a 10bit/s bit rate, and thereby giving me the idea for the entire cell selection implementation.
+I credit Zheng & Meister's *The unbearable slowness of being: Why do we live at 10 bits/s?* (2024) for inspiring me to explicitly target a 10bit/s bit rate, and thereby giving me the idea for the entire cell selection implementation.
 
 ## Potential Applications & Future Development
 
