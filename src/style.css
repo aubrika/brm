@@ -22,7 +22,12 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
+/* touch-action: manipulation kills double-tap-to-zoom while KEEPING pinch-zoom (an accessibility
+   line we don't cross). It must live here, page-wide, not just on the canvas: the i.i.d. sequence
+   repeats a cell every 1/N selections, and two fast taps on that one spot are exactly iOS Safari's
+   double-tap gesture — armed even by a tap that lands on the chrome or the margin AROUND the
+   field, which the canvas's own touch-action: none cannot cover. */
+html, body { height: 100%; margin: 0; touch-action: manipulation; }
 body {
   background: radial-gradient(1200px 800px at 50% -10%, #12141c 0%, var(--bg) 60%);
   color: var(--ink);
@@ -68,7 +73,10 @@ code { font-family: var(--mono); }
 /* --------------------------------------------------------------------- run -- */
 /* Default (portrait, or any screen too narrow to spare the width): HUD stacked above and below the
    field, which is where it lived for the whole measured dataset. */
-.screen.run { align-items: center; justify-content: center; gap: 6px; padding: 14px 24px; }
+/* No gestures and no text selection anywhere on the run screen: a near-miss tap just outside the
+   field must not scroll/zoom, and rapid taps on the HUD must not pop the selection loupe. Scoped
+   to the run screen so the config and report screens stay copyable and pinch-zoomable. */
+.screen.run { align-items: center; justify-content: center; gap: 6px; padding: 14px 24px; touch-action: none; user-select: none; -webkit-user-select: none; }
 .run-side { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 
 .time {
