@@ -28,6 +28,7 @@ import { probeMachine } from './io/machine.js';
 import { renderReport, type LogInfo } from './ui/reportview.js';
 import { el } from './ui/dom.js';
 import { gridConfigScreen, practiceTag } from './ui/configscreen.js';
+import { judgeTouchEnd } from './ui/doubletap.js';
 import { keyboardConfigScreen } from './v1/configscreen.js';
 import { startGridDemo } from './ui/demo.js';
 import { startKeyboardDemo } from './v1/demo.js';
@@ -134,6 +135,8 @@ export class App {
     // one listener each for the whole app; game input is handled synchronously here.
     window.addEventListener('keydown', this.onKey, { passive: false });
     window.addEventListener('keyup', this.onKeyUp);
+    // passive: false — a passive listener cannot preventDefault, which is the whole point here.
+    window.addEventListener('touchend', this.onTouchEnd, { passive: false });
     window.addEventListener('resize', () => this.run?.view.resize());
 
     // Dev aid: ?auto=practice|scored skips the config screen; add &demo to auto-type
@@ -259,6 +262,29 @@ export class App {
       rc.pendingDown = true;
     }
     // an out-of-field press is counted in the engine (outOfField); no event is recorded
+  };
+
+  // ------------------------------------------------------ iOS double-tap ----
+  // WebKit only partially honours the touch-action rules the stylesheet sets, so a fast second tap
+  // in the same spot still zooms the page mid-run. judgeTouchEnd (src/ui/doubletap.ts) holds the
+  // decision and its exceptions; this is just the DOM plumbing. Scoring is unaffected either way —
+  // selections commit on pointerdown, long since fired by the time touchend arrives.
+  private lastTapMs: number | null = null;
+
+  private onTouchEnd = (e: TouchEvent): void => {
+    const target = e.target as Element | null;
+    const { suppress, nextLastTapMs } = judgeTouchEnd(
+      {
+        remainingTouches: e.touches.length,
+        liftedTouches: e.changedTouches.length,
+        onControl: !!target?.closest?.('button, a, input, select, textarea, [role="button"]'),
+        inRun: this.screen === 'run',
+      },
+      e.timeStamp,
+      this.lastTapMs,
+    );
+    if (suppress) e.preventDefault();
+    this.lastTapMs = nextLastTapMs;
   };
 
   // Hover for the pulse + one path sample per frame (flushed in the loop). Coordinates are
