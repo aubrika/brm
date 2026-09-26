@@ -65,10 +65,14 @@ export class CalibrationTask {
     this.counter = el('div', { class: 'stats', text: `calibrating: 0 / ${CALIB_CLICKS}` });
     root.append(
       el('div', { class: 'screen run' }, [
-        el('div', { class: 'calib-instruction', text: 'Click each highlighted cell as quickly as you comfortably can.' }),
         el('div', { class: 'strip-wrap' }, [stripRoot]),
-        el('div', { class: 'readout' }, [this.counter]),
-        el('div', { class: 'practice-tag', text: 'CALIBRATION · Esc to cancel' }),
+        // Same corner HUD as the run screen, so the calibration field and the run field share one
+        // geometry — the scored run's calibration-drift check compares their fieldPx directly.
+        el('div', { class: 'hud' }, [
+          el('div', { class: 'calib-instruction', text: 'Click each highlighted cell as quickly as you comfortably can.' }),
+          el('div', { class: 'readout' }, [this.counter]),
+          el('div', { class: 'practice-tag', text: 'CALIBRATION · Esc to cancel' }),
+        ]),
       ]),
     );
 

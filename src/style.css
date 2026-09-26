@@ -71,10 +71,18 @@ code { font-family: var(--mono); }
 .strategy { max-width: 640px; color: var(--muted); font-size: 13px; line-height: 1.5; margin: 4px 0 0; }
 
 /* --------------------------------------------------------------------- run -- */
-.screen.run { align-items: center; justify-content: center; gap: 6px; padding: 14px 24px; }
+/* The play area is the whole window: the HUD (timer + live rate) sits in the top-left corner as
+   an overlay instead of stacking above/below the field, so the square grid — sized to
+   min(width, height) of the play area — can grow to the full window height. */
+.screen.run { position: relative; align-items: center; justify-content: center; gap: 0; padding: 0; }
+.hud {
+  position: absolute; top: 14px; left: 18px; z-index: 10;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  text-align: left; pointer-events: none; /* never intercept a click meant for the field */
+}
 .time {
-  font-family: var(--mono); font-size: 40px; font-variant-numeric: tabular-nums;
-  color: var(--muted); letter-spacing: 0.02em; min-height: 48px;
+  font-family: var(--mono); font-size: 30px; font-variant-numeric: tabular-nums;
+  color: var(--muted); letter-spacing: 0.02em;
 }
 .strip-wrap {
   position: relative; width: 100%; flex: 1 1 auto; min-height: 300px;
@@ -88,7 +96,8 @@ code { font-family: var(--mono); }
 .grid-canvas { display: block; touch-action: none; }
 
 /* Calibration task + config result */
-.calib-instruction { text-align: center; font-size: clamp(1rem, 3vmin, 1.4rem); font-weight: 500; color: var(--ink); padding: 10px 16px 0; }
+/* In the corner HUD during the task: wraps to a narrow block instead of a centred banner. */
+.calib-instruction { text-align: left; font-size: 15px; font-weight: 500; color: var(--ink); line-height: 1.4; max-width: 240px; }
 .calib-status { margin: 4px 0 8px; }
 .calib-result { font-size: clamp(1rem, 3vmin, 1.35rem); color: var(--ink); margin: 0 0 4px; }
 .calib-result strong { color: var(--accent); }
@@ -194,12 +203,12 @@ code { font-family: var(--mono); }
 /* the pre-start prompt (no countdown): a small line, not the giant number */
 .countdown.hint { font-size: clamp(1rem, 3.4vmin, 1.6rem); font-weight: 500; opacity: 0.6; }
 
-.readout { display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 92px; }
+.readout { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .rate {
-  font-family: var(--mono); font-size: 56px; font-weight: 600; font-variant-numeric: tabular-nums;
+  font-family: var(--mono); font-size: 34px; font-weight: 600; font-variant-numeric: tabular-nums;
   color: var(--ink); line-height: 1;
 }
-.rate .unit { font-size: 20px; color: var(--muted); font-weight: 400; }
+.rate .unit { font-size: 15px; color: var(--muted); font-weight: 400; }
 .stats { font-family: var(--mono); font-size: 15px; color: var(--muted); letter-spacing: 0.03em; }
 .practice-tag { font-family: var(--mono); font-size: 13px; color: var(--accent); letter-spacing: 0.1em; }
 /* A/B arm, named on the run screen: a missing ghost must read as the experiment, not a bug.
@@ -313,7 +322,7 @@ code { font-family: var(--mono); }
 
 /* --------------------------------------------------------------- overlays -- */
 .latency-overlay {
-  position: fixed; top: 8px; left: 8px; z-index: 100; pointer-events: none;
+  position: fixed; top: 8px; right: 8px; z-index: 100; pointer-events: none; /* top-right: the HUD owns the top-left corner */
   font-family: var(--mono); font-size: 12px; color: var(--good);
   background: rgba(0,0,0,0.55); padding: 4px 8px; border-radius: 6px;
 }

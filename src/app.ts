@@ -628,10 +628,13 @@ export class App {
     const countdown = el('div', { class: 'countdown hint', text: 'type the highlighted key to start' });
 
     const screen = el('div', { class: 'screen run' }, [
-      time,
       el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
-      el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+      // HUD overlays the play area's top-left corner so the strip gets the full window height.
+      el('div', { class: 'hud' }, [
+        time,
+        el('div', { class: 'readout' }, [rate, stats]),
+        ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+      ]),
     ]);
     this.root.append(screen);
 
@@ -699,13 +702,17 @@ export class App {
     const countdown = el('div', { class: 'countdown hint', text: 'click the highlighted cell to start' });
 
     const screen = el('div', { class: 'screen run' }, [
-      time,
       el('div', { class: 'strip-wrap' }, [stripRoot, countdown]),
-      el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
-      // Name the arm on screen. The ghost's absence is otherwise indistinguishable from a bug, and
-      // a player who thinks the game is broken does not play the run you are trying to measure.
-      ...(ab ? [el('div', { class: 'ab-tag', text: `A/B · ghost ${ab.arm} · pair ${ab.block + 1}` })] : []),
+      // HUD overlays the play area's top-left corner so the grid square can grow to the full
+      // window height (the field is sized to min(width, height) of the play area).
+      el('div', { class: 'hud' }, [
+        time,
+        el('div', { class: 'readout' }, [rate, stats]),
+        ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+        // Name the arm on screen. The ghost's absence is otherwise indistinguishable from a bug, and
+        // a player who thinks the game is broken does not play the run you are trying to measure.
+        ...(ab ? [el('div', { class: 'ab-tag', text: `A/B · ghost ${ab.arm} · pair ${ab.block + 1}` })] : []),
+      ]),
     ]);
     this.root.append(screen);
 
@@ -789,10 +796,13 @@ export class App {
     const scopeOverlay = el('div', { class: 'scope-overlay hidden', text: 'Click to enable pointer lock' });
 
     const screen = el('div', { class: 'screen run' }, [
-      time,
       el('div', { class: 'strip-wrap' }, [stripRoot, countdown, scopeOverlay]),
-      el('div', { class: 'readout' }, [rate, stats]),
-      ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+      // HUD overlays the play area's top-left corner so the strip gets the full window height.
+      el('div', { class: 'hud' }, [
+        time,
+        el('div', { class: 'readout' }, [rate, stats]),
+        ...(timed ? [] : [el('div', { class: 'practice-tag', text: 'PRACTICE · Esc to exit' })]),
+      ]),
     ]);
     this.root.append(screen);
 
