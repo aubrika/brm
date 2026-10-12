@@ -5,7 +5,7 @@ The game's report screen and `scripts/analyze.mjs` both read these; nothing is e
 transmitted off this machine.
 
 **These are keystroke timings from real people. `logs/*.json` and `logs/index.jsonl` are
-gitignored** — the submitted repo ships this folder empty (just `.gitkeep` and this README).
+gitignored** — the repo ships this folder empty (just `.gitkeep` and this README).
 A GRID (v2) run records only **cell indices** — no keyboard input is read at all. A keyboard
 (v1) run records only **in-alphabet keys** — never free text, ever; out-of-alphabet presses are
 kept only as a single count in `summary.outOfAlphabet`.

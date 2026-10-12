@@ -12,7 +12,11 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # windows-latest is here because the build once depended on POSIX shell syntax.
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

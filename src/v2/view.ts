@@ -1,7 +1,7 @@
 // GRID MODE renderer. A single <canvas> — 1024 cells plus full-field locator lines redrawn on
-// every advance is a canvas workload; a DOM-node-per-cell approach would fight the latency budget
-// (spec §4). The app's run loop already rAFs each frame for the HUD clock, so we simply redraw
-// there; the expensive thing the spec warns against (per-cell DOM) is what's avoided, not the
+// every advance is a canvas workload; a DOM-node-per-cell approach would fight the latency budget.
+// The app's run loop already rAFs each frame for the HUD clock, so we simply redraw
+// there; the expensive thing (per-cell DOM) is what's avoided, not the
 // redraw itself. Draw order is fixed: gridlines → crosshair → connector → lookahead outline → target
 // fill → wrong-cell flash → pulse border.
 //
@@ -263,7 +263,7 @@ export class GridRenderer {
   }
 
   /** 2) crosshair locator — full-field hairlines through the target's centre, tinted with the
-   *  target's own colour so it reads as belonging to the cell you must click now (§2.1). */
+   *  target's own colour so it reads as belonging to the cell you must click now. */
   private drawCrosshair(ctx: CanvasRenderingContext2D, target: number): void {
     if (target < 0) return;
     const cx = Math.round(this.centerX(target)) + 0.5;

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { runLogPlugin } from './scripts/vite-plugin-runlog.js';
 
@@ -16,39 +16,43 @@ const appVersion = (() => {
 })();
 const appCommit = (() => {
   try {
-    const sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
     // dirty = modified TRACKED source. --untracked-files=no ignores build artifacts and Vite's own
-    // temp config file (which exists while this runs); :!dist ignores a rebuilt bundle.
-    const dirty = execSync("git status --porcelain --untracked-files=no -- ':!dist'", { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().length > 0;
+    // temp config file (which exists while this runs); :!dist ignores a rebuilt bundle. Arguments
+    // go as an array, not through a shell, so the pathspec needs no quoting on any platform.
+    const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no', '--', ':!dist'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().length > 0;
     return dirty ? `${sha}-dirty` : sha; // -dirty flags a build with uncommitted source changes
   } catch {
     return 'unknown';
   }
 })();
 
-// base: './' keeps the built asset paths relative, so a grader can serve the prebuilt
+// base: './' keeps the built asset paths relative, so anyone can serve the prebuilt
 // dist/ from anywhere (e.g. `python3 -m http.server` inside dist/) with no Node at all.
 // The runLogPlugin adds POST /api/log + friends under `npm run dev`/`preview`; a plain
 // static server simply lacks it and the client falls back to the JSON download.
-// Which app this build is. 'v2' (default) is the delivered game: GRID MODE + calibration. 'v1' is
+// Which app this build is. 'v2' (default) is the shipped game: GRID MODE + calibration. 'v1' is
 // the legacy falling-lanes keyboard game, kept only as a demonstrable artifact of how the design
 // arrived at a grid alphabet — built to dist/v1 and served at /brm/v1. See `npm run build:v1`.
-const appVariant = process.env['BRM_VARIANT'] === 'v1' ? 'v1' : 'v2';
-
-export default defineConfig({
-  base: './',
-  plugins: [runLogPlugin()],
-  build: { target: 'es2022' },
-  define: {
-    __APP_VERSION__: JSON.stringify(appVersion),
-    __APP_COMMIT__: JSON.stringify(appCommit),
-    __APP_VARIANT__: JSON.stringify(appVariant),
-  },
-  test: {
-    environment: 'node',
-    // tests/ mirrors src/, plus stats.test.mjs covering scripts/analyze.mjs — the analyzer's
-    // paired t-test is the one place in this project where a wrong number would look right, so it
-    // is pinned to the published t-table.
-    include: ['tests/**/*.test.{ts,mjs}'],
-  },
+// Selected with Vite's own `--mode v1` rather than an inline environment variable, which the
+// Windows shell cannot set; BRM_VARIANT=v1 is still honoured.
+export default defineConfig(({ mode }) => {
+  const appVariant = mode === 'v1' || process.env['BRM_VARIANT'] === 'v1' ? 'v1' : 'v2';
+  return {
+    base: './',
+    plugins: [runLogPlugin()],
+    build: { target: 'es2022' },
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+      __APP_COMMIT__: JSON.stringify(appCommit),
+      __APP_VARIANT__: JSON.stringify(appVariant),
+    },
+    test: {
+      environment: 'node',
+      // tests/ mirrors src/, plus stats.test.mjs covering scripts/analyze.mjs — the analyzer's
+      // paired t-test is the one place in this project where a wrong number would look right, so it
+      // is pinned to the published t-table.
+      include: ['tests/**/*.test.{ts,mjs}'],
+    },
+  };
 });

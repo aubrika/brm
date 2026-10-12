@@ -1,5 +1,5 @@
 // Dev-only overlay (enabled with ?debug in the URL) that measures keydown→paint latency
-// and counts long frames, so the latency claims in §6 can be verified rather than assumed.
+// and counts long frames, so the latency claims can be verified rather than assumed.
 // markKey() is called synchronously in the keydown handler; frame() runs at the top of the
 // rAF callback (immediately before paint), so their difference is a close keydown→paint proxy.
 

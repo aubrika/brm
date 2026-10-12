@@ -241,8 +241,8 @@ export function digraphStats(downs, minCount = 1) {
 // from the previous target cell to this one: distance D (in cell widths, since W = 1 cell), index
 // of difficulty ID = log2(D/W + 1) = log2(D_cells + 1), and movement time MT = the inter-selection
 // interval. An OLS fit MT = a + b·ID gives throughput = 1000/b bits/s (b is ms/bit), the number
-// directly comparable to published mouse/trackpad Fitts figures and the 2× ceiling derivation
-// (see bitrate-grid-mode-spec.md §5). Returns null for non-grid logs.
+// directly comparable to published mouse/trackpad Fitts figures and the 2× ceiling derivation.
+// Returns null for non-grid logs.
 export function gridFitts(log) {
   const g = log.grid;
   if (!g || !g.enabled || !g.gridSize) return null;
@@ -407,7 +407,7 @@ export function countRollovers(log) {
   return rollovers;
 }
 
-// One-call bundle for the report screen: everything §3–§6 of the results-screen spec needs.
+// One-call bundle for the report screen: everything the results screen needs.
 export function reportStats(log) {
   const { downs } = splitEvents(log);
   const alphabet = log.meta.config.alphabet ?? ''; // absent on grid runs — see deriveFingerMap

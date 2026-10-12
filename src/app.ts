@@ -42,7 +42,7 @@ type GameConfig = KeyboardConfig | GridConfig;
 
 const DROPPED_FRAME_MS = 24; // a frame gap this long means at least one 60 fps frame was skipped
 
-// Which app this bundle is (Vite `define`). 'v2' — the delivered game: GRID MODE.
+// Which app this bundle is (Vite `define`). 'v2' — the shipped game: GRID MODE.
 // 'v1' — the legacy falling-lanes keyboard game, deployed at /brm/v1 purely so the design story
 // (why the alphabet became a grid) can be demonstrated. v1 is frozen: home rows only, N = 8, no
 // top row / chords / challenge / audio experiments. All ongoing work targets v2.
@@ -236,7 +236,7 @@ export class App {
   private onGridPointerDown = (e: PointerEvent): void => {
     const rc = this.run;
     if (this.screen !== 'run' || !rc || !rc.grid || rc.phase === 'done') return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return; // ignore modified clicks (spec §1)
+    if (e.ctrlKey || e.metaKey || e.altKey) return; // ignore modified clicks
     e.preventDefault();
     const eng = rc.engine;
     if (rc.phase === 'ready') this.beginPlay(rc);

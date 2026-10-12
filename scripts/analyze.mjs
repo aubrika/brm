@@ -301,7 +301,7 @@ function analyzeByBuild(logs) {
 // 11. A/B by condition: group runs by which audio layer was on, derived from the log's tones/pacer
 // flags — the whole point of the A/B harness. Median IKI, accuracy and bits/s per arm.
 // ------------------------------------------------------- GRID MODE analyses ----
-// Only runs when grid logs are present. Four analyses from the spec (§5): a pooled Fitts
+// Only runs when grid logs are present. Four analyses: a pooled Fitts
 // regression (throughput = 1000/slope), verify-dwell (hover→click), the ghost A/B, and a
 // pointer-type split. All movement geometry is reconstructed from the logged cell indices +
 // cellPx (target width W = 1 cell), so the numbers are self-contained.

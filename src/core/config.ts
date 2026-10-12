@@ -13,7 +13,7 @@ import { SCORED_DURATION_MS } from './bitrate.js';
 // the other's config at all.
 //
 // Each game's own shape lives with that game: KeyboardConfig in v1/config.ts, GridConfig here —
-// not because the grid is privileged, but because it is the delivered game and core/ is the model
+// not because the grid is privileged, but because it is the shipped game and core/ is the model
 // it is built on. What is left in this file is the part that is true of both.
 
 /** The mode a config configures. Also the localStorage partition — see STORAGE_KEY. */
@@ -27,7 +27,7 @@ export interface CommonConfig {
   sound: boolean;
 }
 
-/** GRID MODE: the delivered game. Click the orange square on a large grid, N = cell count, so a
+/** GRID MODE: the shipped game. Click the orange square on a large grid, N = cell count, so a
  *  32×32 grid scores log2(1023) ≈ 10 bits/selection. Its own engine + canvas renderer. */
 export interface GridConfig extends CommonConfig {
   mode: 'grid';

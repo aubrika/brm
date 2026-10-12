@@ -1,14 +1,15 @@
 {
   "name": "bit-rate-maximizer",
   "private": true,
+  "license": "MIT",
   "version": "1.0.0",
   "type": "module",
   "description": "A browser game scoring the player's information rate in bits/second: click the orange square on a 32x32 grid as quickly and accurately as you can for 60 seconds. The original falling-lanes keyboard version is kept as v1.",
   "scripts": {
     "dev": "vite",
-    "dev:v1": "BRM_VARIANT=v1 vite",
+    "dev:v1": "vite --mode v1",
     "build": "tsc --noEmit && vite build && npm run build:v1",
-    "build:v1": "BRM_VARIANT=v1 vite build --outDir dist/v1 --emptyOutDir",
+    "build:v1": "vite build --mode v1 --outDir dist/v1 --emptyOutDir",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 5",
