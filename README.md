@@ -1,5 +1,17 @@
 # Bit-Rate Maximizer
 
+A 60-second browser game that measures how fast you can push information through a pointing device, in bits per second, and is built to make that number as high as it can be.
+
+**→ Play it: [aubrika.github.io/brm](https://aubrika.github.io/brm/)** — Nothing to install. Use a mouse for best results!
+
+What the measurements showed (details under [Results](#results)):
+
+- **The look-ahead "ghost" target is worth +2.46 bits/s**: 12.50 vs 10.04 b/s over 13 matched pairs in ABBA-counterbalanced blocks, 95% CI [2.03, 2.89]. The gain is all speed, with no cost in accuracy.
+- **Bit rate sits on a broad plateau** across grid sizes: 24² and 32² are statistically tied at about 13.3 b/s on my machine.
+- **I built three per-player calibrators and retired all three**: on a plateau that broad, the calibration measurement was noisier than the difference it was trying to resolve.
+
+## How it works
+
 The bit-rate maximizer is a game with an uncommon purpose: actively helping the player get the highest score possible on their very first scored playthrough.
 
 To play the game, the player simply uses a mouse (for best results) or other pointing device to click the orange grid cells as quickly and accurately as they can for 60 seconds. The position of the next orange cell is highlighted with a "ghost target" providing a degree of look-ahead, so that the player can infer where the mouse must move next. The player's score is identical to their bit rate, representing how fast the player transfers information through the game interface.
@@ -18,13 +30,11 @@ B \;=\; \frac{\log_2\!\left(\textcolor{#5a8ad0}{N} - 1\right)\,\cdot\,\max\!\lef
 | $\textcolor{#eb5460}{S_i}$ | incorrect selections in $\textcolor{#838899}{t}$ | clicks that miss the target cell |
 | $\textcolor{#838899}{t}$ | time in seconds | one 60-second evaluation window |
 
-The target sequences (in this case, sequences of various grid states) comprising the set of possible selections must be `"sampled uniformly at random with replacement from an alphabet of size N ≥ 3. The sequence must be i.i.d. — no patterns, no structure, no language models, no predictive text, no word-level targets"`. This means the sequences are devoid of internal structure which could allow a player to start predicting them, making this something of a "noise transcription" task, and essentially less efficient than the transcription of natural language or other patterns. The randomness of the generated sequences may be confirmed in `src/core/sequence.ts`. The "alphabet" in the game is the set of (x,y) tuples where x,y >= 0 and x,y < G, where G is grid size, providing an $\textcolor{#5a8ad0}{N}$ of G^2 elements.
+That formula only means something if every selection really is one of $\textcolor{#5a8ad0}{N}$ equally likely options, so the game holds itself to one constraint: each target is sampled uniformly at random, with replacement, from an alphabet of size $\textcolor{#5a8ad0}{N}$ ≥ 3. The sequence is i.i.d., with no patterns, no structure and no word-level targets, so nothing in it can be predicted by a player or by a language model. This means the sequences are devoid of internal structure which could allow a player to start predicting them, making this something of a "noise transcription" task, and essentially less efficient than the transcription of natural language or other patterns. The randomness of the generated sequences may be confirmed in `src/core/sequence.ts`. The "alphabet" in the game is the set of (x,y) tuples where x,y >= 0 and x,y < G, where G is grid size, providing an $\textcolor{#5a8ad0}{N}$ of G^2 elements.
 
 ## Play It
 
-**→ [aubrika.github.io/brm](https://aubrika.github.io/brm/)** — Nothing to install. Use a mouse for best results!
-
-To run it locally instead (which allows saving logged data):
+Play in the browser at **[aubrika.github.io/brm](https://aubrika.github.io/brm/)**, or run it locally (which allows saving logged data):
 
 ```bash
 ./run.sh                                  # needs Node 18+; installs, builds, and opens the game
@@ -123,7 +133,7 @@ Every run produces a self-contained JSON log — written to `logs/` automaticall
 
 ```bash
 node scripts/analyze.mjs          # cross-run analysis over logs/
-npx vitest run                    # 113 tests
+npx vitest run                    # 123 tests
 ```
 
 ## Relevant Research
@@ -138,3 +148,6 @@ I credit Zheng & Meister's *The unbearable slowness of being: Why do we live at 
 
 The look-ahead "ghost target" result above is the most potentially interesting thing to come out of this. A visual cue that costs nothing to deliver and adds 2.46 bits/s — purely by removing search time, with no accuracy penalty — suggests some applications beyond the game. One thought is that a pointing task like this might be used to confirm BCI functionality in an animal subject incapable of self-report but capable of similar pointing tasks, such as a primate. If the lookahead effect reproduces in a non-implanted non-human subject, then delivering the look-ahead cue *through an implant* (e.g. as a stimulus corresponding to the visual region of the upcoming target) could give a functional read on the channel: the subject's bit rate should be higher than control to the degree the implant is effectively transmitting the lookahead cue.
 
+## License and credits
+
+[MIT](LICENSE). Built with AI coding assistance (Claude Code). The game design, the experiments and the conclusions are mine.
